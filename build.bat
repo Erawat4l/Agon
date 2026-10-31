@@ -66,9 +66,20 @@ if not defined SDK if exist "%ProgramFiles%\Android\Android Studio\Sdk" set "SDK
 
 if not defined SDK (
     echo [X] Android SDK not found.
-    echo     Easiest fix: install Android Studio once ^(it ships the SDK^):
+    echo.
+    echo     Option A - no Android Studio needed, ~5 min, all inside cmd:
+    echo       mkdir "%LOCALAPPDATA%\Android\Sdk\cmdline-tools" 2^>nul
+    echo       curl -L -o "%TEMP%\cmdtools.zip" https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip
+    echo       tar -xf "%TEMP%\cmdtools.zip" -C "%LOCALAPPDATA%\Android\Sdk\cmdline-tools"
+    echo       ren "%LOCALAPPDATA%\Android\Sdk\cmdline-tools\cmdline-tools" latest
+    echo       (for /l %%i in (1,1,30) do @echo y) ^| "%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
+    echo       "%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+    echo     then run build.bat again - the default SDK path is auto-detected.
+    echo.
+    echo     Option B - Android Studio ^(includes the SDK and a GUI^):
     echo       winget install Google.AndroidStudio
-    echo     then re-run this script. Or set ANDROID_HOME to your SDK folder.
+    echo.
+    echo     Option C - SDK already somewhere else: set ANDROID_HOME to that folder.
     exit /b 1
 )
 echo [2/4] Android SDK: !SDK!

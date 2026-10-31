@@ -28,8 +28,19 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 First build downloads Gradle and the Android build tools (~3–5 minutes). Later builds
 take well under a minute, since everything is cached in `%USERPROFILE%\.gradle`.
 
-**Requires:** JDK 17+ and the Android SDK (Android Studio installs both). If `build.bat`
-says something is missing, it prints the exact `winget` command to fix it.
+**Requires:** JDK 17–21 and the Android SDK.
+
+No Android Studio needed — you can install just the SDK from cmd (~5 min):
+
+```bat
+mkdir "%LOCALAPPDATA%\Android\Sdk\cmdline-tools" 2>nul & curl -L -o "%TEMP%\cmdtools.zip" https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip
+tar -xf "%TEMP%\cmdtools.zip" -C "%LOCALAPPDATA%\Android\Sdk\cmdline-tools" && ren "%LOCALAPPDATA%\Android\Sdk\cmdline-tools\cmdline-tools" latest
+(for /l %i in (1,1,30) do @echo y) | "%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
+"%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+```
+
+`build.bat` auto-detects that path, `ANDROID_HOME`, `ANDROID_SDK_ROOT` and an
+Android Studio install; if it finds nothing it prints the same steps.
 
 ---
 

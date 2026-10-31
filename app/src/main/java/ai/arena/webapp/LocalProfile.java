@@ -17,7 +17,7 @@ import android.content.SharedPreferences;
  */
 public final class LocalProfile {
 
-    private static final String PREFS = "arena_profile";
+    private static final String PREFS = "agon_profile";
     private static final String K_EMAIL = "email";
     private static final String K_PROVIDER = "provider";
     private static final String K_SIGNED_IN_AT = "signed_in_at";

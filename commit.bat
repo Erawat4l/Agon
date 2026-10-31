@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 REM ===========================================================================
-REM  Agora - ALL-IN-ONE update command
+REM  Agon - ALL-IN-ONE update command
 REM
 REM  One command does everything:
 REM    1. pull the latest code from GitHub
@@ -39,7 +39,7 @@ call :classify "%ARG3%"
 
 echo.
 echo =============================================
-echo   Agora  ^|  all-in-one update
+echo   Agon  ^|  all-in-one update
 echo =============================================
 echo.
 
@@ -80,7 +80,7 @@ echo [3/7] Building APK...
 call gradlew.bat --no-daemon assembleDebug "-PVERSION_NAME=!VERSION!" "-PVERSION_CODE=!VCODE!"
 if errorlevel 1 goto :build_failed
 set "APKSRC=app\build\outputs\apk\debug\app-debug.apk"
-set "APKOUT=Agora-!VERSION!.apk"
+set "APKOUT=Agon-!VERSION!.apk"
 if not exist "!APKSRC!" goto :build_failed
 copy /y "!APKSRC!" "!APKOUT!" >nul
 echo        !APKOUT!
@@ -148,7 +148,7 @@ echo.
 echo =============================================
 echo   Done - Arena !VERSION!
 echo =============================================
-echo   APK:          %~dp0Agora-!VERSION!.apk
+echo   APK:          %~dp0Agon-!VERSION!.apk
 echo   Release:      https://github.com/Erawat4l/Arena-Ai-App/releases/tag/!TAG!
 echo   In the app:   More -^> Update -^> Check for updates
 echo.
@@ -216,5 +216,5 @@ exit /b 1
 echo.
 echo [X] Build and push worked, publishing did not.
 echo     Usually the token:  publish.bat --token github_pat_xxx
-echo     Or upload Agora-!VERSION!.apk by hand on the Releases page.
+echo     Or upload Agon-!VERSION!.apk by hand on the Releases page.
 exit /b 1

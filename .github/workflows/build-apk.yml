@@ -59,28 +59,28 @@ jobs:
             -PVERSION_CODE=${{ steps.v.outputs.code }}
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk "Agora-${{ steps.v.outputs.name }}.apk"
+        run: cp app/build/outputs/apk/debug/app-debug.apk "Agon-${{ steps.v.outputs.name }}.apk"
 
       # Always keep a build artifact, even if the release upload is not permitted.
       - uses: actions/upload-artifact@v4
         with:
-          name: Agora-apk
-          path: Agora-*.apk
+          name: Agon-apk
+          path: Agon-*.apk
           if-no-files-found: error
 
       - name: Publish release (this is what the app's updater reads)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.v.outputs.name }}
-          name: Agora ${{ steps.v.outputs.name }}
-          files: Agora-*.apk
+          name: Agon ${{ steps.v.outputs.name }}
+          files: Agon-*.apk
           generate_release_notes: true
           fail_on_unmatched_files: true
           body: |
-            **Agora ${{ steps.v.outputs.name }}**
+            **Agon ${{ steps.v.outputs.name }}**
 
-            Download `Agora-${{ steps.v.outputs.name }}.apk` and tap it to install.
+            Download `Agon-${{ steps.v.outputs.name }}.apk` and tap it to install.
 
-            Apps already running Agora detect this release automatically
+            Apps already running Agon detect this release automatically
             (**Update → Check for updates**) and will download it and ask you to
             approve the install — nothing installs silently.

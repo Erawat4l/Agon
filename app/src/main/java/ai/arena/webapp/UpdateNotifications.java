@@ -14,8 +14,8 @@ import android.os.Build;
 /** One notification channel, one distinctive sound, no silent installs. */
 public final class UpdateNotifications {
 
-    public static final String CHANNEL_UPDATES = "arena_updates";
-    public static final String CHANNEL_PROGRESS = "arena_updates_progress";
+    public static final String CHANNEL_UPDATES = "agon_updates";
+    public static final String CHANNEL_PROGRESS = "agon_updates_progress";
     public static final int ID_AVAILABLE = 7101;
     public static final int ID_PROGRESS = 7102;
 

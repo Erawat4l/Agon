@@ -188,7 +188,7 @@ public final class SignInSheet {
         sheet.addView(sub, subLp);
 
         // The identity saved on this device, so the picker opens knowing who you are
-        // instead of asking again every time. Everything here is local (arena_profile).
+        // instead of asking again every time. Everything here is local (agon_profile).
         if (LocalProfile.hasAccount(activity)) {
             LinearLayout who = new LinearLayout(activity);
             who.setOrientation(LinearLayout.HORIZONTAL);

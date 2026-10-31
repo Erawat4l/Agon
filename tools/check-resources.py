@@ -575,7 +575,7 @@ def check_resource_refs(java_paths):
         names = index.get(kind, set())
         if name in names:
             return
-        # "Theme.Agora" is a nested style name: "@style/Theme.Agora" is one reference,
+        # "Theme.Agon" is a nested style name: "@style/Theme.Agon" is one reference,
         # and "@style/Theme" refers to the same file only if such a style exists.
         if kind == "style" and any(n.startswith(name + ".") for n in names):
             return
@@ -590,7 +590,7 @@ def check_resource_refs(java_paths):
         for m in TYPED_REF.finditer(raw):
             kind, name = m.group(1), m.group(2)
             # "@raw/update_chime.wav" refers to the resource "update_chime"; a style name
-            # such as "Theme.Agora" is a real name and must NOT be split on its dot.
+            # such as "Theme.Agon" is a real name and must NOT be split on its dot.
             if kind == "raw":
                 name = name.split(".")[0]
             note(path, kind, name)

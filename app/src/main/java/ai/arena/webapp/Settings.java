@@ -12,7 +12,7 @@ import android.content.SharedPreferences;
  */
 public final class Settings {
 
-    private static final String PREFS = "arena_settings";
+    private static final String PREFS = "agon_settings";
 
     /** Nav bar: show the four icons over the page. */
     public static final String K_SHOW_NAV = "show_nav";

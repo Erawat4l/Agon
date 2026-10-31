@@ -46,7 +46,7 @@ public final class UpdateManager {
     private static final String API_ALL = "https://api.github.com/repos/" + REPO_OWNER
             + "/" + REPO_NAME + "/releases?per_page=20";
 
-    private static final String PREFS = "arena_update";
+    private static final String PREFS = "agon_update";
     private static final String K_LATEST_CODE = "latest_code";
     private static final String K_LATEST_NAME = "latest_name";
     private static final String K_LATEST_URL = "latest_url";

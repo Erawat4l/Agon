@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Agora" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+    <style name="Theme.Agon" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
         <!-- Launch frame: matches the app background so startup never flashes white. -->
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:statusBarColor">@color/bg</item>

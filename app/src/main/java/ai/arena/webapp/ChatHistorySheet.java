@@ -136,7 +136,7 @@ public final class ChatHistorySheet {
      */
     public void requestHistory(WebView page) {
         if (page == null) return;
-        page.addJavascriptInterface(new Bridge(), "AgoraHistory");
+        page.addJavascriptInterface(new Bridge(), "AgonHistory");
         String js = "(function(){try{"
                 + "var out=[];var seen={};"
                 + "var as=document.querySelectorAll('a[href]');"
@@ -148,8 +148,8 @@ public final class ChatHistorySheet {
                 + "if(seen[h])continue;seen[h]=1;"
                 + "out.push({u:h,t:t});"
                 + "if(out.length>=40)break;}"
-                + "AgoraHistory.receive(JSON.stringify(out));"
-                + "}catch(e){AgoraHistory.receive('[]');}})();";
+                + "AgonHistory.receive(JSON.stringify(out));"
+                + "}catch(e){AgonHistory.receive('[]');}})();";
         page.evaluateJavascript(js, null);
     }
 

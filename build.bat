@@ -3,10 +3,10 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 REM ===========================================================================
-REM  Agora - one-command APK builder for Windows (app for arena.ai)
+REM  Agon - one-command APK builder for Windows (app for arena.ai)
 REM
 REM  Usage (from this folder, in cmd):
-REM     build.bat            -> builds Agora-debug.apk  (installable right away)
+REM     build.bat            -> builds Agon-debug.apk  (installable right away)
 REM     build.bat release    -> builds a release APK (signed if keystore exists)
 REM     build.bat install    -> builds debug APK and installs it on a USB device
 REM     build.bat clean      -> wipes build output
@@ -20,7 +20,7 @@ if "%MODE%"=="" set "MODE=debug"
 
 echo.
 echo =============================================
-echo   Agora  ^|  Android APK builder
+echo   Agon  ^|  Android APK builder
 echo =============================================
 echo.
 
@@ -132,7 +132,7 @@ echo [3/4] Compiling debug APK... first run downloads Gradle + build tools ^(a f
 call gradlew.bat --no-daemon assembleDebug
 if errorlevel 1 goto :failed
 set "OUTDIR=app\build\outputs\apk\debug"
-set "FINALNAME=Agora-debug.apk"
+set "FINALNAME=Agon-debug.apk"
 goto :collect
 
 :do_release
@@ -144,7 +144,7 @@ echo [3/4] Compiling release APK...
 call gradlew.bat --no-daemon assembleRelease
 if errorlevel 1 goto :failed
 set "OUTDIR=app\build\outputs\apk\release"
-set "FINALNAME=Agora-release.apk"
+set "FINALNAME=Agon-release.apk"
 goto :collect
 
 :do_clean

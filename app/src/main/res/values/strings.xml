@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Agora</string>
+    <string name="app_name">Agon</string>
     <string name="nav_chat">Chat</string>
     <string name="nav_leaderboard">Rankings</string>
     <string name="nav_search">Search</string>
@@ -44,7 +44,7 @@
 
     <!-- update -->
     <string name="app_update">Update</string>
-    <string name="menu_version">Agora %1$s (build %2$d)</string>
+    <string name="menu_version">Agon %1$s (build %2$d)</string>
     <string name="update_available_short">Version %1$s is ready</string>
     <string name="update_sheet_title">App Update</string>
     <string name="update_versions">Installed %1$s · last check %2$s</string>
@@ -62,7 +62,7 @@
     <string name="update_later">Later</string>
     <string name="update_cancel">Cancel</string>
     <string name="update_release_page">Open release page</string>
-    <string name="update_release_page_title">Agora releases</string>
+    <string name="update_release_page_title">Agon releases</string>
     <string name="update_release_unreachable">Couldn\'t open the releases page. Check the connection.</string>
     <string name="update_whats_new">Updates</string>
     <string name="update_no_notes">No release notes were provided.</string>
@@ -74,9 +74,9 @@
     <string name="update_auto_off">Auto-check off</string>
     <string name="update_private_hint">Private repo: add a token to check</string>
     <string name="update_no_file">The downloaded file is missing. Download it again.</string>
-    <string name="update_allow_install">Allow Agora to install unknown apps, then tap Install again.</string>
+    <string name="update_allow_install">Allow Agon to install unknown apps, then tap Install again.</string>
     <string name="update_install_failed">Could not open the package installer</string>
-    <string name="update_notification_title">Agora update available</string>
+    <string name="update_notification_title">Agon update available</string>
     <string name="update_notification_text">Version %1$s is ready (you have %2$s). Tap to update.</string>
     <string name="update_notification_big">Version %1$s is ready — you have %2$s. Tap to review and download; nothing installs without your approval.</string>
     <string name="update_setting_channel">Release channel</string>
@@ -86,9 +86,9 @@
     <string name="update_token_change">Change</string>
     <string name="update_token_set">Token saved</string>
     <string name="update_token_title">Private repository</string>
-    <string name="update_token_help">Agora\'s releases live in a private GitHub repo, so GitHub needs a token to answer. Create a fine-grained token with read-only Contents access on this repository and paste it here. It is stored only on this device.</string>
+    <string name="update_token_help">Agon\'s releases live in a private GitHub repo, so GitHub needs a token to answer. Create a fine-grained token with read-only Contents access on this repository and paste it here. It is stored only on this device.</string>
     <string name="token_prompt_title">Enable in-app updates</string>
-    <string name="token_prompt_body">Agora\'s builds live in a private GitHub repo, so the app needs a read-only token to check for new versions and download them. Create a fine-grained token with Contents: Read-only on Arena-Ai-App and paste it here. It never leaves this device. You can skip this and add it later from Update → GitHub token.</string>
+    <string name="token_prompt_body">Agon\'s builds live in a private GitHub repo, so the app needs a read-only token to check for new versions and download them. Create a fine-grained token with Contents: Read-only on Arena-Ai-App and paste it here. It never leaves this device. You can skip this and add it later from Update → GitHub token.</string>
     <string name="token_prompt_save">Save &amp; check for updates</string>
     <string name="token_prompt_skip">Not now</string>
     <string name="update_token_hint">github_pat_… or ghp_…</string>
@@ -97,10 +97,10 @@
     <string name="on">On</string>
     <string name="off">Off</string>
     <string name="channel_updates">App updates</string>
-    <string name="channel_updates_desc">Alerts when a newer Agora build is published</string>
+    <string name="channel_updates_desc">Alerts when a newer Agon build is published</string>
     <string name="channel_progress">Update downloads</string>
     <string name="channel_progress_desc">Progress while an update downloads</string>
-    <string name="crash_title">Agora hit an error while starting</string>
+    <string name="crash_title">Agon hit an error while starting</string>
     <string name="crash_body">The app caught the problem instead of closing. Copy the details below and send them over \u2014 they say exactly what broke.</string>
     <string name="crash_copy">Copy error details</string>
     <string name="crash_copied">Copied. Paste it in the chat.</string>
@@ -139,7 +139,7 @@
     <string name="settings_clear_sub">Cookies, cache and form data</string>
     <string name="settings_reset">Reset settings</string>
     <string name="settings_reset_sub">Back to the defaults above</string>
-    <string name="settings_footer">Agora %1$s (build %2$d)</string>
+    <string name="settings_footer">Agon %1$s (build %2$d)</string>
     <string name="menu_settings">Settings</string>
     <string name="menu_settings_sub">Disable or customise everything</string>
     <string name="profile_summary">Signed in as %1$s</string>
@@ -161,6 +161,6 @@
     <string name="signin_step_dialog">Opening Arena\'s sign-in…</string>
     <string name="signin_step_provider">Connecting to %1$s…</string>
     <string name="signin_step_manual">Tap Arena\'s own Log in button, then %1$s</string>
-    <string name="signin_accounts_blocked">Android is not showing this app your account list. Allow contacts/accounts access for Agora, or just continue - Google\'s own page lists your account.</string>
+    <string name="signin_accounts_blocked">Android is not showing this app your account list. Allow contacts/accounts access for Agon, or just continue - Google\'s own page lists your account.</string>
     <string name="signin_allow_accounts">Show my accounts (allow access)</string>
 </resources>

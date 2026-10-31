@@ -97,19 +97,17 @@ public final class TabWebViews {
         return target;
     }
 
-    /** Pre-builds the other tabs' WebViews so the first tap is not a cold start. */
+    /**
+     * Builds the other tabs' WebViews in the background so the first tap is not a
+     * cold start. ensure() keeps them GONE until the user asks for them.
+     */
     public void preload() {
-        int[] tabs = {AppUi.TAB_CHAT, AppUi.TAB_LEADERBOARD, AppUi.TAB_SEARCH};
+        int[] tabs = {AppUi.TAB_LEADERBOARD, AppUi.TAB_SEARCH};
         for (int i = 0; i < tabs.length; i++) {
             final int tab = tabs[i];
             main.postDelayed(() -> {
-                WebView w = views.get(tab);
-                if (w == null) {
-                    w = ensure(tab);
-                    // A background tab should not steal focus or scroll the screen.
-                    w.setVisibility(android.view.View.GONE);
-                }
-            }, 400L + 350L * i);
+                if (!views.containsKey(tab)) ensure(tab);
+            }, 500L + 400L * i);
         }
     }
 

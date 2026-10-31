@@ -238,16 +238,19 @@ commit.bat "fixed the composer overlap"
 
 Seven steps in one go:
 
-1. `git pull --rebase --autostash` — picks up anything pushed from elsewhere
-2. bumps the version from the latest `v*` tag (or `version.txt`), e.g. `1.2.0` → `1.2.1`
+1. `git pull --rebase --autostash` — picks up anything pushed from elsewhere, and
+   clears a stale local `version.txt` first so it can never block the pull
+2. bumps the version from `version.txt` (or the latest `v*` tag), e.g. `1.2.0` → `1.2.1`
 3. builds `app-debug.apk` with that version and copies it to `ArenaAI-<version>.apk`
 4. commits + pushes this branch
 5. publishes the GitHub release with the APK attached
 6. runs `adb install -r` if a phone is on USB (skipped silently otherwise)
 7. opens the release page in your browser
 
-`version.txt` in the repo root holds the last published version, so the bump keeps
-counting even before the first tag exists. Installed apps pick the new release up on
+`version.txt` in the repo root holds the last published version. It is **git-ignored
+and generated locally** — committing it made every later `git pull` fail with
+*"Your local changes to version.txt would be overwritten by merge"* — so the bump
+counts locally even before the first tag exists, without ever conflicting. Installed apps pick the new release up on
 their next check (`Update → Check for updates`).
 
 ### A. From your PC: `publish.bat` (works today)

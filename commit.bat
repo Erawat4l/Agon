@@ -7,7 +7,7 @@ REM  Arena AI - ALL-IN-ONE update command
 REM
 REM  One command does everything:
 REM    1. pull the latest code from GitHub
-REM    2. bump the version (from the last release, else version.txt)
+REM    2. bump the version (from version.txt, else the newest v* tag)
 REM    3. build the APK
 REM    4. commit + push everything
 REM    5. publish a GitHub Release with the APK attached
@@ -50,9 +50,20 @@ for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD') do set "BRANCH=%%b"
 echo [1/7] Branch: !BRANCH!
 
 REM ---------- 1. pull ----------------------------------------------------
+REM version.txt used to be committed, so a local bump made every later pull die with
+REM "Your local changes would be overwritten by merge". It is generated now: clear any
+REM stale local copy, pull, and only then fail with instructions.
+git rm --cached version.txt >nul 2>nul
+git checkout -- version.txt >nul 2>nul
 git pull --rebase --autostash origin "!BRANCH!" >nul 2>nul
-if errorlevel 1 echo        pull skipped ^(offline or conflicts - continuing^)
-if not errorlevel 1 echo        up to date with origin/!BRANCH!
+if not errorlevel 1 goto :pulled
+echo        pull retry ^(no rebase^)...
+git rebase --abort >nul 2>nul
+git checkout -- version.txt >nul 2>nul
+git pull --no-rebase --autostash origin "!BRANCH!"
+if errorlevel 1 goto :pull_failed
+:pulled
+echo        up to date with origin/!BRANCH!
 
 REM ---------- 2. version -------------------------------------------------
 if defined FIXEDVER goto :have_version
@@ -154,11 +165,14 @@ if not errorlevel 1 set "FIXEDVER=%~1"
 goto :eof
 
 :bump_version
+REM version.txt is the local baseline (git-ignored); the newest release tag is only a
+REM fallback for a fresh clone that has never published anything.
 set "BASE="
+if exist version.txt set /p BASE=<version.txt
+if defined BASE goto :bump_now
 for /f "delims=" %%t in ('git tag --list "v*" --sort=-v:refname') do if not defined BASE set "BASE=%%t"
 if defined BASE goto :bump_now
-if exist version.txt set /p BASE=<version.txt
-if not defined BASE set "BASE=1.0.0"
+set "BASE=1.0.0"
 :bump_now
 set "BASE=!BASE:v=!"
 set "MAJ=1"
@@ -173,6 +187,14 @@ set /a "PAT+=1"
 set "VERSION=!MAJ!.!MIN!.!PAT!"
 > version.txt echo !VERSION!
 goto :eof
+
+:pull_failed
+echo.
+echo [X] Pull failed and could not be resolved automatically.
+echo     Nothing was built, committed or published.
+echo     Run this once, then re-run commit.bat:
+echo         git stash -u ^&^& git pull --rebase origin !BRANCH! ^&^& git stash pop
+exit /b 1
 
 :no_git
 echo [X] This folder is not a git repository.

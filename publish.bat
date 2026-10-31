@@ -42,11 +42,12 @@ echo [2/4] Version: %VERSION%
 goto :have_version
 
 :bump_version
-REM Latest tag of the form vX.Y.Z, defaulting to the gradle version.
+REM version.txt is the local baseline (git-ignored so pulls never conflict); the newest
+REM tag is only a fallback for a clone that has never published.
 set "LASTTAG="
-for /f "delims=" %%t in ('git tag --list "v*" --sort=-v:refname') do if not defined LASTTAG set "LASTTAG=%%t"
-if defined LASTTAG goto :have_tag
 if exist version.txt set /p LASTTAG=<version.txt
+if defined LASTTAG goto :have_tag
+for /f "delims=" %%t in ('git tag --list "v*" --sort=-v:refname') do if not defined LASTTAG set "LASTTAG=%%t"
 if not defined LASTTAG set "LASTTAG=1.0.0"
 :have_tag
 set "LASTTAG=!LASTTAG:v=!"

@@ -63,11 +63,19 @@ public final class UpdateCenter {
 
     /** Cheap, silent check used when the app opens: skips network if recently checked. */
     public static void maybeAutoCheck(final Context context) {
+        maybeAutoCheck(context, null);
+    }
+
+    /**
+     * Same as above but reports the outcome (only when a check actually ran), so the
+     * Update pill / nav badge can refresh as soon as the answer arrives.
+     */
+    public static void maybeAutoCheck(final Context context, final CheckCallback callback) {
         final Context app = context.getApplicationContext();
         if (!UpdateManager.autoCheck(app)) return;
         long age = System.currentTimeMillis() - UpdateManager.lastCheck(app);
         if (age >= 0 && age < AUTO_INTERVAL_MS) return;
-        checkAsync(app, false, null);
+        checkAsync(app, false, callback);
     }
 
     /** Forces a check regardless of the throttle (pull-to-refresh, "Check now"). */

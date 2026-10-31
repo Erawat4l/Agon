@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cheap pre-flight checks for Android resource XML.
+r"""Cheap pre-flight checks for Android resource XML.
 
 Catches the mistakes aapt2 reports late in the build:
   - unescaped apostrophes / quotes inside <string>

@@ -486,7 +486,7 @@ public final class SignInSheet {
         // because Google's route needs an account the user can actually finish on this
         // device - a second factor they no longer carry makes Google's page a dead end,
         // and Arena accepts an email and a verification link perfectly well.
-        LinearLayout emailRow = providerRow(R.drawable.ic_mail, R.string.signin_email,
+        View emailRow = providerRow(R.drawable.ic_mail, R.string.signin_email,
                 "email", ARENA_SIGN_IN, R.string.signin_email_hint);
         emailRow.setOnClickListener(v -> {
             AppUi.press(v);

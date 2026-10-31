@@ -37,6 +37,50 @@ FIELD_RE = re.compile(
 LOCAL_RE = re.compile(r'(?:final\s+)?[\w<>\[\], .?]+?\s+(\w+)\s*=(?!=)')
 
 
+def check_java_assigned_types(path):
+    """A local declaration must match what the call it stores actually returns.
+
+    `LinearLayout row = providerRow(...)` where providerRow is declared `View` is a javac
+    error ("incompatible types: View cannot be converted to LinearLayout") that no amount of
+    reading the new code shows - the helper's signature is ten screens away. This pairs
+    each `Type name = helper(...)` with that helper's declared return type, for the widget
+    types this app uses.
+    """
+    src = open(path, encoding="utf-8", errors="replace").read()
+    returns = {}
+    for m in re.finditer(r"(?:private|public|protected|static|final|\s)+"
+                         r"([A-Z][\w.]*)\s+(\w+)\s*\(", src):
+        returns.setdefault(m.group(2), m.group(1))
+    # Comments first: a sentence like "... reserved in CSS. buildNavArea() returns a View"
+    # is not a declaration, and neither is `prefs(app).edit()`.
+    code = _strip_java_noise(src)
+    decl = re.compile(r"\b([A-Z][\w.]*)\s+(\w+)\s*=\s*([A-Za-z_]\w*)\s*\(")
+    for m in decl.finditer(code):
+        want, helper = m.group(1), m.group(3)
+        # a chained call changes the type: prefs(x).edit() is an Editor, not Preferences
+        depth = 1
+        i = m.end()
+        while i < len(code) and depth > 0:
+            if code[i] == "(":
+                depth += 1
+            elif code[i] == ")":
+                depth -= 1
+            i += 1
+        if code[i:i + 1] == ".":
+            continue
+        declared = returns.get(helper)
+        if declared is None or declared == want:
+            continue
+        if want in ("String", "int", "boolean", "long", "float", "double", "char", "byte"):
+            continue        # primitives and String are boxed/parsed elsewhere; not this test
+        # _strip_java_noise removes comments, so offsets differ: find the real line by the
+        # declaration text itself.
+        hit = src.find(want + " " + m.group(2) + " =")
+        line = (src[:hit].count("\n") + 1) if hit >= 0 else 0
+        problems.append(f"{path}:{line}: {helper}() returns {declared}, but the result is "
+                        f"assigned to {want} - declare the variable as {declared}")
+
+
 def check_java_unary_plus(path):
     """A string initialiser may not *start* with `+ "..."`.
 
@@ -1005,6 +1049,7 @@ def main():
         check_java_self_calls(path)
         check_java_shadowing(path)
         check_java_unary_plus(path)
+        check_java_assigned_types(path)
         check_java_helper_calls(path)
         check_java_tab_arrays(path)
         check_java_braces(path)

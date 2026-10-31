@@ -111,6 +111,55 @@ def check_java_helper_calls(path):
                 f"expected {sorted(expected)}")
 
 
+# Tab ids are not dense: TAB_UPDATE (3) has no nav entry, so an int[] indexed by tab
+# id is out of bounds for TAB_MORE (4). That exact bug crashed the app on launch.
+TAB_VALUES = {"TAB_CHAT": 0, "TAB_LEADERBOARD": 1, "TAB_SEARCH": 2,
+              "TAB_UPDATE": 3, "TAB_MORE": 4}
+
+DECL_RE = re.compile(r"(?:int\s*\[\s*\]|int\[\])?\s*(\w+)\s*=\s*\{([^{};]*)\}")
+
+
+def check_java_tab_arrays(path):
+    """Flags arrays indexed by tab ids (literal or via a for-each over tab ids).
+
+    An array built from a subset of tab ids and then indexed by a tab id throws
+    ArrayIndexOutOfBoundsException at runtime. That already happened once (nav icons:
+    4 entries, TAB_MORE = 4), so it is checked before every build now.
+    """
+    src = open(path, encoding="utf-8", errors="replace").read()
+
+    sizes = {}       # name -> number of entries
+    tab_arrays = {}  # name -> highest tab id the array can contain
+    for m in DECL_RE.finditer(src):
+        name, body = m.group(1), m.group(2)
+        entries = [t.strip() for t in body.split(",") if t.strip()]
+        sizes[name] = len(entries)
+        values = [TAB_VALUES[e.split(".")[-1]] for e in entries
+                  if e.split(".")[-1] in TAB_VALUES]
+        if values:
+            tab_arrays[name] = max(values)
+    arrays = {name: (size, tab_arrays.get(name))
+              for name, size in sizes.items() if name in tab_arrays}
+
+    # for (int tab : TAB_LIST) -> tab ranges over that list's tab ids
+    loop_vars = {}
+    for m in re.finditer(r"for\s*\(\s*int\s+(\w+)\s*:\s*(\w+)\s*\)", src):
+        if m.group(2) in tab_arrays:
+            loop_vars[m.group(1)] = tab_arrays[m.group(2)]
+
+    for name, size in sizes.items():
+        for use in re.finditer(r"\b" + re.escape(name) + r"\s*\[\s*([\w.]+)\s*\]", src):
+            index = use.group(1)
+            key = index.split(".")[-1]
+            highest = TAB_VALUES.get(key, loop_vars.get(key))
+            if highest is not None and highest >= size:
+                line = src[:use.start()].count("\n") + 1
+                problems.append(
+                    f"{path}:{line}: {name}[{index}] can be out of bounds "
+                    f"(array has {size} entries, index reaches {highest}); "
+                    f"tab ids are not dense - use a switch")
+
+
 def check_batch(path):
     """cmd.exe gotchas: duplicate labels, unresolved jumps, unbalanced parens."""
     import collections
@@ -141,6 +190,7 @@ def main():
     for path in glob.glob("app/src/main/java/**/*.java", recursive=True):
         check_java_shadowing(path)
         check_java_helper_calls(path)
+        check_java_tab_arrays(path)
 
     for path in glob.glob("app/src/main/res/values*/*.xml"):
         raw = open(path, encoding="utf-8").read()

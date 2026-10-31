@@ -90,6 +90,20 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Catch anything the startup path throws: a crash must show its trace on screen
+        // (and in files/last_crash.txt) instead of closing the app with no message.
+        CrashLog.install(this);
+        try {
+            buildShell(savedInstanceState);
+        } catch (Throwable error) {
+            CrashLog.write(this, error);
+            showCrashScreen(error);
+        }
+    }
+
+    /** The real startup path; wrapped by onCreate so a failure is reportable. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private void buildShell(Bundle savedInstanceState) {
         setStatusBarColors();
         UpdateNotifications.ensureChannels(this);
 
@@ -192,6 +206,80 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // First frames: fade the shell in so the app never appears to "snap" together.
         window.setAlpha(0f);
         window.animate().alpha(1f).setDuration(180).start();
+    }
+
+    /**
+     * Replaces the whole window with the trace of a fatal startup failure, plus a
+     * button that copies it, so the user can paste it back instead of describing it.
+     */
+    private void showCrashScreen(final Throwable error) {
+        try {
+            final String trace = CrashLog.describe(this, error);
+
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setBackgroundColor(AppUi.color(this, R.color.bg));
+            int pad = AppUi.dp(this, 18);
+            box.setPadding(pad, pad, pad, pad);
+
+            TextView title = AppUi.text(this, getString(R.string.crash_title), 18f,
+                    R.color.on_bg, true);
+            box.addView(title);
+
+            TextView body = AppUi.text(this, getString(R.string.crash_body), 13f,
+                    R.color.on_bg_muted, false);
+            body.setPadding(0, AppUi.dp(this, 8), 0, AppUi.dp(this, 12));
+            box.addView(body);
+
+            TextView code = AppUi.text(this, trace, 11f, R.color.on_bg, false);
+            code.setTypeface(android.graphics.Typeface.MONOSPACE);
+            code.setTextIsSelectable(true);
+            code.setPadding(AppUi.dp(this, 12), AppUi.dp(this, 12),
+                    AppUi.dp(this, 12), AppUi.dp(this, 12));
+            code.setBackground(AppUi.rounded(AppUi.color(this, R.color.surface2), 12f, this));
+
+            android.widget.ScrollView scroller = new android.widget.ScrollView(this);
+            scroller.addView(code, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            box.addView(scroller, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+            TextView copy = AppUi.text(this, getString(R.string.crash_copy), 15f,
+                    R.color.on_accent, true);
+            copy.setGravity(Gravity.CENTER);
+            copy.setPadding(0, AppUi.dp(this, 14), 0, AppUi.dp(this, 14));
+            copy.setBackground(AppUi.pressable(this, AppUi.color(this, R.color.accent), 14f));
+            copy.setOnClickListener(v -> {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null) {
+                    cm.setPrimaryClip(ClipData.newPlainText("Arena crash", trace));
+                    toast(R.string.crash_copied);
+                }
+            });
+            LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            copyLp.topMargin = AppUi.dp(this, 14);
+            box.addView(copy, copyLp);
+
+            TextView retry = AppUi.text(this, getString(R.string.crash_retry), 13.5f,
+                    R.color.on_bg_muted, false);
+            retry.setGravity(Gravity.CENTER);
+            retry.setPadding(0, AppUi.dp(this, 12), 0, 0);
+            retry.setOnClickListener(v -> recreate());
+            box.addView(retry);
+
+            window = new FrameLayout(this);
+            window.setBackgroundColor(AppUi.color(this, R.color.bg));
+            window.addView(box, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            setContentView(window);
+        } catch (Throwable ignored) {
+            // If even the crash screen cannot build, fall back to a plain view.
+            TextView fallback = new TextView(this);
+            fallback.setText(CrashLog.describe(this, error));
+            setContentView(fallback);
+        }
     }
 
     /** The scrollable currently on screen; re-pointed on every tab switch. */

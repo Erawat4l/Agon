@@ -181,12 +181,6 @@ public final class AppUi {
         }
     }
 
-    /** Update deliberately has no tab: it lives inside the More sheet. */
-    private static final int[] TAB_ICONS = {
-            R.drawable.ic_nav_chat, R.drawable.ic_nav_leaderboard, R.drawable.ic_nav_search,
-            R.drawable.ic_nav_more
-    };
-
     private static int tabLabel(int tab) {
         switch (tab) {
             case TAB_LEADERBOARD: return R.string.nav_leaderboard;
@@ -217,7 +211,7 @@ public final class AppUi {
         Nav nav = new Nav(bar);
         int[] tabs = {TAB_CHAT, TAB_LEADERBOARD, TAB_SEARCH, TAB_MORE};
         for (int tab : tabs) {
-            nav.items.add(addNavItem(c, bar, nav, tab, TAB_ICONS[tab], vertical, click));
+            nav.items.add(addNavItem(c, bar, nav, tab, NavIcons.forTab(tab), vertical, click));
         }
         return nav;
     }

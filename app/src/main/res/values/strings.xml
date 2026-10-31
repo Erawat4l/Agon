@@ -93,4 +93,9 @@
     <string name="channel_updates_desc">Alerts when a newer Arena build is published</string>
     <string name="channel_progress">Update downloads</string>
     <string name="channel_progress_desc">Progress while an update downloads</string>
+    <string name="crash_title">Arena hit an error while starting</string>
+    <string name="crash_body">The app caught the problem instead of closing. Copy the details below and send them over \u2014 they say exactly what broke.</string>
+    <string name="crash_copy">Copy error details</string>
+    <string name="crash_copied">Copied. Paste it in the chat.</string>
+    <string name="crash_retry">Start again</string>
 </resources>

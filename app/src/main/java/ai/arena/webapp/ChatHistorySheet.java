@@ -173,6 +173,10 @@ public final class ChatHistorySheet {
                 String url = entry.optString("u", "");
                 String title = entry.optString("t", "");
                 if (url.isEmpty() || title.isEmpty()) continue;
+                // The page supplies this list, so it is treated as untrusted input: a row
+                // that is not an https link to arena's own site is dropped instead of
+                // being offered as something to tap (which would navigate the tab away).
+                if (!MainActivity.isArenaUrl(url)) continue;
                 rows.add(new String[]{url, title});
             }
         } catch (Exception ignored) {

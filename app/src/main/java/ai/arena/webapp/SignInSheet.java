@@ -958,17 +958,9 @@ public final class SignInSheet {
         }
     }
 
-    /** https + arena's own host. Used before anything is handed to a browser. */
+    /** https + arena's own host, before anything is handed to a browser. */
     static boolean isArenaUrl(String url) {
-        if (url == null) return false;
-        try {
-            android.net.Uri uri = android.net.Uri.parse(url);
-            if (!"https".equalsIgnoreCase(uri.getScheme())) return false;
-            String target = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
-            return MainActivity.isArenaHost(target);
-        } catch (Exception notAUrl) {
-            return false;
-        }
+        return MainActivity.isArenaUrl(url);
     }
 
     /**

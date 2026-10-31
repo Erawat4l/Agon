@@ -1485,6 +1485,19 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (tabs != null) tabs.loadInCurrent(data.toString());
     }
 
+    /** https + arena's own host. Used before any URL touched by a page is opened. */
+    static boolean isArenaUrl(String url) {
+        if (url == null) return false;
+        try {
+            Uri uri = Uri.parse(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme())) return false;
+            String target = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+            return isArenaHost(target);
+        } catch (Exception notAUrl) {
+            return false;
+        }
+    }
+
     /** "arena.ai", "www.arena.ai", "lmarena.ai" - and nothing that merely ends with it. */
     static boolean isArenaHost(String host) {
         if (host == null) return false;

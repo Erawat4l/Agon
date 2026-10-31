@@ -273,13 +273,15 @@ public final class SignInSheet {
                 // sign-in and must never be reported as one.
                 if ((view == web || view == accountView) && started
                         && url != null && url.contains("arena.ai")) {
-                    ui.postDelayed(this::verifySession, 1200);
+                    // SignInSheet.this, not this: inside the anonymous client `this` is the
+                    // client, and a bare this::verifySession does not compile.
+                    ui.postDelayed(SignInSheet.this::verifySession, 1200);
                 }
                 // A page that positively offers a sign-in means there is no session, even
                 // once signing in has finished: clearing the local "signed in" mark here is
                 // what stops the menu claiming an account the page says is signed out.
                 if (!started && (view == web || view == accountView)) {
-                    ui.postDelayed(this::clearLocalMarkIfSignedOut, 1500);
+                    ui.postDelayed(SignInSheet.this::clearLocalMarkIfSignedOut, 1500);
                 }
             }
         };

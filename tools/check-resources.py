@@ -160,6 +160,110 @@ def check_java_tab_arrays(path):
                     f"tab ids are not dense - use a switch")
 
 
+def _anonymous_scopes(src):
+    """Brace offset -> ("class"|"anon", nearest class name) for the enclosing scope.
+
+    Inside an anonymous class Java's `this` is the anonymous instance, so a bare
+    `this::someMethod` there resolves against the anonymous type - a compile error when the
+    method belongs to the outer class. That is not hypothetical:
+    `ui.postDelayed(this::verifySession, 1200)` inside a WebViewClient compiled nowhere,
+    and only the user's Gradle run said so.
+
+    The distinction that matters: a bare `this::` inside an ordinary method of a class is
+    fine; only one inside `new Foo() { ... }` is not. Braces are paired with a stack, so
+    the answer is the innermost scope a position really sits in.
+    """
+    stack = []      # ("class", name) | ("anon", None) | ("block", None)
+    scopes = {}
+    i, n = 0, len(src)
+    while i < n:
+        ch = src[i]
+        if ch == "{":
+            tail = src[max(0, i - 160):i]
+            if re.search(r"\bclass\s+(\w+)[^{]*$", tail):
+                stack.append(("class", re.search(r"\bclass\s+(\w+)[^{]*$", tail).group(1)))
+            elif re.search(r"\bnew\s+[\w.]+\s*(?:<[^>]*>)?\s*\([^;{}]*\)\s*$", tail):
+                stack.append(("anon", None))
+            else:
+                stack.append(("block", None))
+            nearest = next((entry for entry in reversed(stack)
+                            if entry[0] in ("class", "anon")), None)
+            owner = next((name for kind, name in reversed(stack) if kind == "class"), "")
+            scopes[i] = (nearest[0] if nearest else "", owner)
+        elif ch == "}":
+            if stack:
+                stack.pop()
+        i += 1
+    return scopes
+
+
+def check_method_refs(java_paths):
+    """A method reference has to point at a method that exists.
+
+    `ui.postDelayed(this::verifySession, 1200)` where verifySession was accidentally removed
+    compiles nowhere, and javac reports it as "invalid method reference / cannot find
+    symbol" - the same class of failure the user's build kept hitting. The reference's
+    receiver is either `this` or a class name: a bare `this::` is checked against the same
+    file (the anonymous-class part is check_anonymous_this), and `X::` against the file that
+    declares class X when there is one.
+    """
+    declared = {}
+    for path in java_paths:
+        src = open(path, encoding="utf-8", errors="replace").read()
+        declared[path] = _method_names(src)
+    by_class = {}
+    for path in java_paths:
+        src = open(path, encoding="utf-8", errors="replace").read()
+        match = re.search(r"\bclass\s+(\w+)", _strip_java_noise(src))
+        if match:
+            by_class[match.group(1)] = path
+    ref = re.compile(r"\b(\w+)?\s*(?:\.\s*)?this\s*::\s*(\w+)|\b([A-Z]\w*)\s*::\s*(\w+)")
+    for path in java_paths:
+        src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+        for m in ref.finditer(src):
+            if m.group(2):
+                name = m.group(2)
+                pool = declared[path]
+            else:
+                name = m.group(4)
+                owner = by_class.get(m.group(3))
+                if owner is None:
+                    continue      # an Android/library class: not ours to check
+                pool = declared[owner]
+            if name in pool:
+                continue
+            line = src[:m.start()].count("\n") + 1
+            problems.append(f"{path}:{line}: method reference to {name}(), "
+                            f"which this class does not declare")
+
+
+def check_anonymous_this(java_paths):
+    """`this::m()` inside an anonymous class must name the enclosing class.
+
+    Reports the ambiguous ones instead of guessing: a method reference whose method is not
+    declared by the anonymous type itself is a compile error at worst, and silently the
+    wrong receiver at best.
+    """
+    # `X.this::m` is explicit and legal; only a bare `this::m` is the problem.
+    ref = re.compile(r"(?<![\w.])this\s*::\s*(\w+)")
+    for path in java_paths:
+        src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+        scopes = _anonymous_scopes(src)
+        if not scopes:
+            continue
+        for m in ref.finditer(src):
+            kind, owner = "", ""
+            for brace, entry in scopes.items():
+                if brace < m.start():
+                    kind, owner = entry
+            if kind != "anon":
+                continue
+            line = src[:m.start()].count("\n") + 1
+            problems.append(
+                f"{path}:{line}: this::{m.group(1)}() is inside an anonymous class - "
+                f"write {owner or 'Enclosing'}.this::{m.group(1)}() instead")
+
+
 def _strip_java_noise(src):
     """Removes comments, string and char literals so brace counting is honest."""
     out = []
@@ -785,6 +889,8 @@ def main():
     check_resource_refs(java_paths)
     check_injected_js(java_paths)
     for path in java_paths:
+        check_anonymous_this([path])
+        check_method_refs([path])
         check_java_self_calls(path)
         check_java_shadowing(path)
         check_java_helper_calls(path)

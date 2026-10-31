@@ -151,9 +151,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                // The document exists now: reserve the app chrome inside the page so
-                // nothing is clipped behind the top bar or the nav.
-                if (tabs != null) tabs.markLoaded(tabs.tabOf(view), view);
+                // TabWebViews.withLoadHook() already injects the insets on
+                // onPageStarted/onPageFinished; recalculate when the bar heights change
+                // (expander toggles, pill appearing).
                 applyChromeInsets();
             }
 
@@ -445,10 +445,18 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     // ------------------------------------------------------------------ tabs
 
     private void selectTab(int tab) {
+        // Switching tabs from under an open sheet would leave the sheet floating over a
+        // different page. Close it first; the nav then reflects the page really shown.
+        boolean hadUpdateSheet = updateSheet != null;
+        if (hadUpdateSheet) closeUpdateSheet();
+        if (menuSheet != null) {
+            AppUi.slideDownAndRemove(menuSheet, window);
+            menuSheet = null;
+        }
         if (tab == AppUi.TAB_UPDATE) {
             // The tab highlights while its sheet is open; closing returns to the page
             // that was on screen, so the nav never lies about what is showing.
-            tabBeforeUpdate = currentTab;
+            tabBeforeUpdate = hadUpdateSheet ? tabBeforeUpdate : currentTab;
             currentTab = AppUi.TAB_UPDATE;
             AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
                     navExpanded, true);
@@ -456,6 +464,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             return;
         }
         if (tab == AppUi.TAB_MORE) {
+            // More is a sheet, not a page: keep the page (and its nav highlight).
+            AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
+                    navExpanded, true);
             showMenuSheet();
             return;
         }
@@ -756,7 +767,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public void onOpenUpdate() {
-                openUpdateSheet();
+                // Same path as tapping the Update tab, so the nav highlight follows.
+                selectTab(AppUi.TAB_UPDATE);
             }
 
             @Override

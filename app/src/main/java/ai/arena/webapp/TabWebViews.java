@@ -74,14 +74,6 @@ public final class TabWebViews {
         return views.get(tab);
     }
 
-    /** Which tab a WebView belongs to, or -1 when it is not a warm tab. */
-    public int tabOf(WebView view) {
-        for (java.util.Map.Entry<Integer, WebView> e : views.entrySet()) {
-            if (e.getValue() == view) return e.getKey();
-        }
-        return -1;
-    }
-
     /** Every warm WebView, current tab included. */
     public java.util.Collection<WebView> all() {
         return new java.util.ArrayList<>(views.values());
@@ -165,27 +157,41 @@ public final class TabWebViews {
         float density = web.getResources().getDisplayMetrics().density;
         int cssTop = Math.round(Math.max(0, topPx) / density);
         int cssBottom = Math.round(Math.max(0, bottomPx) / density);
+        // One <style> block, replaced on every call. body gets real padding, so arena's
+        // own layout - its centred composer and its position:fixed menus - is laid out
+        // inside the app frame; min-height uses 100dvh so the page can never grow taller
+        // than the viewport by exactly the inset it just reserved.
+        String css = ":root{--arena-top-inset:" + cssTop + "px;"
+                + "--arena-bottom-inset:" + cssBottom + "px;}"
+                + "body{padding-top:" + cssTop + "px !important;"
+                + "padding-bottom:" + cssBottom + "px !important;"
+                + "box-sizing:border-box !important;"
+                + "min-height:100dvh !important;}";
         String js = "(function(){"
                 + "var id='arena-app-insets';var old=document.getElementById(id);"
                 + "if(old) old.remove();"
                 + "var s=document.createElement('style');s.id=id;"
-                + "s.textContent="
-                + "':root{--arena-top-inset:" + cssTop + "px;"
-                + "--arena-bottom-inset:" + cssBottom + "px;}'"
-                + "+'body{padding-top:" + cssTop + "px !important;"
-                + "padding-bottom:" + cssBottom + "px !important;"
-                + "box-sizing:border-box !important;}'"
-                // Keep the page from growing past the viewport: arena sizes some
-                // wrappers with 100vh, which would overflow by the insets.
-                + "+'html,body{min-height:100% !important;"
-                + "overflow-y:auto !important;}'"
-                + "+(document.documentElement.style.setProperty('--arena-top-inset',"
-                + "'" + cssTop + "px'),"
-                + "document.documentElement.style.setProperty('--arena-bottom-inset',"
-                + "'" + cssBottom + "px'));"
+                + "s.textContent=" + quote(css) + ";"
+                + "(document.head||document.documentElement).appendChild(s);"
                 + "window.dispatchEvent(new Event('arena-insets'));"
                 + "})();";
         web.evaluateJavascript(js, null);
+    }
+
+    /** Escapes text into a single-quoted JavaScript string literal. */
+    private static String quote(String text) {
+        StringBuilder out = new StringBuilder("'");
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            switch (ch) {
+                case '\\': out.append("\\\\"); break;
+                case '\'': out.append("\\'"); break;
+                case '\n': out.append("\\n"); break;
+                case '\r': out.append("\\r"); break;
+                default: out.append(ch);
+            }
+        }
+        return out.append('\'').toString();
     }
 
     /** Applies the current chrome insets to every warm tab. */
@@ -203,67 +209,66 @@ public final class TabWebViews {
         lastBottomInset = bottomPx;
     }
 
-    /** Records that a tab's document exists, and re-applies the pending insets. */
-    void markLoaded(int tab, WebView web) {
-        loaded.add(tab);
-        if (lastTopInset > 0 || lastBottomInset > 0) {
-            applyChromeInsets(web, lastTopInset, lastBottomInset);
-        }
-    }
+    /**
+     * Wraps the activity's WebViewClient so the chrome insets are injected as soon as a
+     * document exists (onPageStarted), and again once it finished loading. Everything
+     * else is delegated unchanged.
+     */
+    private android.webkit.WebViewClient withLoadHook(final WebView web,
+                                                      final android.webkit.WebViewClient delegate,
+                                                      final int tab) {
+        return new android.webkit.WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                delegate.onPageStarted(view, url, favicon);
+                loaded.add(tab);
+                applyChromeInsets(view, lastTopInset, lastBottomInset);
+            }
 
-    private WebView ensure(int tab) {
-        WebView existing = views.get(tab);
-        if (existing != null) return existing;
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                delegate.onPageFinished(view, url);
+                loaded.add(tab);
+                applyChromeInsets(view, lastTopInset, lastBottomInset);
+            }
 
-        WebView w = createWebView(tab);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
-        container.addView(w, lp);
-        w.setVisibility(android.view.View.GONE);
-        views.put(tab, w);
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view,
+                                                    android.webkit.WebResourceRequest request) {
+                return delegate.shouldOverrideUrlLoading(view, request);
+            }
 
-        // Chat tab loads immediately; others start as soon as they are created so the
-        // network work overlaps with the user reading the current screen.
-        w.loadUrl(urlFor(tab));
-        trim();
-        return w;
-    }
+            @Override
+            @SuppressWarnings("deprecation")
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return delegate.shouldOverrideUrlLoading(view, url);
+            }
 
-    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
-    private WebView createWebView(int tab) {
-        WebView w = new WebView(activity);
-        w.setBackgroundColor(AppUi.color(activity, R.color.bg));
-        w.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
-        w.setLongClickable(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
-        }
+            @Override
+            public void onReceivedError(WebView view, android.webkit.WebResourceRequest request,
+                                        android.webkit.WebResourceError error) {
+                delegate.onReceivedError(view, request, error);
+            }
 
-        WebSettings s = w.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setDatabaseEnabled(true);
-        s.setJavaScriptCanOpenWindowsAutomatically(true);
-        s.setSupportMultipleWindows(false);
-        s.setUseWideViewPort(true);
-        s.setLoadWithOverviewMode(true);
-        s.setSupportZoom(false);
-        s.setBuiltInZoomControls(false);
-        s.setDisplayZoomControls(false);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        // Cache aggressively: repeat visits paint from disk, then refresh in place.
-        s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
-        s.setUserAgentString(AppChrome.userAgent(activity, s.getUserAgentString()));
+            @Override
+            @SuppressWarnings("deprecation")
+            public void onReceivedError(WebView view, int errorCode, String description,
+                                        String failingUrl) {
+                delegate.onReceivedError(view, errorCode, description, failingUrl);
+            }
 
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(w, true);
+            @Override
+            public boolean onRenderProcessGone(WebView view,
+                                               android.webkit.RenderProcessGoneDetail detail) {
+                return delegate.onRenderProcessGone(view, detail);
+            }
 
-        w.addJavascriptInterface(new WebBridge(activity, w), "ArenaNative");
-        w.setWebViewClient(host.clientFactory().create());
-        w.setWebChromeClient(host.chromeFactory().create());
-        w.setDownloadListener(host.downloadListener());
-        return w;
+            @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                delegate.onPageCommitVisible(view, url);
+                applyChromeInsets(view, lastTopInset, lastBottomInset);
+            }
+        };
     }
 
     /** Keeps at most MAX_WARM WebViews; drops the least recently used background tab. */

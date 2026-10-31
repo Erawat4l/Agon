@@ -322,6 +322,18 @@ public final class AppUi {
         }
     }
 
+    /**
+     * Background for the bars the app draws over the page: the surface colour at 96%
+     * opacity, so a sliver of page shows through and nothing looks clamped while text
+     * on the bar stays legible.
+     */
+    public static Drawable chromeBg(Context c) {
+        int base = color(c, R.color.surface);
+        GradientDrawable d = new GradientDrawable();
+        d.setColor((base & 0x00FFFFFF) | 0xF5000000);
+        return d;
+    }
+
     public static View divider(Context c) {
         View v = new View(c);
         v.setBackgroundColor(color(c, R.color.divider));

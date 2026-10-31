@@ -310,6 +310,61 @@ def check_tab_api(paths):
                                 f"tabs.{m.group(1)}() does not exist on TabWebViews")
 
 
+# Members of this project's own classes, so a call like AppUi.chromeBg(...) is checked
+# without a JDK. Field declarations plus methods, per class name.
+PROJECT_CLASSES = ("AppUi", "AppChrome", "TabWebViews", "UpdateManager", "UpdateCenter",
+                   "UpdateNotifications", "UpdateSheet", "MenuSheet", "SignInSheet",
+                   "AccountPicker", "CrashLog", "NavIcons", "WebBridge", "Downloads",
+                   "ApkInstaller", "SettingsSheet")
+# Nested handler interfaces and enum constants are not "calls".
+NOT_A_CALL = {"class", "valueOf", "values", "Host", "Callback", "DownloadCallback",
+              "CheckCallback", "Progress", "Channel", "Nav", "NavItem", "Result",
+              "Host_", "Factory", "AppWebViewClientFactory", "WebChromeClientFactory"}
+
+
+def _members(src):
+    """Method names and field names declared in a Java file.
+
+    Comment bodies are removed first: words like "and" inside a doc comment would
+    otherwise look like a call, and 'boolean ... {' inside a comment could swallow a real
+    signature - that is why styleNav()/isDark() were once reported as missing.
+    """
+    clean = re.sub(r"\s+", " ", _strip_java_noise(src))
+    names = set()
+    names |= set(re.findall(
+        r"(?:public|private|protected|static|final|synchronized|abstract|default)\s+"
+        r"[\w<>\[\],.]+\s+(\w+)\s*\([^;{]*\)\s*(?:throws [\w., ]+)?\{", clean))
+    names |= set(re.findall(r"^\s*(\w+)\s*\([^;{]*\)\s*(?:throws [\w., ]+)?\{", clean))
+    names |= set(re.findall(
+        r"(?:public|private|protected|static|final)\s+[\w<>\[\],. ]+?\s+(\w+)\s*(?:=|;)", clean))
+    names |= set(re.findall(r"\b(?:class|interface|enum)\s+(\w+)", clean))
+    names |= set(re.findall(r"\b([A-Z][A-Z0-9_]{2,})\b", clean))
+    return names
+
+
+def check_java_cross_class(paths):
+    """Every OwnClass.member(...) call must exist on that class.
+
+    AppUi.chromeBg() was deleted together with the top-bar code while the nav still
+    called it, and the only feedback was a slow Gradle round trip. This catches the whole
+    family of mistakes before the build starts.
+    """
+    classes = {}
+    for path in paths:
+        name = path.replace("\\", "/").split("/")[-1][:-5]
+        classes[name] = _members(open(path, encoding="utf-8", errors="replace").read())
+    for path in paths:
+        src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+        for m in re.finditer(r"\b(\w+)\.(\w+)\s*\(", src):
+            cls, member = m.group(1), m.group(2)
+            if cls not in classes or cls not in PROJECT_CLASSES:
+                continue
+            if member in NOT_A_CALL or member in classes[cls]:
+                continue
+            problems.append(f"{path}:{src[:m.start()].count(chr(10)) + 1}: "
+                            f"{cls}.{member}() does not exist")
+
+
 def check_batch(path):
     """cmd.exe gotchas: duplicate labels, unresolved jumps, unbalanced parens."""
     import collections
@@ -339,6 +394,7 @@ def main():
 
     java_paths = glob.glob("app/src/main/java/**/*.java", recursive=True)
     check_tab_api(java_paths)
+    check_java_cross_class(java_paths)
     for path in java_paths:
         check_java_self_calls(path)
         check_java_shadowing(path)

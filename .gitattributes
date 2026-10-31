@@ -1,0 +1,9 @@
+# Windows batch files need CRLF so cmd.exe parses them reliably.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+# Everything else: keep LF.
+*.sh  text eol=lf
+gradlew text eol=lf
+*.java text eol=lf
+*.xml  text eol=lf
+*.wav binary

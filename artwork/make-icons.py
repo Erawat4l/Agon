@@ -2,7 +2,8 @@ from PIL import Image, ImageDraw
 import os
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agon-mark.jpg')
-RES = 'app/src/main/res'
+RES = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app', 'src', 'main', 'res')
+RES = os.path.normpath(RES)
 BG = (25, 25, 25)
 
 src = Image.open(SRC).convert('RGB')
@@ -21,7 +22,7 @@ for y in range(src.size[1]):
             b = min(255, max(0, int((b - BG[2] * (1 - a)) / a)))
         mp[x, y] = (r, g, b, int(round(a * 255)))
 mark = mark.crop(mark.getbbox())
-mark.save('mark.png')
+mark.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mark.png'))
 
 def fit(mark, height):
     w = max(1, int(round(height * mark.size[0] / mark.size[1])))
@@ -106,5 +107,5 @@ d.text((24, W+40), 'adaptive (launcher, safe zone)', fill=(60,60,60), font=font)
 d.text((24+(W+24), W+40), 'adaptive, squircle launcher', fill=(60,60,60), font=font)
 d.text((24+2*(W+24), W+40), 'legacy bitmap', fill=(60,60,60), font=font)
 d.text((24+3*(W+24), W+40), 'legacy bitmap, round', fill=(60,60,60), font=font)
-sheet.save('app-icon-preview.png')
+sheet.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app-icon-preview.png'))
 print('preview saved')

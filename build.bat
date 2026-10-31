@@ -89,6 +89,10 @@ if /i "%MODE%"=="clean" (
 
 echo [3/4] Compiling... first run downloads Gradle + build tools ^(a few minutes^).
 if /i "%MODE%"=="release" (
+    if not exist "keystore.properties" (
+        echo        [i] No keystore found - the release APK will be UNSIGNED.
+        echo            For an installable APK run: make-keystore.bat  ^(once^)
+    )
     call gradlew.bat --no-daemon assembleRelease
 ) else (
     call gradlew.bat --no-daemon assembleDebug

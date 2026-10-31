@@ -58,9 +58,11 @@ not paused).
 
 ## Building the APK on GitHub instead (no local setup)
 
-Push this repo and the included workflow builds the APK for you:
-**Actions → "Build APK" → run → download the `ArenaAI-debug-apk` artifact.**
-Pushing a tag like `v1.0` also attaches the APK to a GitHub Release.
+If **Actions** is enabled on the repository, every push runs
+`.github/workflows/build-apk.yml`: **Actions → "Build APK" → latest run →
+Artifacts → `ArenaAI-debug-apk`**. Pushing a tag like `v1.0` also attaches the APK
+to a GitHub Release. (If the run fails instantly with no steps, Actions is disabled
+for the repo: *Settings → Actions → General → Allow all actions*.)
 
 ---
 

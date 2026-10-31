@@ -70,12 +70,21 @@ public final class UpdateSheet {
                 v -> host.closeUpdateSheet());
         root.setTag("sheet-root");
 
+        // Scrollable, because the settings rows + release notes are taller than a phone
+        // screen on their own: a clipped sheet hid the token row and the buttons.
+        android.widget.ScrollView scroller = new android.widget.ScrollView(activity);
+        scroller.setFillViewport(true);
+        scroller.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        scroller.setTag("sheet-scroll");
+
         LinearLayout sheet = new LinearLayout(activity);
         sheet.setOrientation(LinearLayout.VERTICAL);
         sheet.setBackground(AppUi.rounded(AppUi.color(activity, R.color.surface), 26f, activity));
         sheet.setPadding(AppUi.dp(activity, 22), AppUi.dp(activity, 10),
                 AppUi.dp(activity, 22), AppUi.dp(activity, 22));
         sheet.setOnClickListener(v -> { /* swallow taps */ });
+        scroller.addView(sheet, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         View handle = new View(activity);
         handle.setBackground(AppUi.rounded(AppUi.color(activity, R.color.handle), 3f, activity));
@@ -192,8 +201,8 @@ public final class UpdateSheet {
         android.widget.FrameLayout.LayoutParams sheetLp = new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sheetLp.gravity = Gravity.BOTTOM;
-        root.addView(sheet, sheetLp);
-        AppUi.slideUp(sheet);
+        root.addView(scroller, sheetLp);
+        AppUi.slideUp(scroller);
         return root;
     }
 

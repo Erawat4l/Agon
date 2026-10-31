@@ -187,7 +187,8 @@ public final class SignInSheet {
         int p = AppUi.dp(activity, 9);
         icon.setPadding(p, p, p, p);
         icon.setBackground(AppUi.rounded(AppUi.color(activity, R.color.bg), 12f, activity));
-        row.addView(icon, new LinearLayout.LayoutParams(AppUi.dp(40), AppUi.dp(40)));
+        row.addView(icon, new LinearLayout.LayoutParams(
+                AppUi.dp(activity, 40), AppUi.dp(activity, 40)));
 
         LinearLayout texts = new LinearLayout(activity);
         texts.setOrientation(LinearLayout.VERTICAL);
@@ -286,14 +287,14 @@ public final class SignInSheet {
      */
     private boolean handleProviderUrl(Uri uri) {
         if (uri == null) return false;
-        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        String urlHost = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
 
         if (!scheme.startsWith("http")) {
             AppChrome.openExternally(activity, uri);
             return true;
         }
-        if (host.endsWith("arena.ai") || host.endsWith("lmarena.ai")) {
+        if (urlHost.endsWith("arena.ai") || urlHost.endsWith("lmarena.ai")) {
             // Back on Arena: the cookie jar now holds the session.
             CookieManager.getInstance().flush();
             dismiss();

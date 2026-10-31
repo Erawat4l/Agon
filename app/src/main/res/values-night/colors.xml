@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Arena dark: warm charcoal, not blue-black. -->
+    <color name="accent">#8FBE9F</color>
+    <color name="accent_soft">#22302A</color>
+    <color name="accent_chip">#2C4037</color>
+    <color name="on_accent">#14120F</color>
+    <color name="bg">#14120F</color>
+    <color name="surface">#1B1916</color>
+    <color name="surface2">#26231F</color>
+    <color name="on_bg">#F1EDE6</color>
+    <color name="on_bg_muted">#A29B8F</color>
+    <color name="divider">#2E2A25</color>
+    <color name="handle">#3A352E</color>
+    <color name="nav_active_bg">#22302A</color>
+    <color name="pill_bg">#26231F</color>
+    <color name="pill_text">#E3DED4</color>
+    <color name="ripple">#33FFFFFF</color>
+    <color name="scrim">#B3000000</color>
+</resources>

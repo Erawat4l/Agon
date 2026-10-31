@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Arena's own palette: warm off-white paper, charcoal ink, muted green accent. -->
+    <color name="accent">#2F5D50</color>
+    <color name="accent_soft">#E7EFEA</color>
+    <color name="accent_chip">#D3E3DA</color>
+    <color name="on_accent">#FFFFFF</color>
+    <color name="bg">#FAF8F4</color>
+    <color name="surface">#FFFDFA</color>
+    <color name="surface2">#F0ECE4</color>
+    <color name="on_bg">#1F1D1A</color>
+    <color name="on_bg_muted">#6E6A62</color>
+    <color name="divider">#E5E0D6</color>
+    <color name="handle">#D6D0C4</color>
+    <color name="nav_active_bg">#E7EFEA</color>
+    <color name="pill_bg">#F0ECE4</color>
+    <color name="pill_text">#3A3733</color>
+    <color name="ripple">#1A000000</color>
+    <color name="scrim">#8C151310</color>
+</resources>

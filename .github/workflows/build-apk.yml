@@ -1,0 +1,86 @@
+name: Build APK
+
+# Every push to the app branch publishes a downloadable APK release, so installed
+# copies see the update in-app. No tagging needed.
+#
+# If a run fails instantly with "no steps" / runner_id 0, GitHub Actions is not
+# allowed to run for this repository. Either enable it in
+# Settings -> Actions -> General -> "Allow all actions", or publish from your PC
+# with:  publish.bat
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Decide version
+        id: v
+        run: |
+          set -euo pipefail
+          BASE="$(grep -oE "VERSION_NAME.\) \?: '[0-9.]+'" app/build.gradle | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          BASE="${BASE:-1.1.0}"
+          MAJ="$(echo "$BASE" | cut -d. -f1)"
+          MIN="$(echo "$BASE" | cut -d. -f2)"
+          # PATCH = commit count, so every push is a newer version than the last one.
+          PATCH="$(git rev-list --count HEAD)"
+          NAME="$MAJ.$MIN.$PATCH"
+          CODE=$((MAJ * 1000000 + MIN * 1000 + PATCH))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Version $NAME (code $CODE)"
+
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug \
+            -PVERSION_NAME=${{ steps.v.outputs.name }} \
+            -PVERSION_CODE=${{ steps.v.outputs.code }}
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk "Agon-${{ steps.v.outputs.name }}.apk"
+
+      # Always keep a build artifact, even if the release upload is not permitted.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Agon-apk
+          path: Agon-*.apk
+          if-no-files-found: error
+
+      - name: Publish release (this is what the app's updater reads)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.name }}
+          name: Agon ${{ steps.v.outputs.name }}
+          files: Agon-*.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            **Agon ${{ steps.v.outputs.name }}**
+
+            Download `Agon-${{ steps.v.outputs.name }}.apk` and tap it to install.
+
+            Apps already running Agon detect this release automatically
+            (**Update → Check for updates**) and will download it and ask you to
+            approve the install — nothing installs silently.

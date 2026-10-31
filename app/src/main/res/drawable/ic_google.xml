@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Google "G" in its brand colors -->
+    <path
+        android:pathData="M21.6,12.23c0,-0.7 -0.06,-1.37 -0.18,-2.02H12v3.82h5.38a4.6,4.6 0 0 1,-2 3.02v2.5h3.23c1.89,-1.74 2.99,-4.3 2.99,-7.32z"
+        android:fillColor="#4285F4" />
+    <path
+        android:pathData="M12,22c2.7,0 4.96,-0.9 6.61,-2.43l-3.23,-2.5c-0.9,0.6 -2.05,0.96 -3.38,0.96a5.93,5.93 0 0 1,-5.57 -4.09H2.98v2.58A10,10 0 0 0 12,22z"
+        android:fillColor="#34A853" />
+    <path
+        android:pathData="M6.43,13.94a6,6 0 0 1,0 -3.88V7.48H2.98a10,10 0 0 0 0,9.04z"
+        android:fillColor="#FBBC05" />
+    <path
+        android:pathData="M12,5.98c1.47,0 2.79,0.5 3.83,1.5l2.86,-2.86A10,10 0 0 0 2.98,7.48l3.45,2.58A5.93,5.93 0 0 1,12 5.98z"
+        android:fillColor="#EA4335" />
+</vector>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same rule for Android 12+: no token, no account identity, no sign-in trace, no
+     WebView state leaves the device - not to a cloud backup and not in a transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="." />
+        <exclude domain="sharedpref" path="agon_update.xml" />
+        <exclude domain="sharedpref" path="agon_signin_trace.xml" />
+        <exclude domain="sharedpref" path="agon_profile.xml" />
+        <exclude domain="database" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="." />
+        <exclude domain="sharedpref" path="agon_update.xml" />
+        <exclude domain="sharedpref" path="agon_signin_trace.xml" />
+        <exclude domain="sharedpref" path="agon_profile.xml" />
+        <exclude domain="database" path="." />
+    </device-transfer>
+</data-extraction-rules>

@@ -480,6 +480,127 @@ def check_colour_names(java_paths):
         problems.append(f"color {name} has no dark variant in values-night/colors.xml")
 
 
+
+# ------------------------------------------------------------------ XML well-formedness
+RES_DIR = "app/src/main/res"
+
+
+def check_xml_files():
+    """Parses every XML file the way aapt2 does.
+
+    A resource file that is not well-formed XML fails the build at mergeDebugResources,
+    which is exactly what happened when a patch closed strings.xml with </strings>
+    instead of </resources> while the per-string checks below happily passed. Parsing is
+    the only honest test for well-formedness, so it runs first and reports the parser's
+    own line and column.
+    """
+    import xml.etree.ElementTree as ET
+    for path in sorted(glob.glob(RES_DIR + "/**/*.xml", recursive=True)):
+        raw = open(path, encoding="utf-8", errors="replace").read()
+        try:
+            ET.fromstring(raw)
+        except ET.ParseError as exc:
+            line, col = exc.position
+            problems.append(f"{path}:{line}:{col}: not well-formed XML ({exc.msg})")
+            continue
+        if not raw.lstrip().startswith("<?xml"):
+            problems.append(f"{path}: missing XML declaration")
+
+
+def check_string_close(paths):
+    """Every strings file must end with </resources>, not a stray closing tag."""
+    for path in paths:
+        raw = open(path, encoding="utf-8", errors="replace").read().rstrip()
+        if not raw.endswith("</resources>"):
+            last = raw.splitlines()[-1] if raw else ""
+            problems.append(f"{path}: file does not end with </resources> "
+                            f"(last line: {last.strip()[:40]!r})")
+
+
+
+# ------------------------------------------------------------------ resource references
+TYPED_REF = re.compile(r'@([a-z]+)/([\w.]+)')
+
+
+def _res_index():
+    """type -> set(names) for everything defined under app/src/main/res."""
+    index = {"drawable": set(), "mipmap": set(), "string": set(), "color": set(),
+             "style": set(), "xml": set(), "layout": set(), "anim": set(),
+             "raw": set(), "menu": set(), "font": set(), "array": set(), "bool": set(),
+             "integer": set(), "dimen": set(), "plurals": set(), "id": set()}
+    # File-based resources: the whole tree, every extension (raw/*.wav included).
+    for path in glob.glob(RES_DIR + "/**/*", recursive=True):
+        if not __import__("os").path.isfile(path):
+            continue
+        parts = path.replace("\\", "/").split("/")
+        folder = parts[-2]
+        base = parts[-1]
+        kind = ("mipmap" if folder.startswith("mipmap") else
+                "drawable" if folder.startswith("drawable") else
+                "layout" if folder.startswith("layout") else
+                "xml" if folder.startswith("xml") else
+                "raw" if folder.startswith("raw") else
+                "menu" if folder.startswith("menu") else
+                "anim" if folder.startswith("anim") else
+                "font" if folder.startswith("font") else None)
+        if kind:
+            index[kind].add(base.split(".")[0])
+            continue
+        if not base.endswith(".xml"):
+            continue
+        raw = open(path, encoding="utf-8", errors="replace").read()
+        for m in re.finditer(r'<(string|color|style|bool|integer|dimen|plurals|array|'
+                             r'string-array|integer-array)\s+name="([^"]+)"', raw):
+            kind = m.group(1).split("-")[0]
+            index.setdefault(kind, set()).add(m.group(2))
+        for m in re.finditer(r'<(?:item)\s+type="(\w+)"\s+name="([^"]+)"', raw):
+            index.setdefault(m.group(1), set()).add(m.group(2))
+    return index
+
+
+def check_resource_refs(java_paths):
+    """@type/name in XML and R.type.name in Java must exist.
+
+    aapt2 reports these only after resource merging, so a typo costs a full Gradle run.
+    """
+    index = _res_index()
+    known_types = set(index)
+    sources = [p for p in glob.glob(RES_DIR + "/**/*.xml", recursive=True)]
+    sources.append("app/src/main/AndroidManifest.xml")
+
+    def note(where, kind, name):
+        if kind in ("android", "id") or kind not in known_types:
+            return
+        names = index.get(kind, set())
+        if name in names:
+            return
+        # "Theme.Agora" is a nested style name: "@style/Theme.Agora" is one reference,
+        # and "@style/Theme" refers to the same file only if such a style exists.
+        if kind == "style" and any(n.startswith(name + ".") for n in names):
+            return
+        problems.append(f"{where}: @{kind}/{name} does not exist")
+
+    for path in sources:
+        if not path or not __import__("os").path.exists(path):
+            continue
+        raw = open(path, encoding="utf-8", errors="replace").read()
+        # XML comments are not references (the manifest mentions "@style/..." in prose).
+        raw = re.sub(r"<!--.*?-->", "", raw, flags=re.S)
+        for m in TYPED_REF.finditer(raw):
+            kind, name = m.group(1), m.group(2)
+            # "@raw/update_chime.wav" refers to the resource "update_chime"; a style name
+            # such as "Theme.Agora" is a real name and must NOT be split on its dot.
+            if kind == "raw":
+                name = name.split(".")[0]
+            note(path, kind, name)
+
+    for path in java_paths:
+        raw = open(path, encoding="utf-8", errors="replace").read()
+        for m in re.finditer(r'R\.(drawable|mipmap|string|color|style|xml|layout|raw|'
+                             r'menu|font|bool|integer|dimen|plurals)\.(\w+)', raw):
+            note(path, m.group(1), m.group(2))
+
+
 def main():
     for path in glob.glob("*.bat"):
         check_batch(path)
@@ -489,6 +610,7 @@ def main():
     check_java_cross_class(java_paths)
     check_android_api(java_paths)
     check_colour_names(java_paths)
+    check_resource_refs(java_paths)
     for path in java_paths:
         check_java_self_calls(path)
         check_java_shadowing(path)
@@ -496,10 +618,11 @@ def main():
         check_java_tab_arrays(path)
         check_java_braces(path)
 
-    for path in glob.glob("app/src/main/res/values*/*.xml"):
+    value_files = glob.glob("app/src/main/res/values*/*.xml")
+    check_xml_files()
+    check_string_close(value_files)
+    for path in value_files:
         raw = open(path, encoding="utf-8").read()
-        if not raw.lstrip().startswith("<?xml"):
-            problems.append(f"{path}: missing XML declaration")
         for m in re.finditer(r'<string name="([^"]+)">(.*?)</string>', raw, re.S):
             check_string(path, m.group(1), m.group(2))
 

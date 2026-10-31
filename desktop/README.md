@@ -38,6 +38,13 @@ npm run dist      :: build the installers into desktop\release\
 | `Agon-Portable-<version>-x64.exe` / `-ia32.exe` | no install, runs from anywhere |
 | `latest.yml` + `.blockmap` | what the auto-updater reads |
 
+All four installers appear because the scripts pass `--x64 --ia32` explicitly. Naming targets
+on the command line (`--win nsis portable`) without arch flags makes electron-builder ignore
+the `arch` lists in `build.win.target` and build for the host architecture only — that is how
+a release can end up with no 32-bit `.exe` at all, which is what happened to `v1.4.24`.
+`build-all.bat release`, `npm run dist` and CI all go through the same script, so the fix
+applies everywhere.
+
 ### Setup vs Portable - what actually differs
 
 Same app, same binaries, same release; the only difference is **where it lives and what it

@@ -1042,22 +1042,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
-            public void onDiagnostics() {
-                SignInDiagnostics.show(MainActivity.this, window, tabs.current());
-            }
-
-            @Override
-            public void onClearAppData() {
-                if (tabs != null) tabs.clearAndReload();
-            }
-
-            @Override
-            public void setAppearance(int mode) {
-                AppUi.setAppearance(MainActivity.this, mode);
-                recreateWithAnimation();
-            }
-
-            @Override
             public void onDismissed() {
                 menuSheet = null;
             }

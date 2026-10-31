@@ -22,11 +22,8 @@ public final class MenuSheet {
 
         void onSettings();
 
-        void onDiagnostics();
 
-        void onClearAppData();
 
-        void setAppearance(int mode);
 
         void onDismissed();
     }
@@ -62,6 +59,9 @@ public final class MenuSheet {
         sheet.addView(title);
 
         boolean updateAvailable = UpdateManager.isUpdateAvailable(activity);
+        // Four rows, no more: everything else lives inside Settings. The sheet had grown to
+        // seven entries, several of which were a second copy of things Settings already
+        // owns (clear data, appearance, reload).
         addRow(activity, sheet, R.string.app_update,
                 updateAvailable
                         ? activity.getString(R.string.update_available_short,
@@ -71,6 +71,16 @@ public final class MenuSheet {
                 R.drawable.ic_nav_update, updateAvailable, v -> {
                     dismiss(parent, scrim, callback);
                     callback.onOpenUpdate();
+                });
+
+        String accountSub = LocalProfile.hasAccount(activity)
+                ? LocalProfile.summary(activity)
+                : activity.getString(R.string.account_signin_sub);
+        addRow(activity, sheet, R.string.account_signin,
+                accountSub, R.drawable.ic_nav_account,
+                false, v -> {
+                    dismiss(parent, scrim, callback);
+                    callback.onSignIn();
                 });
 
         addRow(activity, sheet, R.string.menu_settings,
@@ -84,32 +94,6 @@ public final class MenuSheet {
             dismiss(parent, scrim, callback);
             callback.onReload();
         });
-
-        String accountSub = LocalProfile.hasAccount(activity)
-                ? LocalProfile.summary(activity)
-                : activity.getString(R.string.account_signin_sub);
-        addRow(activity, sheet, R.string.account_signin,
-                accountSub, R.drawable.ic_nav_account,
-                false, v -> {
-                    dismiss(parent, scrim, callback);
-                    callback.onSignIn();
-                });
-
-        addRow(activity, sheet, R.string.menu_diagnostics,
-                activity.getString(R.string.menu_diagnostics_sub),
-                R.drawable.ic_nav_open, false, v -> {
-                    dismiss(parent, scrim, callback);
-                    callback.onDiagnostics();
-                });
-
-        // Appearance: three-state chip row (System / Light / Dark).
-        addAppearanceRow(activity, sheet, callback);
-
-        addRow(activity, sheet, R.string.clear_data,
-                activity.getString(R.string.clear_data_sub), R.drawable.ic_nav_trash, false, v -> {
-                    dismiss(parent, scrim, callback);
-                    callback.onClearAppData();
-                });
 
         TextView footer = AppUi.text(activity, activity.getString(R.string.menu_version,
                         UpdateManager.currentVersionName(activity),

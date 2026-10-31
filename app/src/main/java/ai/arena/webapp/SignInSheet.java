@@ -60,6 +60,8 @@ public final class SignInSheet {
             android.os.Looper.getMainLooper());
     private boolean started;
     private TextView progressText;
+    /** The provider page's header row, so a fallback offer can be attached under it. */
+    private LinearLayout headerBox;
     /** True once the driver moved to the fallback page; the dialog search restarts there. */
     private boolean onFallback;
     /**
@@ -83,6 +85,8 @@ public final class SignInSheet {
     private boolean providerChosen;
     /** True when this attempt is Arena's email sign-in rather than the Google one. */
     private boolean emailRoute;
+    /** True once the "use the email form instead" offer has been put on screen. */
+    private boolean emailOfferShown;
     /** How many times the provider press has been attempted for this sign-in. */
     private int providerTries;
     /** How many times the email field has been filled for this sign-in. */
@@ -178,6 +182,7 @@ public final class SignInSheet {
                 activity.getString(R.string.signin_progress_for, pendingProvider), 11.5f,
                 R.color.on_bg_muted, false);
         titles.addView(progressText);
+        headerBox = header;
         TextView close = AppUi.text(activity, "✕", 18f, R.color.on_bg_muted, false);
         close.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 6),
                 AppUi.dp(activity, 12), AppUi.dp(activity, 6));
@@ -630,6 +635,7 @@ public final class SignInSheet {
                 activity.getString(R.string.signin_progress_for, hostFilter), 11.5f,
                 R.color.on_bg_muted, false);
         titles.addView(progressText);
+        headerBox = header;
 
         TextView close = AppUi.text(activity, "✕", 18f, R.color.on_bg_muted, false);
         close.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 6),
@@ -1257,13 +1263,49 @@ public final class SignInSheet {
     private void fallBackToLastResort() {
         if (web == null) return;
         if (onFallback) {
-            setProgress(activity.getString(R.string.signin_step_manual, pendingProvider));
+            // Both pages offered nothing. Say that plainly and name the route that does not
+            // depend on finding a button: the email form in this sheet. The header spent a
+            // whole build saying "Opening Arena's sign-in..." while nothing was happening,
+            // which is worse than admitting the page has no entry point.
+            setProgress(activity.getString(R.string.signin_step_nothing_found, pendingProvider));
+            SignInTrace.note(activity, "driver: nothing to press on " + SignInTrace.redact(
+                    web.getUrl() == null ? "" : web.getUrl()));
+            if (!emailOfferShown && emailRoute == false) {
+                emailOfferShown = true;
+                showEmailOffer();
+            }
             return;
         }
         onFallback = true;
         started = false;
         setProgress(activity.getString(R.string.signin_step_moving));
         web.loadUrl(ARENA_LAST_RESORT);
+    }
+
+    /**
+     * When the page offers nothing to press, put the way that always works one tap away.
+     *
+     * Arena's own dialog is not guaranteed to exist on every surface (a signed-out landing
+     * page has no Log in control at all in some builds). The email route does not depend on
+     * finding one: it asks for the address here and hands Arena its own form.
+     */
+    private void showEmailOffer() {
+        if (progressText == null) return;
+        TextView offer = AppUi.text(activity,
+                activity.getString(R.string.signin_offer_email), 12.5f, R.color.on_bg, true);
+        offer.setGravity(Gravity.CENTER);
+        offer.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 10),
+                AppUi.dp(activity, 12), AppUi.dp(activity, 10));
+        offer.setOnClickListener(v -> {
+            AppUi.press(v);
+            emailRoute = true;
+            pressEmailField();
+        });
+        if (headerBox != null && headerBox.getParent() instanceof ViewGroup) {
+            ViewGroup column = (ViewGroup) headerBox.getParent();
+            int at = column.indexOfChild(headerBox) + 1;
+            column.addView(offer, Math.min(at, column.getChildCount()));
+        }
     }
 
     /** Runs JS in the provider WebView on the UI thread. */

@@ -10,7 +10,7 @@
     <string name="new_chat_started">New chat</string>
     <string name="appearance">Appearance</string>
     <string name="account_signin">Sign in</string>
-    <string name="account_signin_sub">Google, inside the app</string>
+    <string name="account_signin_sub">Google, or an email address</string>
     <string name="signin_choose">Sign in to Arena</string>
     <string name="signin_choose_sub">First time: sign in once on Google\'s own page. After that, picking your account is the whole sign-in.</string>
     <string name="signin_choose_sub_returning">Signing in as %1$s - picking the account is the whole sign-in</string>
@@ -27,6 +27,8 @@
     <string name="signin_email_note">No password is ever stored by this app. If you have no Arena account yet, Arena\'s page offers sign-up with the same address.</string>
     <string name="signin_step_email_continue">Continuing as %1$s - finish on Arena\'s page</string>
     <string name="signin_step_email_sent">Address entered - enter the password or use the link Arena sends to %1$s</string>
+    <string name="signin_step_nothing_found">This page has no Log in button to press - use the email sign-in below</string>
+    <string name="signin_offer_email">Use the email sign-in instead</string>
     <string name="signin_step_password">Address accepted - enter your Arena password on this page</string>
     <string name="signin_step_email_manual">Type the address in Arena\'s field, then press Continue with email</string>
     <string name="signin_in_progress">Signing in</string>
@@ -162,7 +164,7 @@
     <string name="settings_reset_sub">Back to the defaults above</string>
     <string name="settings_footer">Agon %1$s (build %2$d)</string>
     <string name="menu_settings">Settings</string>
-    <string name="menu_settings_sub">Disable or customise everything</string>
+    <string name="menu_settings_sub">Appearance, page, developer settings</string>
     <string name="profile_summary">Signed in as %1$s</string>
     <string name="profile_session_saved">Session saved on this device</string>
     <string name="profile_session_pending">Finish the provider page once to save the session</string>

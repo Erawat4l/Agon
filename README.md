@@ -229,7 +229,7 @@ the trace is written to `files/last_crash.txt` and shown on screen with a
 
 ---
 
-## In-app updates from your private GitHub releases
+## In-app updates from this repository's releases
 
 The app checks this repo's releases, marks the **Update** button and fires a
 notification with its own chime — and it can never install anything silently.
@@ -237,7 +237,7 @@ notification with its own chime — and it can never install anything silently.
 **How it flows**
 
 1. On launch, on resume and every 6 hours the app queries
-   `api.github.com/repos/Erawat4l/Arena-Ai-App/releases/latest` (or all releases when
+   `api.github.com/repos/Erawat4l/Agon/releases/latest` (or all releases when
    the Beta channel is selected).
 2. If the release's version is newer than the installed `versionCode`, the app:
    - tints the **Update** tab in the bottom bar (or the More icon when no Update tab is
@@ -255,10 +255,12 @@ notification with its own chime — and it can never install anything silently.
    asks to allow *install unknown apps* for Arena — the app sends you straight to that
    toggle and then retries. **There is no silent install path anywhere in the code.**
 
-**Private repo: GitHub token**
+**Now that the repository is public, no token is needed.** The app reads
+`https://api.github.com/repos/Erawat4l/Agon/releases/latest` anonymously.
 
-`Erawat4l/Arena-Ai-App` is private, so GitHub's API answers `404` without a token.
-Any one of these works:
+A token is only for the private case: a private repository answers `404` without one, and
+the token never leaves the app except in the `Authorization` header of that one request.
+If you ever make the repository private again, any one of these works:
 
 | Where | How |
 | --- | --- |
@@ -321,22 +323,28 @@ the app never sends you to Chrome.
 First run asks for a GitHub token once (stored in `gh-token.txt`, git-ignored):
 
 1. <https://github.com/settings/personal-access-tokens/new>
-2. Repository access → *Only select repositories* → `Arena-Ai-App`
+2. Repository access → *Only select repositories* → `Agon`
 3. Permissions → **Contents: Read and write**
 4. Generate, then `publish.bat --token github_pat_…`
 
 Use **Read-only** Contents for the token you paste into the app; the write token is only
 for publishing from your PC.
 
-### B. GitHub Actions: automatic on every push
+### B. GitHub Actions: automatic on every push to `main`
 
-`.github/workflows/build-apk.yml` builds *and publishes* a release on every push to this
-branch (version = current minor + commit count, e.g. `1.1.12`), with the APK attached.
-No tagging, no manual step — the app picks it up on its next check.
+`.github/workflows/build-apk.yml` builds *and publishes* a release on every push to `main`,
+with the APK attached. No tagging, no manual step — the app picks it up on its next check.
 
-> If a run fails in ~2 seconds with **no steps and `runner_id: 0`**, Actions is not
-> permitted to run for this repository (billing/runner restriction). Enable it in
-> *Settings → Actions → General → Allow all actions*, or just use `publish.bat`.
+Work branches do **not** publish: they build and upload an artifact for inspection only, so
+a side branch can never become "the latest release" for people who already installed the app.
+
+The version follows `app/build.gradle`: patch = base patch + commits since the last `v*` tag
+(so `1.4.22` / `1002033` becomes `1.4.23` / `1002034`), keeping the `1002xxx` convention the
+in-app updater compares against.
+
+> This only works while the repository is **public** — GitHub Actions has no free minutes
+> for private repos on a free plan, and a run then fails in ~2 seconds with no steps and
+> `runner_id: 0`. If that happens, publish from your PC with `publish.bat`.
 
 **Rules of thumb**
 

@@ -31,7 +31,33 @@ def check_string(path, name, body):
         problems.append(f"{path}: string/{name}: dangling %")
 
 
+def check_batch(path):
+    """cmd.exe gotchas: duplicate labels, unresolved jumps, unbalanced parens."""
+    import collections
+    text = open(path, encoding="utf-8", errors="replace").read()
+    labels = [m.group(1).lower() for m in re.finditer(r"^:(\w+)", text, re.M)]
+    for name, count in collections.Counter(labels).items():
+        if count > 1:
+            problems.append(f"{path}: label :{name} defined {count} times")
+    jumps = {m.group(1).lower() for m in re.finditer(r"(?:goto|call) :(\w+)", text)}
+    for missing in sorted(jumps - set(labels) - {"eof"}):
+        problems.append(f"{path}: jumps to undefined label :{missing}")
+    depth = 0
+    for i, line in enumerate(text.split("\n"), 1):
+        stripped = line.strip()
+        if stripped.upper().startswith(("REM", "ECHO", ":")):
+            continue
+        bare = re.sub(r"\^\(|\^\)", "", line)
+        bare = re.sub(r'"[^"]*"', '""', bare)
+        depth += bare.count("(") - bare.count(")")
+        if depth < 0:
+            problems.append(f"{path}:{i}: unbalanced ')' ")
+
+
 def main():
+    for path in glob.glob("*.bat"):
+        check_batch(path)
+
     for path in glob.glob("app/src/main/res/values*/*.xml"):
         raw = open(path, encoding="utf-8").read()
         if not raw.lstrip().startswith("<?xml"):

@@ -20,7 +20,7 @@ public final class Settings {
     public static final String K_HIDE_WEB_SIDEBAR = "hide_web_sidebar";
     /** Hide the page's own header when arena draws one. */
     public static final String K_HIDE_WEB_HEADER = "hide_web_header";
-    /** Chrome-like user agent instead of the WebView one (no "Verify you are human"). */
+    /** Report a Chrome-like UA instead of the WebView one. Off by default (see below). */
     public static final String K_DESKTOP_UA = "chrome_user_agent";
     /** Notification when an update is published. */
     public static final String K_NOTIFY_UPDATES = "notify_updates";
@@ -71,8 +71,16 @@ public final class Settings {
         return get(c, K_HIDE_WEB_HEADER, false);
     }
 
+    /**
+     * Off by default.
+     *
+     * A spoofed "desktop Chrome" UA is exactly what Google's OAuth policy looks for
+     * ("disallowed_useragent"), and it also hides which client is signing in, so the
+     * honest WebView UA is the default now. The switch is still here for anyone who
+     * wants the old behaviour for ordinary browsing.
+     */
     public static boolean chromeUserAgent(Context c) {
-        return get(c, K_DESKTOP_UA, true);
+        return get(c, K_DESKTOP_UA, false);
     }
 
     public static boolean notifyUpdates(Context c) {

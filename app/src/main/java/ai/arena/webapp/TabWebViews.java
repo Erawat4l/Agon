@@ -380,7 +380,12 @@ public final class TabWebViews {
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
         s.setJavaScriptCanOpenWindowsAutomatically(true);
-        s.setSupportMultipleWindows(false);
+        // window.open() MUST be allowed: with setSupportMultipleWindows(false) the WebView
+        // silently drops every popup, WebChromeClient.onCreateWindow is never called, and
+        // "Continue with Google" (which opens its account chooser in a popup) does nothing
+        // at all - it just rebinds the page that is already showing. The popup itself is
+        // hosted in-app by MainActivity.onCreateWindow, never by a browser.
+        s.setSupportMultipleWindows(true);
         // Use the phone's real width (CSS px) instead of a zoomed-out desktop viewport,
         // so arena's own responsive layout is the one that runs and nothing is cropped
         // on the right. applyChromeInsets() then pins the document to that width.

@@ -16,8 +16,8 @@ android {
         targetSdk 34
         // versionName drives the in-app updater. publish.bat / CI stamp the real
         // version from the release tag, so these are just local defaults.
-        def vCode = (project.findProperty('VERSION_CODE') ?: '1002011').toString()
-        def vName = (project.findProperty('VERSION_NAME') ?: '1.4.0').toString()
+        def vCode = (project.findProperty('VERSION_CODE') ?: '1002012').toString()
+        def vName = (project.findProperty('VERSION_NAME') ?: '1.4.1').toString()
         versionCode vCode.toInteger()
         versionName vName
 
@@ -72,6 +72,9 @@ android {
 }
 
 dependencies {
+    // Custom Tabs: only used for the optional "open sign-in in a browser" route,
+    // because Google's OAuth policy refuses to finish inside a WebView.
+    implementation 'androidx.browser:browser:1.8.0'
     // Only for FileProvider, which the package installer needs to read the
     // downloaded APK. Everything else is platform APIs.
     implementation 'androidx.core:core:1.13.1'

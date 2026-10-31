@@ -243,6 +243,23 @@ public final class SignInSheet {
                 "GitHub", ARENA_SIGN_IN, false));
         sheet.addView(chooser);
 
+        // Google's OAuth policy stops sign-in from completing inside an embedded WebView
+        // (403: disallowed_useragent). The provider rows above still try, in-app, because
+        // GitHub's flow does work there and Google's own chooser may work on some builds -
+        // this row is the honest fallback for when it does not.
+        TextView viaBrowser = AppUi.text(activity,
+                activity.getString(R.string.signin_via_browser), 13f,
+                R.color.on_bg, true);
+        viaBrowser.setGravity(Gravity.CENTER);
+        viaBrowser.setPadding(0, AppUi.dp(activity, 12), 0, AppUi.dp(activity, 12));
+        viaBrowser.setBackground(AppUi.pressable(activity,
+                AppUi.color(activity, R.color.surface2), 14f));
+        viaBrowser.setOnClickListener(v -> {
+            AppUi.press(v);
+            openInBrowser(ARENA_SIGN_IN);
+        });
+        sheet.addView(viaBrowser);
+
         TextView note = AppUi.text(activity, activity.getString(R.string.signin_note), 11.5f,
                 R.color.on_bg_muted, false);
         note.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -326,14 +343,6 @@ public final class SignInSheet {
         return out.toString();
     }
 
-    /**
-     * The WebView that hosts the provider page, so a window.open() from the page can be
-     * handed the *same* renderer instead of a second one being created.
-     */
-    public WebView providerWebView() {
-        return web;
-    }
-
     /** Remembers the account once the provider page has completed a session. */
     public void rememberSignIn(String email, String provider) {
         LocalProfile.remember(activity, email, provider);
@@ -388,7 +397,9 @@ public final class SignInSheet {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setJavaScriptCanOpenWindowsAutomatically(true);
-        s.setSupportMultipleWindows(false);
+        // Provider sign-in opens the account chooser with window.open(); dropping popups
+        // here is what made "Continue with Google" appear to do nothing.
+        s.setSupportMultipleWindows(true);
         s.setUserAgentString(AppChrome.userAgent(activity, s.getUserAgentString()));
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -442,6 +453,42 @@ public final class SignInSheet {
             web.postDelayed(() -> web.evaluateJavascript(
                     "try{localStorage.setItem('arena-account','" + pendingEmail + "');}"
                             + "catch(e){}", null), 400);
+        }
+    }
+
+    /**
+     * The one route that can finish Google's OAuth: a Custom Tab.
+     *
+     * Chrome is a real browser, so Google allows the flow there - but the session cookie
+     * then belongs to Chrome, not to this app's WebView, and there is no public API to
+     * copy it across. So this is offered as a deliberate exception (the user is told what
+     * it does), not as the default, and the app never silently hands off an ordinary link.
+     */
+    void openInBrowser(String url) {
+        try {
+            androidx.browser.customtabs.CustomTabsIntent.Builder builder =
+                    new androidx.browser.customtabs.CustomTabsIntent.Builder();
+            builder.setShowTitle(true);
+            builder.setShareState(
+                    androidx.browser.customtabs.CustomTabsIntent.SHARE_STATE_OFF);
+            builder.setUrlBarHidingEnabled(true);
+            // Keep the app's colours so it does not look like a foreign app.
+            int bg = AppUi.color(activity, R.color.bg);
+            int surface = AppUi.color(activity, R.color.surface);
+            builder.setDefaultColorSchemeParams(
+                    new androidx.browser.customtabs.CustomTabColorSchemeParams.Builder()
+                            .setToolbarColor(surface)
+                            .setNavigationBarColor(bg)
+                            .setSecondaryToolbarColor(surface)
+                            .build());
+            builder.setColorScheme(
+                    androidx.browser.customtabs.CustomTabsIntent.COLOR_SCHEME_SYSTEM);
+            builder.build().launchUrl(activity, android.net.Uri.parse(url));
+            dismiss();
+        } catch (Exception error) {
+            // No Custom Tabs provider on the device: say so instead of doing nothing.
+            android.widget.Toast.makeText(activity, R.string.signin_no_browser,
+                    android.widget.Toast.LENGTH_LONG).show();
         }
     }
 
@@ -525,9 +572,7 @@ public final class SignInSheet {
      */
     private void verifySession() {
         final String cookies = CookieManager.getInstance().getCookie("https://arena.ai");
-        boolean hasCookie = cookies != null
-                && (cookies.contains("session") || cookies.contains("auth")
-                || cookies.contains("token") || cookies.contains("user"));
+        boolean hasCookie = hasSessionCookie(cookies);
         if (hasCookie) {
             finishSuccessfully();
             return;
@@ -555,6 +600,28 @@ public final class SignInSheet {
             }
             finishSuccessfully();
         });
+    }
+
+    /**
+     * True when the cookie jar holds one of the session cookies a site like arena.ai sets.
+     *
+     * Detecting "signed in" from the DOM ("is there still a Log in button?") is a guess
+     * that breaks on every redesign. The cookie is the evidence: this covers Supabase SSR
+     * (sb-<ref>-auth-token, sometimes chunked as .0/.1), Auth.js v5
+     * (authjs.session-token, __Secure-authjs.session-token), NextAuth v4
+     * (next-auth.session-token), Clerk (__session) and a plain session/auth cookie.
+     * CookieManager.getCookie() includes HttpOnly cookies, unlike document.cookie.
+     */
+    static boolean hasSessionCookie(String cookies) {
+        if (cookies == null || cookies.isEmpty()) return false;
+        String all = cookies.toLowerCase(java.util.Locale.ROOT);
+        String[] markers = {"sb-", "-auth-token", "authjs.session-token",
+                "next-auth.session-token", "__session", "session", "sessionid",
+                "auth_token", "access_token", "connect.sid"};
+        for (String marker : markers) {
+            if (all.contains(marker)) return true;
+        }
+        return false;
     }
 
     private void finishSuccessfully() {

@@ -22,6 +22,8 @@ public final class MenuSheet {
 
         void onSettings();
 
+        void onDiagnostics();
+
         void onClearAppData();
 
         void setAppearance(int mode);
@@ -91,6 +93,13 @@ public final class MenuSheet {
                 false, v -> {
                     dismiss(parent, scrim, callback);
                     callback.onSignIn();
+                });
+
+        addRow(activity, sheet, R.string.menu_diagnostics,
+                activity.getString(R.string.menu_diagnostics_sub),
+                R.drawable.ic_nav_open, false, v -> {
+                    dismiss(parent, scrim, callback);
+                    callback.onDiagnostics();
                 });
 
         // Appearance: three-state chip row (System / Light / Dark).

@@ -618,38 +618,73 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     // ------------------------------------------------------------------ in-app auth
 
     /**
-     * Pages that call window.open (some providers do, bypassing the sheet's own
-     * navigation) are routed into the same in-app sign-in flow.
+     * A page opened a window (window.open / target=_blank).
+     *
+     * Provider sign-in does exactly this: "Continue with Google" opens its account
+     * chooser as a popup, and GitHub's flow does the same for its device page. The popup
+     * is hosted in a fresh in-app WebView that shares this app's cookie jar, so the
+     * session it sets is the session the arena tab uses - nothing ever leaves the app.
+     *
+     * A small guard on top: a popup that opens on the *provider's own* site is shown in
+     * the sign-in sheet; anything else (a window opened by an ordinary page) is placed in
+     * the main tab instead, so a stray popup can never cover the app.
      */
     private void showAuthPopup(WebView parent, android.os.Message resultMsg) {
-        // Speed and memory: do NOT build a second WebView for the provider window. Hand
-        // the page the WebView the sheet already owns - one renderer instead of two, and
-        // the popup inherits the session cookies of the page that opened it.
-        if (signInSheet == null) startProviderSignIn(null);
-        WebView popup = signInSheet.providerWebView();
-        if (popup == null) {
-            // The sheet could not provide one (not opened yet): fall back to a fresh
-            // WebView rather than dropping the page's request on the floor.
-            popup = buildPopupWebView();
+        final WebView popup = buildPopupWebView();
+        if (resultMsg != null && resultMsg.obj instanceof WebView.WebViewTransport) {
+            WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+            transport.setWebView(popup);
+            resultMsg.sendToTarget();
         }
-        WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
-        transport.setWebView(popup);
-        resultMsg.sendToTarget();
-        signInSheet.showProviderView(popup);
+        // The transport hands the popup its first URL asynchronously; ask for it next frame.
+        popup.post(() -> {
+            String url = popup.getUrl();
+            if (url == null) url = "";
+            boolean provider = url.contains("accounts.google") || url.contains("google.com")
+                    || url.contains("github.com") || url.contains("appleid.apple.com")
+                    || url.contains("arena.ai") || url.isEmpty();
+            if (provider && signInSheet != null) {
+                signInSheet.showProviderView(popup);
+            } else if (provider) {
+                startProviderSignIn(null);
+                if (signInSheet != null) signInSheet.showProviderView(popup);
+            } else if (tabs != null) {
+                tabs.loadInCurrent(url);
+            }
+        });
     }
 
-    /** Last-resort provider WebView, only used when the sheet has none yet. */
+    /**
+     * The WebView that hosts a popup.
+     *
+     * Same cookie jar, same user agent and the same "stay inside the app" navigation
+     * policy as a tab; only the chrome client differs, because a popup may itself open a
+     * window (Google's second step does).
+     */
     private WebView buildPopupWebView() {
         WebView popup = new WebView(this);
+        popup.setBackgroundColor(AppUi.color(this, R.color.bg));
         android.webkit.WebSettings s = popup.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
         s.setJavaScriptCanOpenWindowsAutomatically(true);
-        s.setSupportMultipleWindows(false);
+        s.setSupportMultipleWindows(true);
+        s.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setUserAgentString(Settings.chromeUserAgent(this)
                 ? AppChrome.userAgent(this, s.getUserAgentString())
                 : AppChrome.defaultUserAgent(this));
+        CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
+        popup.setWebViewClient(newTabClient());
+        popup.setWebChromeClient(new AppChrome.Base(this) {
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
+                                          android.os.Message message) {
+                showAuthPopup(view, message);
+                return true;
+            }
+        });
         return popup;
     }
 
@@ -916,6 +951,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             @Override
             public void onSettings() {
                 showSettingsSheet();
+            }
+
+            @Override
+            public void onDiagnostics() {
+                SignInDiagnostics.show(MainActivity.this, window, tabs.current());
             }
 
             @Override

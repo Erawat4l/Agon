@@ -316,7 +316,7 @@ PROJECT_CLASSES = ("AppUi", "AppChrome", "TabWebViews", "UpdateManager", "Update
                    "UpdateNotifications", "UpdateSheet", "MenuSheet", "SignInSheet",
                    "AccountPicker", "CrashLog", "NavIcons", "WebBridge", "Downloads",
                    "ApkInstaller", "SettingsSheet", "Settings", "ChatHistorySheet", "LocalProfile",
-                   "SignInDriver")
+                   "SignInDriver", "SignInDiagnostics")
 # Nested handler interfaces and enum constants are not "calls".
 NOT_A_CALL = {"class", "valueOf", "values", "Host", "Callback", "DownloadCallback",
               "CheckCallback", "Progress", "Channel", "Nav", "NavItem", "Result",
@@ -420,7 +420,9 @@ ANDROID_MEMBERS = {
                     "setMixedContentMode", "setCacheMode", "setSupportMultipleWindows",
                     "setDatabaseEnabled", "setAllowFileAccess", "setAllowContentAccess",
                     "setLoadsImagesAutomatically", "setDefaultTextEncodingName",
-                    "setGeolocationEnabled", "getCacheMode", "setMinimumFontSize"},
+                    "setGeolocationEnabled", "getCacheMode", "setMinimumFontSize",
+                    "supportMultipleWindows", "getJavaScriptCanOpenWindowsAutomatically",
+                    "supportZoom", "getTextZoom", "getLoadsImagesAutomatically"},
     "Build": {"MODEL", "MANUFACTURER", "BRAND", "DEVICE", "VERSION", "SDK_INT"},
     "Build.VERSION": {"RELEASE", "SDK_INT", "CODENAME", "PREVIEW_SDK_INT"},
 }
@@ -661,6 +663,17 @@ def check_injected_js(java_paths):
             else:
                 joined = " ".join(_java_literals(body))
             scripts.append((path, name, joined))
+        # Inline scripts written as `String js = "(function(){..."`, as in the diagnostics
+        # and chat-history sheets: same failure mode, so they get the same parse.
+        for match in re.finditer(r'String\s+js\s*=\s*"(?:\(function|\()', src):
+            end = src.find("page.evaluateJavascript", match.start())
+            if end < 0:
+                end = src.find("evaluateJavascript", match.start())
+            if end < 0:
+                continue
+            joined = "".join(_java_literals(src[match.start():end]))
+            line = src[:match.start()].count("\n") + 1
+            scripts.append((path, f"inline js at line {line}", joined))
 
     node = shutil.which("node")
     for path, name, js in scripts:
@@ -706,6 +719,23 @@ def check_injected_js(java_paths):
                 problems.append(f"{path}: {name} has unbalanced brackets or quotes")
 
 
+
+def check_duplicate_resources(paths):
+    """Two <string name="x"> in one file is an aapt2 error, not a warning."""
+    for path in paths:
+        raw = open(path, encoding="utf-8", errors="replace").read()
+        seen = {}
+        for m in re.finditer(r'<(string|color|dimen|bool|integer|style)\s+name="([^"]+)"',
+                             raw):
+            key = m.group(1) + "/" + m.group(2)
+            line = raw[:m.start()].count("\n") + 1
+            if key in seen:
+                problems.append(f"{path}:{line}: duplicate resource {key} "
+                                f"(first defined on line {seen[key]})")
+            else:
+                seen[key] = line
+
+
 def main():
     for path in glob.glob("*.bat"):
         check_batch(path)
@@ -727,6 +757,7 @@ def main():
     value_files = glob.glob("app/src/main/res/values*/*.xml")
     check_xml_files()
     check_string_close(value_files)
+    check_duplicate_resources(value_files)
     for path in value_files:
         raw = open(path, encoding="utf-8").read()
         for m in re.finditer(r'<string name="([^"]+)">(.*?)</string>', raw, re.S):

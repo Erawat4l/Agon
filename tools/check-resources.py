@@ -661,6 +661,36 @@ def check_colour_names(java_paths):
 RES_DIR = "app/src/main/res"
 
 
+def check_shell_attributes(res_paths):
+    """Framework-theme attributes are not available to this app.
+
+    `?attr/colorControlNormal` (and the rest of the android: namespace versions of it) come
+    from AppCompat / Material themes. This app is a bare `android.app.Activity` with its own
+    colours, so a drawable or layout referencing one fails at link time with
+    "resource attr/colorControlNormal not found" - after the build has already spent the
+    time compiling. Anything like that is reported here instead.
+    """
+    allowed = set()
+    for path in glob.glob("app/src/main/res/values/*.xml"):
+        raw = open(path, encoding="utf-8", errors="replace").read()
+        allowed.update(re.findall(r'<attr\s+name="([\w.]+)"', raw))
+    for path in res_paths:
+        if not path.endswith(".xml"):
+            continue
+        raw = open(path, encoding="utf-8", errors="replace").read()
+        # `?attr/name` references a theme attribute; `?xml` is just the XML declaration.
+        for m in re.finditer(r"[?]attr/([A-Za-z_][\w.]*)", raw):
+            name = m.group(1)
+            if name in allowed:
+                continue
+            if name.startswith("android:"):
+                continue
+            line = raw[:m.start()].count("\n") + 1
+            problems.append(f"{path}:{line}: ?attr/{name} is a framework/AppCompat theme "
+                            f"attribute this app does not define - link will fail; use a "
+                            f"colour from res/values/colors.xml instead")
+
+
 def check_xml_files():
     """Parses every XML file the way aapt2 does.
 
@@ -981,6 +1011,7 @@ def main():
 
     value_files = glob.glob("app/src/main/res/values*/*.xml")
     check_xml_files()
+    check_shell_attributes(glob.glob("app/src/main/res/**/*.xml", recursive=True))
     check_string_close(value_files)
     check_duplicate_resources(value_files)
     for path in value_files:

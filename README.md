@@ -116,34 +116,24 @@ and the link it comes back with is what finishes the sign-in **in the app**.
    button, and finally on `/leaderboard`, which does render one).
 3. `window.open` / `target=_blank` from the page is captured by `onCreateWindow` and hosted
    as a layer of the same in-app sheet instead of being dropped or pushed to Chrome.
-4. Success is decided by the page: cookies cannot be read when they are HttpOnly, so a
+4. When arena hands the account step to Google (`accounts.google.*`), the sheet stops
+   looking for Arena's dialog — there is none on that host — and says whose page is on
+   screen. The account is entered there, and the round-trip back to arena.ai finishes the
+   sign-in. If Google refuses the embedded page outright ("This browser or app may not be
+   secure"), the header says so and the *Sign in in a browser* row is always one tap away.
+5. Success is decided by the page: cookies cannot be read when they are HttpOnly, so a
    rendered arena page that offers no sign-in control **is** the signed-in state. A page
    that still offers one keeps the sheet open and says so.
-5. **If Google refuses the embedded page** (403 `disallowed_useragent`): the labelled
+6. **If Google refuses the embedded page** (403 `disallowed_useragent`): the labelled
    *Sign in in a browser* row opens the site in the real browser, and the ticket that
    returns (`arena.ai/auth/handoff?ticket=…`, or any arena link carrying a ticket/code)
    comes back to the app, is opened in its own WebView, and becomes a normal in-app
    session. The browser is a step, not the destination.
-6. Back closes the sheet.
+7. Back closes the sheet.
 
 `AppChrome.openExternally()` no longer hands http(s) links to another app at all: only
 non-web schemes (`mailto:`, `market:`, `intent:`) leave Arena, everything else opens in
 an in-app WebView sheet. That is what used to drop you into Chrome.
-
-### Appearance follows the app *and* the web content
-
-The Light/Dark/System setting does not stop at the native chrome: the app also tells
-arena.ai to switch palette. arena accepts `?__theme=dark|light` and keeps the choice in
-`localStorage`, so `TabWebViews.applyTheme()` sets both and re-applies it after every page
-load (and on each tab switch), which keeps the page from flipping back to light.
-
-### Sign-in: Google, in the app, with a browser handoff
-
-**More → Sign in to Arena** opens a bottom sheet with *Continue with Google* (plus the
-account this device last used, if any). The provider's real login page opens **inside the
-app**; the sheet finishes when the round-trip returns to arena.ai and the page reports a
-session. If Google blocks the embedded page, the browser row is there — and the link the
-browser comes back with is what puts the session inside the app.
 
 ### Appearance follows the app *and* the page
 
@@ -152,17 +142,10 @@ Light/Dark/System does not stop at the native chrome. Arena accepts a
 both — and re-applies it after every page load and on each tab switch, otherwise the page
 flips itself back to light.
 
-### In-app sign-in
-
-**More → Sign in to Arena** opens the sheet above. Pages that call `window.open`
-themselves are routed into the same sheet instead of being dropped or sent to Chrome.
-
 ### Navigation, animation, theme
 
 - Bottom nav shows **icons + labels**; a slim chevron handle above it collapses the bar
   to icons only and back (the old always-visible bar with a refresh button is gone).
-- **Four tabs: Chat · Rankings · Search · More.** Updates live inside the More sheet, and
-  More carries the dot / "Update!" label when a release is waiting.
 - **Four tabs only: Chat · Rankings · Search · More.** Updates live inside the More
   sheet, and More carries the update dot/label when a release is waiting.
 - Top bar is now just the brand plus a contextual **update chip** (only when one exists)
@@ -380,7 +363,7 @@ installer requires) — everything else is platform APIs, so the APK stays small
 | `Android SDK not found` | Install Android Studio once, or set `ANDROID_HOME` to your SDK folder |
 | `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | You had a build with a different signature — uninstall the old app first |
 | Play Protect blocks the install | Normal for sideloaded APKs — choose *"Install anyway"* |
-| Blank page after sign-in | Clear the app's data (More → Clear app data), or check that your network allows Google/Apple auth |
+| Blank page after sign-in | Clear the app's data (More → Clear app data), or check that your network allows Google sign-in |
 | Update check says *private repo* | Add the GitHub token — the app asks on first launch, or use Update → GitHub token |
 | `publish.bat` says 401/403 | Token needs **Contents: read and write** on this exact repo |
 | Actions run fails instantly, 0 steps | Actions is blocked for the repo — use `publish.bat` |

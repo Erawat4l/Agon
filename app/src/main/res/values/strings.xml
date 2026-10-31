@@ -140,6 +140,8 @@
     <string name="profile_session_pending">Finish the provider page once to save the session</string>
     <string name="profile_forget">Forget</string>
     <string name="signin_progress_for">%1$s is opening its own sign-in page</string>
+    <string name="signin_provider_open">%1$s is asking for the account itself - sign in on this page, and it comes back to Arena</string>
+    <string name="signin_provider_blocked">%1$s will not sign in inside an app - use the browser line below, and the session still comes back here</string>
     <string name="updates_dropdown_installed">Installed %1$s · build %2$d</string>
     <string name="updates_dropdown_latest">Latest on GitHub: %1$s</string>
     <string name="settings_selectable">App-style text</string>

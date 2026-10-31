@@ -62,6 +62,12 @@ public final class SignInSheet {
     private TextView progressText;
     /** True once the driver moved to the fallback page; the dialog search restarts there. */
     private boolean onFallback;
+    /**
+     * True once the provider's own page (accounts.google.com) is what the user is looking
+     * at. From then on the sign-in is finished by hand on that page, and the sheet must
+     * say so instead of searching for an Arena dialog that cannot be there.
+     */
+    private boolean providerPageShown;
     /** The account window open over the provider page, if any. */
     private WebView accountView;
     /**
@@ -264,8 +270,10 @@ public final class SignInSheet {
                 // A window the page opened can itself be an arena page - that is where the
                 // provider button lives when arena renders the dialog as a popup. Drive
                 // the same dialog search on it instead of leaving a static page on screen.
-                if (view == web && url != null && url.contains("arena.ai")) {
-                    started = false;
+                if (view == web && url != null && url.contains("arena.ai") && !started) {
+                    // Only a page that arrived before any sign-in started needs the dialog
+                    // opened. Clearing the flag here on a page that *is* the return leg
+                    // would restart the search and skip the verification below.
                     driveSignIn();
                 }
                 // The round-trip is back on Arena: ask this page whether it is signed in.
@@ -287,9 +295,65 @@ public final class SignInSheet {
         };
     }
 
+    /**
+     * Says so in the header when the page on screen is Google refusing to sign in here.
+     *
+     * Google answers an embedded WebView it distrusts with "This browser or app may not be
+     * secure" (or a disallowed_useragent error), and no script in the app can get past it.
+     * The header says so, and the browser row underneath is the way through.
+     */
+    private void reportIfProviderRefused(WebView view) {
+        if (view == null) return;
+        // The script is the test: the words Google uses when it will not sign in here are
+        // "This browser or app may not be secure" and the disallowed_useragent error.
+        final String js = "(function(){try{var t=(document.body&&document.body.innerText)"
+                + "||'';return /may not be secure|disallowed_useragent/i.test(t)?'1':'0';}"
+                + "catch(e){return '0';}})();";
+        try {
+            view.evaluateJavascript(js, value -> {
+                if (value != null && value.contains("1") && progressText != null) {
+                    progressText.setText(activity.getString(
+                            R.string.signin_provider_blocked, pendingProvider));
+                }
+            });
+        } catch (Exception ignored) {
+            // A page that cannot be read is left with the neutral wording.
+        }
+    }
+
+    /**
+     * True for a page that belongs to Google's identity flow rather than to Arena.
+     *
+     * arena.ai opens accounts.google.com for the account step, and nothing on that host is
+     * an Arena control: no Log in button, no provider buttons, no dialog.
+     */
+    static boolean isProviderPage(String url) {
+        if (url == null) return false;
+        String host;
+        try {
+            host = Uri.parse(url).getHost();
+        } catch (Exception notAUrl) {
+            return false;
+        }
+        if (host == null) return false;
+        host = host.toLowerCase(java.util.Locale.ROOT);
+        // accounts.google.com, and the country hosts Google actually serves
+        // (accounts.google.co.in on the phone this was reported from).
+        return host.startsWith("accounts.google.");
+    }
+
     /** Reports what the provider window is showing, instead of a frozen "Signing in". */
     private void refreshAccountProgress(WebView view, String url) {
         if (view == null || url == null) return;
+        // Google's page is not "opening its sign-in page" - it *is* the sign-in page. The
+        // header said the former while an email box sat on screen, which reads like the
+        // app is stuck.
+        if (isProviderPage(url)) {
+            providerPageShown = true;
+            started = true;
+            setProgress(activity.getString(R.string.signin_provider_open, pendingProvider));
+            return;
+        }
         String pageHost = "";
         try {
             pageHost = Uri.parse(url).getHost() == null ? "" : Uri.parse(url).getHost();
@@ -493,6 +557,11 @@ public final class SignInSheet {
     private void openProvider(String hostFilter, String startUrl) {
         pendingProvider = hostFilter;
         started = false;
+        // A new attempt starts on Arena's page, so the "Google is asking for the account"
+        // state from the previous one must not survive it.
+        providerPageShown = false;
+        onFallback = false;
+        dialogRounds = 0;
         // Save the choice locally *before* the provider page runs: if the page is slow or
         // the user leaves, the next attempt already knows which account this is.
         LocalProfile.remember(activity, pendingEmail, hostFilter);
@@ -561,7 +630,16 @@ public final class SignInSheet {
             @Override
             public void onPageFinished(WebView view, String webUrl) {
                 super.onPageFinished(view, webUrl);
-                if (webUrl == null || !webUrl.contains("arena.ai")) return;
+                if (webUrl == null) return;
+                if (isProviderPage(webUrl)) {
+                    providerPageShown = true;
+                    started = true;
+                    setProgress(activity.getString(R.string.signin_provider_open,
+                            pendingProvider));
+                    reportIfProviderRefused(view);
+                    return;
+                }
+                if (!webUrl.contains("arena.ai")) return;
                 if (started) return;
                 // Arena's own page is up: open its sign-in dialog, then press the
                 // provider the user chose. Without this the sheet only ever loaded the
@@ -582,6 +660,22 @@ public final class SignInSheet {
 
         column.addView(web, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        // The way out of a Google page that refuses to finish here. Google sometimes stops
+        // an embedded WebView outright ("This browser or app may not be secure"), and that
+        // is not something the app can argue with - but it must be one visible tap away
+        // instead of a page the user cannot leave.
+        TextView viaBrowser = AppUi.text(activity,
+                activity.getString(R.string.signin_browser_row), 12.5f, R.color.on_bg_muted,
+                false);
+        viaBrowser.setGravity(Gravity.CENTER);
+        viaBrowser.setPadding(0, AppUi.dp(activity, 10), 0, AppUi.dp(activity, 10));
+        viaBrowser.setOnClickListener(v -> {
+            AppUi.press(v);
+            openBrowserChooser(ARENA_SIGN_IN);
+        });
+        column.addView(viaBrowser, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         root = new FrameLayout(activity);
         root.setBackgroundColor(AppUi.color(activity, R.color.bg));
@@ -705,6 +799,11 @@ public final class SignInSheet {
         if (progressText != null) {
             progressText.setText(activity.getString(R.string.signin_browser_returned));
         }
+        // A ticket only exists because a sign-in happened in the browser, so every page
+        // this load produces is part of that sign-in - without this flag onPageFinished
+        // never verified it and the sheet kept saying "signed out" after a good handoff.
+        started = true;
+        providerPageShown = false;
         web.loadUrl(uri.toString());
         // The page sets the cookie while it renders; verify once it has had a moment.
         ui.postDelayed(this::verifySession, 2500);
@@ -724,6 +823,14 @@ public final class SignInSheet {
      */
     private void driveSignIn() {
         if (web == null) return;
+        if (providerPageShown || isProviderPage(web.getUrl())) {
+            // Google's page owns the sign-in now. Searching it for Arena's dialog is what
+            // burned every round and ended on the fallback page.
+            providerPageShown = true;
+            started = true;
+            setProgress(activity.getString(R.string.signin_provider_open, pendingProvider));
+            return;
+        }
         started = true;
         dialogRounds = 0;
         setProgress(activity.getString(R.string.signin_step_dialog));
@@ -741,6 +848,16 @@ public final class SignInSheet {
             if (web == null) return;
             if (SignInDriver.CLICKED.equals(first) || SignInDriver.ALREADY.equals(first)) {
                 chooseProvider();
+                return;
+            }
+            if (SignInDriver.ON_PROVIDER.equals(first)) {
+                // Google's own page is on screen: Arena's dialog is not on this host, so
+                // searching it again only ever ended in the fallback, which is what left
+                // the phone on "accounts.google.com is opening its own sign-in page".
+                started = true;
+                providerPageShown = true;
+                setProgress(activity.getString(R.string.signin_provider_open,
+                        pendingProvider));
                 return;
             }
             if (SignInDriver.RETRY.equals(first)) {

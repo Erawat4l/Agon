@@ -43,6 +43,8 @@ final class SignInDriver {
     /** Answers the caller can get back from a step. */
     static final String CLICKED = "clicked";
     static final String ALREADY = "open";
+    /** The page on screen is already the provider's own sign-in (accounts.google.com). */
+    static final String ON_PROVIDER = "provider";
     static final String NOTHING = "none";
     /** Something that opens the sign-in path was pressed: look again in a moment. */
     static final String RETRY = "retry";
@@ -88,11 +90,20 @@ final class SignInDriver {
      * Opens Arena's sign-in dialog.
      *
      * Answer: "clicked" (a Log in control was pressed), "open" (the dialog with the
-     * provider buttons is already showing), "retry" (a menu or "Get started" was pressed,
+     * provider buttons is already showing), "provider" (this *is* the provider's page, so
+     * there is nothing of Arena's to open), "retry" (a menu or "Get started" was pressed,
      * so the sign-in entry may exist now) or "none" (nothing matched at all).
      */
     static final String OPEN_DIALOG_JS = JS_PRELUDE
             + "(function(){try{"
+            // The page the sheet is showing may already be the provider's own sign-in.
+            // Arena's dialog does not exist there, and the old code spent all ten of its
+            // search rounds on accounts.google.com before giving up - which is exactly the
+            // screen the phone was left on, with the header claiming Google was opening
+            // its sign-in page.
+            + "var __h=(location.hostname||'').toLowerCase();"
+            + "if(__h&&__h.indexOf('arena.ai')<0&&__h.indexOf('lmarena.ai')<0"
+            + "&&__h.indexOf('google')<0)return 'none';"
             // Controls, and the plain text nodes that arena also uses as buttons: its
             // server-rendered leaderboard shows the words as a bare span, which no
             // button/a selector would ever find.
@@ -100,6 +111,14 @@ final class SignInDriver {
             + "[data-testid],div[tabindex],span[tabindex]');"
             + "var T=__A.all('span,div,li,p');"
             + "function L(el){return __A.label(el).toLowerCase();}"
+            // Google's own sign-in is on screen: an email field asking to continue to
+            // Arena, or the account chooser's title. Nothing here is an Arena Log in
+            // control, so the driver says so instead of searching for one.
+            + "if(__h.indexOf('google')>=0){"
+            + "var hasMail=__A.all('input[type=email],input[name=identifier]').length>0;"
+            + "var asksArena=/continue to arena|choose an account|sign in with google/i"
+            + ".test(((document.body&&document.body.innerText)||'').slice(0,4000));"
+            + "if(hasMail||asksArena)return 'provider';}"
             // The provider buttons are on screen already: the dialog is open.
             + "for(var i=0;i<C.length;i++){var t=L(C[i]);"
             + "if(__A.seen(C[i])&&(t.indexOf('google')>=0||t.indexOf('github')>=0))return 'open';}"

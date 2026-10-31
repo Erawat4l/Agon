@@ -448,8 +448,9 @@ public final class UpdateManager {
         }
     }
 
+    /** major*1,000,000 + minor*1,000 + patch — headroom for CI run numbers. */
     static int pack(int major, int minor, int patch) {
-        return major * 10000 + minor * 100 + patch;
+        return major * 1000000 + minor * 1000 + patch;
     }
 
     static String versionLabel(String tag, String name) {

@@ -130,14 +130,14 @@ git tag v1.0.1 && git push origin v1.0.1
 ```
 
 Pushing a `v*` tag triggers `.github/workflows/build-apk.yml`, which builds with that
-version (`v1.0.1` → `versionCode 10001`), attaches `ArenaAI-1.0.1.apk` to a GitHub
+version (`v1.0.1` → `versionCode 1000001`), attaches `ArenaAI-1.0.1.apk` to a GitHub
 Release, and every installed copy of the app sees it on its next check. Pushes to a
-branch also build a numbered `1.0.<run>` APK artifact (not a release), so the updater
-stays quiet until you tag.
+branch also build a `0.0.<run>` APK artifact (not a release) with a tiny version
+code, so a tagged release always outranks it and the updater stays quiet until you tag.
 
 **Rules of thumb**
 
-- Bump the tag every release: `v1.0.1`, `v1.0.2`, … (version code = `major*10000 + minor*100 + patch`).
+- Bump the tag every release: `v1.0.1`, `v1.0.2`, … (version code = `major*1,000,000 + minor*1,000 + patch`).
 - The release must contain an `.apk` asset; the app picks the first one.
 - Debug and release builds are separate installs (`ai.arena.webapp.debug` vs
   `ai.arena.webapp`) — each updates itself from the same release.

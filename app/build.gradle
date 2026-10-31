@@ -16,7 +16,7 @@ android {
         targetSdk 34
         // versionName drives the in-app updater: releases must be tagged v1.0.1,
         // v1.0.2, ... so each release is newer than the installed build.
-        versionCode (project.findProperty('VERSION_CODE') ?: '10000').toInteger()
+        versionCode (project.findProperty('VERSION_CODE') ?: '1000000').toInteger()
         versionName (project.findProperty('VERSION_NAME') ?: '1.0.0')
 
         buildConfigField "String", "ARENA_GH_TOKEN", '"' + (project.findProperty("ARENA_GH_TOKEN") ?: "") + '"'

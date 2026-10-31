@@ -27,14 +27,17 @@ jobs:
         id: version
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            # Tagged release: v1.2.3 -> versionCode 1002003
             NAME="${GITHUB_REF_NAME#v}"
+            MAJOR="$(echo "$NAME" | cut -d. -f1)"; MAJOR="${MAJOR:-1}"
+            MINOR="$(echo "$NAME" | cut -d. -f2)"; MINOR="${MINOR:-0}"
+            PATCH="$(echo "$NAME" | cut -d. -f3)"; PATCH="${PATCH:-0}"
+            CODE=$((10#$MAJOR * 1000000 + 10#$MINOR * 1000 + 10#$PATCH))
           else
-            NAME="1.0.${GITHUB_RUN_NUMBER}"
+            # Unreleased branch build: 0.0.<run> so any tagged release outranks it
+            NAME="0.0.${GITHUB_RUN_NUMBER}"
+            CODE=$((GITHUB_RUN_NUMBER))
           fi
-          MAJOR="$(echo "$NAME" | cut -d. -f1)"; MAJOR="${MAJOR:-1}"
-          MINOR="$(echo "$NAME" | cut -d. -f2)"; MINOR="${MINOR:-0}"
-          PATCH="$(echo "$NAME" | cut -d. -f3)"; PATCH="${PATCH:-0}"
-          CODE=$((10#$MAJOR * 10000 + 10#$MINOR * 100 + 10#$PATCH))
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "Building Arena $NAME (versionCode $CODE)"

@@ -17,6 +17,7 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 /** Native UI kit: palette, icons, animated nav, cards, press feedback. */
@@ -178,9 +179,10 @@ public final class AppUi {
         final TextView labelView;
         final ImageView iconView;
         final View dot;
+        final View spinner;
 
         NavItem(int tab, int icon, String label, View view, TextView labelView, ImageView iconView,
-                View dot) {
+                View dot, View spinner) {
             this.tab = tab;
             this.icon = icon;
             this.label = label;
@@ -188,6 +190,7 @@ public final class AppUi {
             this.labelView = labelView;
             this.iconView = iconView;
             this.dot = dot;
+            this.spinner = spinner;
         }
     }
 
@@ -254,6 +257,10 @@ public final class AppUi {
         iv.setColorFilter(color(c, R.color.on_bg_muted));
         iconWrap.addView(iv, new FrameLayout.LayoutParams(dp(c, 21), dp(c, 21)));
 
+        View spinner = new ProgressBar(c, null, android.R.attr.progressBarStyleSmall);
+        spinner.setVisibility(View.GONE);
+        iconWrap.addView(spinner, new FrameLayout.LayoutParams(dp(c, 21), dp(c, 21)));
+
         View dot = new View(c);
         dot.setBackground(rounded(color(c, R.color.accent), 5f, c));
         FrameLayout.LayoutParams dotLp = new FrameLayout.LayoutParams(dp(c, 8), dp(c, 8));
@@ -291,7 +298,24 @@ public final class AppUi {
         if (vertical) itemLp.bottomMargin = dp(c, 2);
         bar.addView(item, itemLp);
 
-        return new NavItem(tab, iconRes, c.getString(tabLabel(tab)), item, label, iv, dot);
+        return new NavItem(tab, iconRes, c.getString(tabLabel(tab)), item, label, iv, dot,
+                spinner);
+    }
+
+    /**
+     * Shows a small spinner in place of one nav icon while that view is loading.
+     *
+     * The user's report was about the "…" item: tapping it while a page was still loading
+     * gave no sign that anything was happening. A ring on the item itself answers "is it
+     * doing something?" where the tap was, instead of anywhere else on the screen.
+     */
+    public static void setNavLoading(Nav nav, int tab, boolean loading) {
+        if (nav == null) return;
+        for (NavItem item : nav.items) {
+            if (item.tab != tab) continue;
+            item.spinner.setVisibility(loading ? View.VISIBLE : View.GONE);
+            item.iconView.setVisibility(loading ? View.INVISIBLE : View.VISIBLE);
+        }
     }
 
     /** Applies active tint, the update dot and (optionally) label visibility. */

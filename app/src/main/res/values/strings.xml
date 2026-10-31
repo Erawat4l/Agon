@@ -27,6 +27,7 @@
     <string name="signin_email_note">No password is ever stored by this app. If you have no Arena account yet, Arena\'s page offers sign-up with the same address.</string>
     <string name="signin_step_email_continue">Continuing as %1$s - finish on Arena\'s page</string>
     <string name="signin_step_email_sent">Address entered - enter the password or use the link Arena sends to %1$s</string>
+    <string name="signin_step_password">Address accepted - enter your Arena password on this page</string>
     <string name="signin_step_email_manual">Type the address in Arena\'s field, then press Continue with email</string>
     <string name="signin_in_progress">Signing in</string>
     <string name="signin_still_out">Still signed out - finish the sign-in on this page</string>
@@ -143,6 +144,9 @@
     <string name="settings_app">App</string>
     <string name="settings_sign_in">Sign in to Arena</string>
     <string name="settings_sign_in_sub">Google, or an email address</string>
+    <string name="settings_developer_off">For developers</string>
+    <string name="settings_developer_enable">Enable Developer Settings</string>
+    <string name="settings_developer_enable_sub">Page controls, sign-in diagnostics and test switches</string>
     <string name="settings_developer">Developer options</string>
     <string name="settings_developer_unlocked">Developer options unlocked</string>
     <string name="settings_developer_left">%1$d more taps</string>

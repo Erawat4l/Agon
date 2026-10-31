@@ -674,6 +674,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     void clearStalledLoad() {
         stalledAt.clear();
         hideStalledBar();
+        if (nav != null && tabs != null) {
+            for (int tab : tabs.warmTabs()) AppUi.setNavLoading(nav, tab, false);
+        }
     }
 
     private void hideStalledBar() {
@@ -689,6 +692,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 // half-loaded is the "stuck, never loads" report, so say so on screen and
                 // offer the one thing that unsticks it.
                 watchStalledLoad(view, newProgress);
+                // A ring on the nav item the load belongs to, so a slow page looks busy
+                // instead of broken.
+                final int tab = tabs == null ? -1 : tabs.tabOf(view);
+                if (tab >= 0 && nav != null) {
+                    AppUi.setNavLoading(nav, tab, newProgress < 100);
+                }
             }
 
             /**
@@ -1102,6 +1111,14 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onSignIn() {
                 closeSettingsNow();
                 startSignIn();
+            }
+
+            @Override
+            public void onEnableDeveloperOptions() {
+                Settings.setDeveloperOptions(MainActivity.this, true);
+                Toast.makeText(MainActivity.this, R.string.settings_developer_unlocked,
+                        Toast.LENGTH_SHORT).show();
+                if (settingsSheet != null) settingsSheet.refresh();
             }
 
             @Override

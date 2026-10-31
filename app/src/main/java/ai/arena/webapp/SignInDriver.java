@@ -329,6 +329,20 @@ final class SignInDriver {
             + "return 'nobutton';"
             + "}catch(e){return 'error:'+e.message;}})();";
 
+    /**
+     * True when the page is Arena asking for a password.
+     *
+     * Only Arena's own page is considered: a password field on Google's page belongs to
+     * Google, and this app does not touch it.
+     */
+    static final String PASSWORD_STEP_JS = JS_PRELUDE
+            + "(function(){try{"
+            + "if((location.hostname||'').toLowerCase().indexOf('arena.ai')<0)return 'no';"
+            + "var p=__A.all('input[type=password]');"
+            + "for(var i=0;i<p.length;i++){if(__A.seen(p[i]))return 'yes';}"
+            + "return 'no';"
+            + "}catch(e){return 'no';}})();";
+
     static String fillEmailScript(String email) {
         String safe = email == null ? "" : email;
         // The address is data, not code: it is escaped for a single-quoted JS literal and

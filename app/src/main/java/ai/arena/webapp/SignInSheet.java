@@ -87,6 +87,10 @@ public final class SignInSheet {
     private int providerTries;
     /** How many times the email field has been filled for this sign-in. */
     private int emailTries;
+    /** How many looks have been taken for Arena's password step. */
+    private int passwordTries;
+    /** True once Arena's password field is on screen: nothing else should be pressed. */
+    private boolean atPasswordStep;
 
     public SignInSheet(Activity activity, ViewGroup parent, Host host) {
         this.activity = activity;
@@ -594,6 +598,8 @@ public final class SignInSheet {
         providerChosen = false;
         providerTries = 0;
         emailTries = 0;
+        passwordTries = 0;
+        atPasswordStep = false;
         emailRoute = false;
         // Save the choice locally *before* the provider page runs: if the page is slow or
         // the user leaves, the next attempt already knows which account this is.
@@ -1152,6 +1158,25 @@ public final class SignInSheet {
     }
 
     /**
+     * Waits for Arena's password step and says so when it arrives.
+     *
+     * Also stops the email retries: once Arena is asking for a password, pressing "Continue
+     * with email" again would only bounce the same form.
+     */
+    private void watchForPasswordStep() {
+        if (web == null) return;
+        if (passwordTries++ > 4) return;
+        SignInDriver.step(RUNNER, SignInDriver.PASSWORD_STEP_JS, 1, 0, ui, answer -> {
+            if ("yes".equals(answer)) {
+                atPasswordStep = true;
+                setProgress(activity.getString(R.string.signin_step_password));
+                return;
+            }
+            ui.postDelayed(this::watchForPasswordStep, 900);
+        });
+    }
+
+    /**
      * Types the address into Arena's field and presses its email button, retrying while the
      * dialog settles.
      *
@@ -1160,7 +1185,7 @@ public final class SignInSheet {
      * about seven seconds - enough for a slow page, short enough that the header is honest.
      */
     private void pressEmailField() {
-        if (web == null || !providerChosen) return;
+        if (web == null || !providerChosen || atPasswordStep) return;
         if (emailTries >= 6) {
             setProgress(activity.getString(R.string.signin_step_email_manual));
             return;
@@ -1175,6 +1200,10 @@ public final class SignInSheet {
             if ("filled".equals(answer)) {
                 // Arena owns the next step: the password field, or the emailed link.
                 setProgress(activity.getString(R.string.signin_step_email_sent, address));
+                // Keep going to the next screen when Arena asks for a password there: the
+                // user tapped "sign in with email" once, so they should not have to press
+                // anything to reach the field they were promised.
+                ui.postDelayed(this::watchForPasswordStep, 900);
                 return;
             }
             if (answer.startsWith("error")) {

@@ -96,6 +96,7 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Returning to a tab | keeps DOM, scroll position and session; a silent `focus` event asks the page for fresh data |
 | Caching | `LOAD_DEFAULT` — the network answers, the cache answers only what is still fresh. `LOAD_CACHE_ELSE_NETWORK` painted stale Arena documents and made pages look permanently stuck |
 | Stalled page | a load that has not finished after 9 s raises one small bar: *This page stopped loading — Load again* |
+| Loading ring | the nav item whose page is still loading shows a small spinner in place of its icon |
 | Scroll | scrolling only scrolls; nothing about scrolling triggers a reload |
 | Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
@@ -167,12 +168,13 @@ Light/Dark/System does not stop at the native chrome. Arena accepts a
 both — and re-applies it after every page load and on each tab switch, otherwise the page
 flips itself back to light.
 
-### Developer options
+### Developer Settings
 
-Nothing in the sheet advertises them. Seven taps on the build line in the footer unlocks a
-*Developer options* section: the full switch set (page, navigation, security, updates, the
-version line), **Save**-free sign-in diagnostics, and a lock row to hide it again. A normal
-sheet keeps only appearance, sign-in and data.
+An ordinary sheet shows a user's things only: appearance, sign-in, sign out, clear data.
+Everything a developer needs is behind one row — **Enable Developer Settings** (or seven
+taps on the build line in the footer, the Android gesture) — which adds a *Developer
+options* section: sign-in diagnostics, the page switches (Arena's sidebar and header), every
+test toggle, the version line, reset settings, and a lock row to hide it all again.
 
 ### Navigation, animation, theme
 

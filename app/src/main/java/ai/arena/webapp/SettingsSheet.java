@@ -38,6 +38,8 @@ public final class SettingsSheet {
         void onDeveloperDiagnostics();
 
         void onSignIn();
+
+        void onEnableDeveloperOptions();
     }
 
     /** Slides the sheet away and removes it. */
@@ -139,6 +141,11 @@ public final class SettingsSheet {
         AppUi.slideUp(scroller);
     }
 
+    /** Repaints the list in place (a section appeared or a value changed elsewhere). */
+    public void refresh() {
+        if (list != null) buildRows();
+    }
+
     /** Rebuilds the list; called after a toggle so the labels stay truthful. */
     private void buildRows() {
         list.removeAllViews();
@@ -152,19 +159,19 @@ public final class SettingsSheet {
         action(R.string.settings_sign_in, R.string.settings_sign_in_sub,
                 R.drawable.ic_nav_account, v -> host.onSignIn());
 
-        section(R.string.settings_page);
-        toggle(Settings.K_HIDE_WEB_SIDEBAR, R.string.settings_hide_sidebar,
-                R.string.settings_hide_sidebar_sub, true);
-        toggle(Settings.K_HIDE_WEB_HEADER, R.string.settings_hide_header,
-                R.string.settings_hide_header_sub, true);
-
         section(R.string.settings_app);
         action(R.string.settings_sign_out, R.string.settings_sign_out_sub,
                 R.drawable.ic_nav_account, v -> host.onSignOut());
         action(R.string.settings_clear, R.string.settings_clear_sub,
                 R.drawable.ic_nav_trash, v -> host.onClearData());
-        action(R.string.settings_reset, R.string.settings_reset_sub,
-                R.drawable.ic_nav_reload, v -> host.onResetSettings());
+
+        // The page switches and "reset settings" are developer tools, not user ones: a
+        // person opening Settings wants appearance, their account, and a way to clear data.
+        if (!Settings.developerOptions(activity)) {
+            section(R.string.settings_developer_off);
+            action(R.string.settings_developer_enable, R.string.settings_developer_enable_sub,
+                    R.drawable.ic_nav_settings, v -> host.onEnableDeveloperOptions());
+        }
 
         if (Settings.developerOptions(activity)) developerSection();
 
@@ -220,6 +227,12 @@ public final class SettingsSheet {
      */
     private void developerSection() {
         section(R.string.settings_developer);
+        action(R.string.settings_developer_diag, R.string.settings_developer_diag_sub,
+                R.drawable.ic_nav_settings, v -> host.onDeveloperDiagnostics());
+        toggle(Settings.K_HIDE_WEB_SIDEBAR, R.string.settings_hide_sidebar,
+                R.string.settings_hide_sidebar_sub, true);
+        toggle(Settings.K_HIDE_WEB_HEADER, R.string.settings_hide_header,
+                R.string.settings_hide_header_sub, true);
         toggle(Settings.K_SHOW_NAV, R.string.settings_nav_bar, R.string.settings_nav_bar_sub,
                 true);
         toggle(Settings.K_CHAT_TAPS, R.string.settings_chat_taps,
@@ -242,8 +255,8 @@ public final class SettingsSheet {
                 R.string.settings_auto_check_sub, true);
         toggle(Settings.K_SHOW_VERSION, R.string.settings_show_version,
                 R.string.settings_show_version_sub, false);
-        action(R.string.settings_developer_diag, R.string.settings_developer_diag_sub,
-                R.drawable.ic_nav_settings, v -> host.onDeveloperDiagnostics());
+        action(R.string.settings_reset, R.string.settings_reset_sub,
+                R.drawable.ic_nav_reload, v -> host.onResetSettings());
         action(R.string.settings_developer_lock, R.string.settings_developer_lock_sub,
                 R.drawable.ic_nav_close, v -> {
                     Settings.setDeveloperOptions(activity, false);

@@ -74,6 +74,11 @@ public final class TabWebViews {
         return views.get(tab);
     }
 
+    /** Every tab that currently has a live WebView. */
+    public java.util.List<Integer> warmTabs() {
+        return new java.util.ArrayList<>(views.keySet());
+    }
+
     /** The tab a WebView belongs to, or -1 when it is not one of ours (a popup). */
     public int tabOf(WebView view) {
         if (view == null) return -1;

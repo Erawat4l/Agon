@@ -459,6 +459,27 @@ def check_android_api(paths):
                             f"member")
 
 
+
+def check_colour_names(java_paths):
+    """Every R.color.foo used from Java must exist in values/ and values-night/."""
+    def names(path):
+        try:
+            raw = open(path, encoding="utf-8").read()
+        except OSError:
+            return set()
+        return set(re.findall(r'<color name="([^"]+)"', raw))
+    have = names("app/src/main/res/values/colors.xml")
+    night = names("app/src/main/res/values-night/colors.xml")
+    used = set()
+    for path in java_paths:
+        used |= set(re.findall(r'R\.color\.(\w+)', open(path, encoding="utf-8",
+                                                        errors="replace").read()))
+    for name in sorted(used - have):
+        problems.append(f"R.color.{name} is not defined in values/colors.xml")
+    for name in sorted(have - night):
+        problems.append(f"color {name} has no dark variant in values-night/colors.xml")
+
+
 def main():
     for path in glob.glob("*.bat"):
         check_batch(path)
@@ -467,6 +488,7 @@ def main():
     check_tab_api(java_paths)
     check_java_cross_class(java_paths)
     check_android_api(java_paths)
+    check_colour_names(java_paths)
     for path in java_paths:
         check_java_self_calls(path)
         check_java_shadowing(path)

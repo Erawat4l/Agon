@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Arena" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <!-- Launch frame: matches the app background so startup never flashes white. -->
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowLightStatusBar">true</item>
+        <!-- Consistent serif/sans pairing for anything the platform draws. -->
+        <item name="android:textColorPrimary">@color/on_bg</item>
     </style>
 </resources>

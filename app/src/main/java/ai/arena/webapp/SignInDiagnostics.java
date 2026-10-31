@@ -91,6 +91,21 @@ final class SignInDiagnostics {
         close.setOnClickListener(v -> AppUi.slideDownAndRemove(scrim, parent));
         sheet.addView(close);
 
+        // The trace is a notebook, not an archive: clearing it is how the next experiment
+        // starts from a blank page instead of from three old sign-in attempts.
+        TextView clearTrace = AppUi.text(activity, activity.getString(R.string.diag_clear_trace),
+                13.5f, R.color.on_bg_muted, false);
+        clearTrace.setGravity(Gravity.CENTER);
+        clearTrace.setPadding(0, AppUi.dp(activity, 6), 0, 0);
+        clearTrace.setOnClickListener(v -> {
+            AppUi.press(clearTrace);
+            SignInTrace.clear(activity);
+            android.widget.Toast.makeText(activity, R.string.diag_trace_cleared,
+                    android.widget.Toast.LENGTH_SHORT).show();
+            AppUi.slideDownAndRemove(scrim, parent);
+        });
+        sheet.addView(clearTrace);
+
         FrameLayout.LayoutParams sheetLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sheetLp.gravity = Gravity.BOTTOM;
@@ -141,6 +156,19 @@ final class SignInDiagnostics {
         // chars was the clue that a readable cookie is not the only kind of session there
         // is. Seeing the names is what makes that distinguishable from "no cookies at all".
         facts.append("cookie names: ").append(cookieNames(cookies)).append('\n');
+        // Whether Arena's browser handoff has ever actually reached this app. One word, and
+        // the answer decides whether the browser row may promise a session transfer at all.
+        facts.append("handoff link seen: ")
+                .append(SignInTrace.handoffSeen(activity) ? "yes" : "no")
+                .append('\n');
+        if (SignInTrace.handoffSeen(activity)) {
+            facts.append("handoff url: ").append(SignInTrace.lastHandoff(activity))
+                    .append('\n');
+        }
+        String trace = SignInTrace.log(activity);
+        facts.append("sign-in trace: ")
+                .append(trace.isEmpty() ? "nothing recorded yet" : "").append('\n');
+        if (!trace.isEmpty()) facts.append(trace).append('\n');
         body.setText(facts.toString());
 
         if (page == null) return;

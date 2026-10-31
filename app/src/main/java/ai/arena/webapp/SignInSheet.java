@@ -650,6 +650,10 @@ public final class SignInSheet {
                 super.onPageFinished(view, webUrl);
                 if (webUrl == null) return;
                 if (isProviderPage(webUrl)) {
+                    if (!providerPageShown) {
+                        SignInTrace.note(activity, "google page: "
+                                + SignInTrace.redact(webUrl));
+                    }
                     providerPageShown = true;
                     started = true;
                     setProgress(activity.getString(R.string.signin_provider_open,
@@ -825,6 +829,9 @@ public final class SignInSheet {
         if (progressText != null) {
             progressText.setText(activity.getString(R.string.signin_browser_returned));
         }
+        // Recorded before the load, so the diagnostics can say whether this ever happens.
+        SignInTrace.noteHandoff(activity, uri.toString());
+        SignInTrace.note(activity, "handoff received: " + SignInTrace.redact(uri.toString()));
         // A ticket only exists because a sign-in happened in the browser, so every page
         // this load produces is part of that sign-in - without this flag onPageFinished
         // never verified it and the sheet kept saying "signed out" after a good handoff.
@@ -1154,6 +1161,9 @@ public final class SignInSheet {
     }
 
     private void finishSuccessfully() {
+        SignInTrace.note(activity, "signed in: " + pendingProvider
+                + (web == null || web.getUrl() == null
+                ? "" : " on " + SignInTrace.redact(web.getUrl())));
         // Android 9 writes cookies asynchronously: without this a session that was just
         // established can be lost if the process is killed next.
         CookieManager.getInstance().flush();

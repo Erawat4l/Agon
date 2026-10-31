@@ -1342,6 +1342,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (data == null || data.getHost() == null) return;
         String host = data.getHost().toLowerCase();
         if (!host.endsWith("arena.ai") && !host.endsWith("lmarena.ai")) return;
+        // Record every arena link the OS ever hands us: this is the only place a browser
+        // sign-in could come back into the app, so if nothing is noted here after a real
+        // browser sign-in, the handoff does not exist and the browser row must not promise
+        // it. Secrets are stripped before anything is stored.
+        SignInTrace.note(this, "arena link: " + SignInTrace.redact(data.toString()));
         // A sign-in that started in a browser comes back as a link with a ticket on it.
         // That link is not an ordinary link: it has to be opened inside the app's own
         // WebView so Arena sets the session cookie here, which is the whole point of the

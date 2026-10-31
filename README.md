@@ -140,6 +140,12 @@ and the link it comes back with is what finishes the sign-in **in the app**.
    `arena.ai` / `lmarena.ai` host, but that link has never been observed on a real device,
    so the row says "it stays signed in there, not here" rather than promising a transfer.
    If that link does turn up in real traffic, the handoff already works.
+7. **Finding out for certain.** `SignInTrace` keeps a short local notebook: every arena
+   link the OS hands the app, every Google page that came up, every outcome, with query
+   values stripped to `name=set` — never a ticket, code, token, or anything typed. The
+   diagnostics sheet prints it, says `handoff link seen: yes/no`, and can clear it so an
+   experiment starts blank. Do a browser sign-in, open diagnostics: if nothing was
+   recorded, the handoff does not exist for this app and the browser row stays a caveat.
 7. Back closes the sheet.
 
 `AppChrome.openExternally()` no longer hands http(s) links to another app at all: only

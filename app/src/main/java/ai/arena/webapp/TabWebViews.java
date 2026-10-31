@@ -195,6 +195,26 @@ public final class TabWebViews {
         int cssTop = Math.round(Math.max(0, topPx) / density);
         int cssBottom = Math.round(Math.max(0, bottomPx) / density);
 
+        if (cssTop <= 0 && cssBottom <= 0) {
+            // The WebView is already exactly the free area between the app's bars, so there
+            // is nothing to reserve and nothing to lift. Removing any earlier rule and
+            // leaving arena's page alone is the only safe thing to do here: an injected
+            // margin/height on html or body at this point can only fight the page's own
+            // layout, and that is what made it look mashed together.
+            String clear = "(function(){var a=document.getElementById('arena-app-insets');"
+                    + "if(a)a.remove();"
+                    + "var h=document.documentElement,b=document.body;"
+                    + "if(h){h.style.removeProperty('margin-top');"
+                    + "h.style.removeProperty('margin-bottom');"
+                    + "h.style.removeProperty('height');}"
+                    + "if(b){b.style.removeProperty('padding-bottom');"
+                    + "b.style.removeProperty('min-height');"
+                    + "b.style.removeProperty('height');}"
+                    + "})();";
+            web.evaluateJavascript(clear, null);
+            return;
+        }
+
         String css = buildFrameCss(cssTop, cssBottom, hideSidebar, hideHeader,
                 selectable);
 
@@ -223,6 +243,11 @@ public final class TabWebViews {
                 // screenshots. Measure them and lift them by exactly the bar's height, and
                 // shrink anything fixed that would otherwise be cut off at the top.
                 + "function liftFixed(){"
+                // Nothing to lift: the app's bar is a real row below the page now, so no
+                // part of it overlaps the document. Returning here keeps arena's own fixed
+                // elements completely untouched - a transform on them (even translateY(0))
+                // creates a containing block and re-anchors anything fixed inside them.
+                + "if(" + cssBottom + "<=0)return;"
                 + "var els=document.querySelectorAll('body *');"
                 + "for(var i=0;i<els.length;i++){var el=els[i];"
                 + "var cs=getComputedStyle(el);"

@@ -57,17 +57,21 @@ public final class AppChrome {
     }
 
     /**
-     * Last resort for links the app cannot render itself.
-     *
-     * http(s) links are NEVER handed to another app any more (that is how the app used
-     * to land the user in Chrome); they are shown in an in-app WebView by the caller.
-     * Only non-web schemes (mailto:, market:, intent:) leave the app.
+     * Letters, phone calls and SMS are the only things that may leave the app, because
+     * a WebView cannot do them. Nothing here can ever open a browser: every http(s)
+     * link is rendered inside the app by the caller.
      */
-    static void openExternally(Activity activity, Uri uri) {
+    static void openNonWebScheme(Activity activity, Uri uri) {
         String scheme = uri == null || uri.getScheme() == null
                 ? "" : uri.getScheme().toLowerCase();
-        if (scheme.startsWith("http")) {
-            UpdateSheet.showInAppPage(activity, uri.toString());
+        boolean allowed = scheme.equals("mailto") || scheme.equals("tel")
+                || scheme.equals("sms") || scheme.equals("smsto")
+                || scheme.equals("geo");
+        if (!allowed) {
+            // Anything else (market:, custom app schemes, ...) stays inside Arena as a
+            // notice, so tapping a link can never dump the user in another app.
+            android.widget.Toast.makeText(activity, R.string.link_stays_in_app,
+                    android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         try {

@@ -215,9 +215,9 @@ public final class AppUi {
         bar.setPadding(p, p, p, p);
 
         Nav nav = new Nav(bar);
-        // Update is a real tab again: the user wants it in the bottom bar, and the
-        // More sheet keeps a shortcut to the same sheet.
-        int[] tabs = {TAB_CHAT, TAB_LEADERBOARD, TAB_SEARCH, TAB_UPDATE, TAB_MORE};
+        // Update lives in the More sheet, not in the bar: the bar is the four places
+        // you actually navigate to.
+        int[] tabs = {TAB_CHAT, TAB_LEADERBOARD, TAB_SEARCH, TAB_MORE};
         for (int tab : tabs) {
             nav.items.add(addNavItem(c, bar, nav, tab, NavIcons.forTab(tab), vertical, click));
         }
@@ -285,14 +285,8 @@ public final class AppUi {
                                 boolean labelsVisible, boolean animateLabels) {
         for (NavItem item : nav.items) {
             boolean active = item.tab == activeTab;
-            // The Update entry carries the update signal; More mirrors it when Update
-            // is not part of the bar (tablet/compact layouts).
-            boolean flagged = (item.tab == TAB_UPDATE || item.tab == TAB_MORE) && updateAvailable;
-            boolean hasUpdateItem = false;
-            for (NavItem other : nav.items) {
-                if (other.tab == TAB_UPDATE) hasUpdateItem = true;
-            }
-            if (hasUpdateItem && item.tab == TAB_MORE) flagged = false;
+            // Update has no tab any more, so the More entry carries the signal.
+            boolean flagged = item.tab == TAB_MORE && updateAvailable;
             int tint = color(c, (active || flagged) ? R.color.accent : R.color.on_bg_muted);
 
             item.iconView.setColorFilter(tint);

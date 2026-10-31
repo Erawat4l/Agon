@@ -21,7 +21,7 @@ public final class NavIcons {
             case AppUi.TAB_SEARCH:
                 return R.drawable.ic_nav_search;
             case AppUi.TAB_UPDATE:
-                return R.drawable.ic_nav_update;
+                return R.drawable.ic_nav_update;   // used by the More sheet row
             case AppUi.TAB_MORE:
                 return R.drawable.ic_nav_more;
             case AppUi.TAB_CHAT:

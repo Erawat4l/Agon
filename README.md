@@ -90,7 +90,8 @@ Every tab is its own WebView that is created once and **kept alive**:
 
 | Behaviour | Detail |
 | --- | --- |
-| Tapping a nav item | flips `View.VISIBILITY` on an already-painted WebView — no reload, no white flash, ~1 frame |
+| Tapping Chat | counted in a 380 ms window: 1 = your current chat, 2 = arena's history sidebar, 3 = new chat |
+| Tapping Rankings / Search | flips `View.VISIBILITY` on an already-painted WebView — no reload, no white flash, ~1 frame |
 | First visit to a tab | the tab's WebView is pre-built in the background at launch (`TabWebViews.preload()`), so even the first tap skips the cold start |
 | Returning to a tab | keeps DOM, scroll position and session; a silent `focus` event asks the page for fresh data |
 | Caching | `LOAD_CACHE_ELSE_NETWORK` — repeat visits paint from disk cache, then refresh in place |
@@ -100,7 +101,10 @@ Every tab is its own WebView that is created once and **kept alive**:
 
 ### Sign-in stays inside the app
 
-Sign-in never leaves the app and never shows a browser frame around a login page.
+Sign-in never leaves the app and never shows a browser frame around a login page. Success
+is decided by the session itself: after the provider redirects back to arena.ai the app
+checks the session cookie (and the signed-in UI) before reporting "Signed in" - a bare
+redirect is not treated as a login any more.
 
 1. **Google** — *More → Sign in to Arena → Continue with Google* opens `AccountPicker`,
    a native Android screen drawn like Google's own chooser: the provider mark,

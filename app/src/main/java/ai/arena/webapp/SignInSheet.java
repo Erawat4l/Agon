@@ -36,6 +36,9 @@ public final class SignInSheet {
         void onPickAccount();
     }
 
+    /** Arena's own entry point; the page decides which provider to sign in with. */
+    private static final String ARENA_SIGN_IN = "https://arena.ai/?signin=1";
+
     private final Activity activity;
     private final ViewGroup parent;
     private final Host host;
@@ -43,6 +46,7 @@ public final class SignInSheet {
     private WebView web;
     private LinearLayout chooser;
     private String pendingEmail;
+    private TextView progressText;
 
     public SignInSheet(Activity activity, ViewGroup parent, Host host) {
         this.activity = activity;
@@ -162,10 +166,12 @@ public final class SignInSheet {
         chooser = new LinearLayout(activity);
         chooser.setOrientation(LinearLayout.VERTICAL);
         // Google: the native account picker comes first (MainActivity.startSignIn).
+        // providerRow(icon, label, host, url, nativePicker). "false" = no native step:
+        // GitHub has no account list on the device, so its own page opens directly.
         chooser.addView(providerRow(R.drawable.ic_google, R.string.signin_google,
-                "accounts.google.com", "https://arena.ai/", true));
+                "Google", ARENA_SIGN_IN, true));
         chooser.addView(providerRow(R.drawable.ic_github, R.string.signin_github,
-                "github.com", "https://arena.ai/", false));
+                "GitHub", ARENA_SIGN_IN, false));
         sheet.addView(chooser);
 
         TextView note = AppUi.text(activity, activity.getString(R.string.signin_note), 11.5f,
@@ -238,6 +244,10 @@ public final class SignInSheet {
 
     /** Opens the provider's real login page inside the app, full-screen. */
     private void openProvider(String hostFilter, String startUrl) {
+        // A real full-screen layer over the window (not a bottom sheet): provider login
+        // pages set frame-ancestors restrictions and refuse to render in a cramped,
+        // dimmed, click-capturing container, which is why "login just did not finish".
+        dismissRoot();
         final LinearLayout column = new LinearLayout(activity);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setBackgroundColor(AppUi.color(activity, R.color.bg));
@@ -256,7 +266,8 @@ public final class SignInSheet {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         titles.addView(AppUi.text(activity, activity.getString(R.string.signin_in_progress),
                 15f, R.color.on_bg, true));
-        titles.addView(AppUi.text(activity, hostFilter, 11.5f, R.color.on_bg_muted, false));
+        progressText = AppUi.text(activity, hostFilter, 11.5f, R.color.on_bg_muted, false);
+        titles.addView(progressText);
 
         TextView close = AppUi.text(activity, "✕", 18f, R.color.on_bg_muted, false);
         close.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 6),
@@ -296,10 +307,19 @@ public final class SignInSheet {
 
         column.addView(web, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        root = new FrameLayout(activity);
+        root.setBackgroundColor(AppUi.color(activity, R.color.bg));
+        root.setClickable(true);
         root.addView(column, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        parent.addView(root, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.bringToFront();
         column.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
         chooser.setVisibility(View.GONE);
+        // Drop any half-finished provider session so the page starts clean.
+        CookieManager.getInstance().removeSessionCookies(null);
         web.loadUrl(startUrl);
         if (pendingEmail != null) {
             // Pre-select the account the user tapped in the native chooser, so Google
@@ -320,17 +340,77 @@ public final class SignInSheet {
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
 
         if (!scheme.startsWith("http")) {
-            AppChrome.openExternally(activity, uri);
+            // A provider's app-link callback: ignore it instead of leaving the app, so
+            // the sign-in page stays right where the user can see it.
             return true;
         }
+        // Any navigation back to Arena is checked by asking the page directly: a URL can
+        // return to arena.ai while still signed out (that is why "Signed in" used to pop
+        // up with the Log in button still on screen). The session cookie is the evidence.
         if (urlHost.endsWith("arena.ai") || urlHost.endsWith("lmarena.ai")) {
-            // Back on Arena: the cookie jar now holds the session.
             CookieManager.getInstance().flush();
-            dismiss();
-            host.onSignedIn();
+            verifySession();
             return true;
         }
         return false; // provider pages, captchas, consent screens: stay inside
+    }
+
+    /**
+     * After a redirect back to Arena, check that a session actually exists before
+     * declaring success. Looks for a session cookie, then for the signed-in UI (an
+     * account avatar or a Sign out entry) if cookies are not readable.
+     */
+    private void verifySession() {
+        final String cookies = CookieManager.getInstance().getCookie("https://arena.ai");
+        boolean hasCookie = cookies != null
+                && (cookies.contains("session") || cookies.contains("auth")
+                || cookies.contains("token") || cookies.contains("user"));
+        if (hasCookie) {
+            finishSuccessfully();
+            return;
+        }
+        if (web == null) {
+            finishSuccessfully();
+            return;
+        }
+        web.evaluateJavascript("(function(){"
+                + "var t=(document.body&&document.body.innerText)||'';"
+                + "var signedOut=/log in|sign in|login/i.test(t);"
+                + "var avatar=!!document.querySelector("
+                + "'img[alt*=\"avatar\" i],[aria-label*=\"account\" i],"
+                + "'+ 'button img[src*=\"avatar\"]');"
+                + "return signedOut? 'out' : (avatar? 'in' : 'unknown');"
+                + "})();", value -> {
+            String result = value == null ? "" : value.replace("\"", "").trim();
+            if ("out".equals(result)) {
+                // Still signed out: keep the page (no false toast) and let the user retry.
+                if (progressText != null) {
+                    progressText.setText(activity.getString(R.string.signin_still_out));
+                }
+                if (web != null) web.loadUrl(ARENA_SIGN_IN);
+                return;
+            }
+            finishSuccessfully();
+        });
+    }
+
+    private void finishSuccessfully() {
+        dismiss();
+        if (host != null) host.onSignedIn();
+    }
+
+    /** Removes any existing sign-in layer without notifying the host. */
+    private void dismissRoot() {
+        if (root != null && root.getParent() != null) parent.removeView(root);
+        if (web != null) {
+            web.stopLoading();
+            try {
+                web.destroy();
+            } catch (Exception ignored) {
+            }
+            web = null;
+        }
+        root = null;
     }
 
     public void dismiss() {
@@ -344,7 +424,7 @@ public final class SignInSheet {
         }
         dying.animate().alpha(0f).setDuration(AppUi.ANIM_FAST).withEndAction(() -> {
             if (dying.getParent() != null) parent.removeView(dying);
-            host.onDismissed();
+            if (host != null) host.onDismissed();
         }).start();
     }
 }

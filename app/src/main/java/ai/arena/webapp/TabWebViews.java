@@ -144,37 +144,102 @@ public final class TabWebViews {
     }
 
     /**
-     * The app paints its own top bar and bottom nav around the page. Arena positions a
-     * few things with position:fixed (composer hint, floating menus), so without an
-     * inset they slide under our chrome ("the page spreads out of the UI").
-     * This exposes the reserved heights as CSS variables and pads the document, so the
-     * page lays itself out inside the app frame.
+     * Fits arena's desktop layout into the phone viewport.
+     *
+     * The page is a responsive web app, but a WebView is not a browser: it reports a
+     * phone-sized viewport, so arena renders its phone layout with its own sidebar and
+     * sticky composer - which is why it looked like a squeezed desktop page sliding
+     * under the app's chrome ("the page spreads out of the UI").
+     *
+     * Two things happen here, both re-applied whenever the chrome sizes change:
+     *  1. a CSS variable carries the height of the app's own bars, and the document is
+     *     padded by it so nothing is hidden behind the top bar or the nav;
+     *  2. the layout is pinned to the viewport (100dvh, no horizontal overflow) so the
+     *     page always fits the app frame instead of growing past it.
      */
     public static void applyChromeInsets(WebView web, int topPx, int bottomPx) {
         if (web == null) return;
-        // WebView CSS px are density scaled, so convert the pixel insets with the real
-        // density rather than assuming 2x.
         float density = web.getResources().getDisplayMetrics().density;
         int cssTop = Math.round(Math.max(0, topPx) / density);
         int cssBottom = Math.round(Math.max(0, bottomPx) / density);
-        // One <style> block, replaced on every call. body gets real padding, so arena's
-        // own layout - its centred composer and its position:fixed menus - is laid out
-        // inside the app frame; min-height uses 100dvh so the page can never grow taller
-        // than the viewport by exactly the inset it just reserved.
+
         String css = ":root{--arena-top-inset:" + cssTop + "px;"
-                + "--arena-bottom-inset:" + cssBottom + "px;}"
+                + "--arena-bottom-inset:" + cssBottom + "px;"
+                + "--arena-app-height:100dvh;}"
+                // Reserve the app's bars inside the document.
                 + "body{padding-top:" + cssTop + "px !important;"
                 + "padding-bottom:" + cssBottom + "px !important;"
                 + "box-sizing:border-box !important;"
-                + "min-height:100dvh !important;}";
+                + "min-height:100dvh !important;"
+                + "max-width:100vw !important;"
+                + "overflow-x:hidden !important;}"
+                // Never wider than the phone: arena's desktop grid would otherwise
+                // overflow and get cropped on the right.
+                + "html{max-width:100vw !important;overflow-x:hidden !important;}"
+                // Arena's own sidebar is a full-height flex column whose footer ("Log in"
+                // / account) sits at the very bottom. Adding the nav's height to the
+                // document is not enough for a column sized in 100vh, so the sidebar
+                // itself gets the reserved space and can scroll its own list.
+                + "[class*=\"sidebar\" i],[data-testid*=\"sidebar\" i],"
+                + "aside{max-height:calc(100dvh - " + (cssTop + cssBottom) + "px) !important;"
+                + "overflow-y:auto !important;}"
+                + "[class*=\"sidebar-footer\" i],[data-testid*=\"sidebar-footer\" i]{"
+                + "margin-bottom:" + cssBottom + "px !important;}";
+
         String js = "(function(){"
                 + "var id='arena-app-insets';var old=document.getElementById(id);"
                 + "if(old) old.remove();"
                 + "var s=document.createElement('style');s.id=id;"
                 + "s.textContent=" + quote(css) + ";"
                 + "(document.head||document.documentElement).appendChild(s);"
+                // Keep a stable feature phone viewport: height follows the WebView, so
+                // 100vh elements (composer, panels) sit inside the frame.
+                + "document.documentElement.style.height='100%';"
+                + "document.body.style.height='auto';"
                 + "window.dispatchEvent(new Event('arena-insets'));"
                 + "})();";
+        web.evaluateJavascript(js, null);
+    }
+
+    /**
+     * Drives arena's own sidebar (conversation history) instead of showing a native bar.
+     *
+     * The page is a web app whose sidebar is part of its own layout, so the honest way
+     * to "open the sidebar" is to use its own control. Several candidate selectors are
+     * tried because class names change; the last resort dispatches the events the app
+     * listens to and asks arena's own toggle if one is exposed on window.
+     */
+    public static void openArenaSidebar(WebView web, boolean open) {
+        if (web == null) return;
+        String js = "(function(){"
+                + "var open=" + (open ? "true" : "false") + ";"
+                + "var sel=['[aria-label*=\"sidebar\" i]','[aria-label*=\"history\" i]',"
+                + "'[data-testid*=\"sidebar\" i]','[data-testid*=\"history\" i]',"
+                + "'button[title*=\"sidebar\" i]','button[title*=\"history\" i]',"
+                + "'[aria-label*=\"menu\" i][aria-expanded]','header button:first-of-type'];"
+                + "function visible(el){return !!el&&el.offsetParent!==null;}"
+                + "for(var i=0;i<sel.length;i++){var el=document.querySelector(sel[i]);"
+                + "if(visible(el)){"
+                + "var expanded=el.getAttribute('aria-expanded');"
+                + "if(expanded==='true'){ if(open){return true;} }"
+                + "if(expanded==='false'){ if(!open){return true;} }"
+                + "el.click();return true;}}"
+                + "return false;})();";
+        web.evaluateJavascript(js, null);
+    }
+
+    /** Starts a fresh conversation using arena's own "new chat" control. */
+    public static void startNewChat(WebView web) {
+        if (web == null) return;
+        String js = "(function(){"
+                + "var sel=['[aria-label*=\"new chat\" i]','[data-testid*=\"new-chat\" i]',"
+                + "'a[href=\"/\"]','a[href$=\"/chat\"]','button[title*=\"new chat\" i]'];"
+                + "for(var i=0;i<sel.length;i++){var el=document.querySelector(sel[i]);"
+                + "if(el&&el.offsetParent!==null){el.click();return true;}}"
+                + "if(location.pathname!=='/'){location.assign('/');return true;}"
+                + "window.dispatchEvent(new KeyboardEvent('keydown',"
+                + "{key:'k',ctrlKey:true,bubbles:true}));"
+                + "return false;})();";
         web.evaluateJavascript(js, null);
     }
 
@@ -247,8 +312,12 @@ public final class TabWebViews {
         s.setDatabaseEnabled(true);
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setSupportMultipleWindows(false);
+        // Use the phone's real width (CSS px) instead of a zoomed-out desktop viewport,
+        // so arena's own responsive layout is the one that runs and nothing is cropped
+        // on the right. applyChromeInsets() then pins the document to that width.
         s.setUseWideViewPort(true);
-        s.setLoadWithOverviewMode(true);
+        s.setLoadWithOverviewMode(false);
+        s.setTextZoom(100);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);

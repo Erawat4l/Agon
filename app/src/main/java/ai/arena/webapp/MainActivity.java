@@ -59,8 +59,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private FrameLayout contentFrame;
     private TabWebViews tabs;
     private AppUi.Nav nav;
-    private LinearLayout expander;
-    private ImageView expanderIcon;
     private View topBar;
     private View navArea;
     private TextView updateChip;
@@ -71,9 +69,28 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private SignInSheet signInSheet;
     private AccountPicker accountPicker;
 
-    private boolean navExpanded = true;
+    private boolean navExpanded = false;
     private int currentTab = AppUi.TAB_CHAT;
     private int tabBeforeUpdate = AppUi.TAB_CHAT;
+    private static final long CHAT_TAP_WINDOW_MS = 380;
+    private final android.os.Handler tapHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private int chatTaps;
+    private boolean chatSidebarOpen;
+
+    /** Runs once the tap burst ends: 1 = chat, 2 = sidebar, 3+ = new chat. */
+    private final Runnable flushChatTaps = () -> {
+        int taps = chatTaps;
+        chatTaps = 0;
+        if (isFinishing() || isDestroyed()) return;
+        if (taps == 1) {
+            showChat();
+        } else if (taps == 2) {
+            openSidebar();
+        } else if (taps >= 3) {
+            openNewChat();
+        }
+    };
     private long lastBackPressMs;
     private File pendingInstallApk;
 
@@ -375,7 +392,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         return wrap;
     }
 
-    /** Nav bar plus a slim handle: tap the arrow to collapse/expand the labels. */
+    /**
+     * Slim, icon-only nav: Chat, Rankings, Search, More.
+     *
+     * The old bar repeated arena's own sidebar entries ("New Chat", "Leaderboard",
+     * "Search") as labels *and* had a collapse handle, so the app drew a second copy of
+     * arena's navigation. Now it is one compact row of icons; no expander, no labels.
+     */
     private View buildNavArea() {
         LinearLayout area = new LinearLayout(this);
         area.setOrientation(LinearLayout.VERTICAL);
@@ -385,19 +408,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         area.addView(topLine, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, AppUi.dp(this, 0.6f))));
 
-        expander = new LinearLayout(this);
-        expander.setOrientation(LinearLayout.HORIZONTAL);
-        expander.setGravity(Gravity.CENTER);
-        expander.setContentDescription(getString(R.string.nav_expand_hint));
-        expander.setOnClickListener(v -> toggleNav());
-        expanderIcon = AppUi.icon(this, R.drawable.ic_nav_chevron, R.color.on_bg_muted, 18);
-        expander.addView(expanderIcon);
-        area.addView(expander, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, AppUi.dp(this, 18)));
-
         nav = AppUi.buildNav(this, false, v -> selectTab((Integer) v.getTag()));
         area.addView(nav.bar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, AppUi.expandedHeight(this)));
+                ViewGroup.LayoutParams.MATCH_PARENT, AppUi.collapsedHeight(this)));
+        // Labels stay hidden: the icon plus its content description is enough, and the
+        // names exist inside arena's own sidebar.
+        navExpanded = false;
         return area;
     }
 
@@ -411,57 +427,82 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      */
     void applyChromeInsets() {
         if (tabs == null) return;
-        window.post(() -> {
-            int top = topBar != null && topBar.getHeight() > 0
-                    ? topBar.getHeight() : AppUi.dp(this, 40);
-            // Nav height: measured when laid out, otherwise the known collapsed or
-            // expanded height plus the 18dp expander strip.
-            int barHeight = nav != null && nav.bar.getHeight() > 0
-                    ? nav.bar.getHeight()
-                    : (navExpanded ? AppUi.expandedHeight(this) : AppUi.collapsedHeight(this));
-            int bottom = barHeight + AppUi.dp(this, 18 + 6);
-            tabs.applyInsetsToAll(top, bottom);
-        });
+        final int top = topBar != null && topBar.getHeight() > 0
+                ? topBar.getHeight() : AppUi.dp(this, 40);
+        // Measured once laid out; the first pass uses the known bar height. The nav is an
+        // overlay over the page, so its height has to be reserved inside the page -
+        // without it the last row of arena's own sidebar (its "Log in" button) sat
+        // underneath the nav and could not be tapped.
+        final int bottom = navArea != null && navArea.getHeight() > 0
+                ? navArea.getHeight()
+                : AppUi.collapsedHeight(this) + AppUi.dp(this, 1);
+        tabs.applyInsetsToAll(top, bottom);
     }
 
-    private void toggleNav() {
-        navExpanded = !navExpanded;
-        animateNav();
-    }
-
-    private void animateNav() {
-        ViewGroup.LayoutParams lp = nav.bar.getLayoutParams();
-        int target = navExpanded ? AppUi.expandedHeight(this) : AppUi.collapsedHeight(this);
-        lp.height = target;
-        nav.bar.setLayoutParams(lp);
-        nav.bar.animate().setDuration(AppUi.ANIM_FAST).start();
-        expanderIcon.animate().rotation(navExpanded ? 180f : 0f)
-                .setDuration(AppUi.ANIM_FAST).start();
-        AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
-                navExpanded, true);
-        applyChromeInsets();
-    }
 
     // ------------------------------------------------------------------ tabs
 
-    private void selectTab(int tab) {
-        // Switching tabs from under an open sheet would leave the sheet floating over a
-        // different page. Close it first; the nav then reflects the page really shown.
-        boolean hadUpdateSheet = updateSheet != null;
-        if (hadUpdateSheet) closeUpdateSheet();
+    /**
+     * Chat is a multi-tap control, the way a native app would do it:
+     *  1 tap  - go to the chat you are in (no reload, just show the tab)
+     *  2 taps - open arena's own sidebar with the conversation history
+     *  3 taps - start a new chat
+     * The taps are counted in a short window so a double tap never also fires once.
+     */
+    private void onChatTap() {
+        chatTaps++;
+        tapHandler.removeCallbacks(flushChatTaps);
+        tapHandler.postDelayed(flushChatTaps, CHAT_TAP_WINDOW_MS);
+    }
+
+    /** One tap: show the chat tab that is already warm. */
+    private void showChat() {
+        if (currentTab != AppUi.TAB_CHAT) {
+            showTab(AppUi.TAB_CHAT);
+            return;
+        }
+        // Already on chat: just make sure nothing is covering it.
+        hideChatSheets();
+    }
+
+    /** Two taps: arena's conversation-history sidebar, inside the app. */
+    private void openSidebar() {
+        if (currentTab != AppUi.TAB_CHAT) showTab(AppUi.TAB_CHAT);
+        WebView chat = tabs.get(AppUi.TAB_CHAT);
+        if (chat == null) return;
+        TabWebViews.openArenaSidebar(chat, chatSidebarOpen);
+        chatSidebarOpen = !chatSidebarOpen;
+    }
+
+    /** Three taps: a fresh chat, using arena's own "new chat" affordance. */
+    private void openNewChat() {
+        if (currentTab != AppUi.TAB_CHAT) showTab(AppUi.TAB_CHAT);
+        WebView chat = tabs.get(AppUi.TAB_CHAT);
+        if (chat == null) return;
+        chatSidebarOpen = false;
+        TabWebViews.startNewChat(chat);
+        toast(R.string.new_chat_started);
+    }
+
+    private void hideChatSheets() {
+        if (updateSheet != null) closeUpdateSheet();
         if (menuSheet != null) {
             AppUi.slideDownAndRemove(menuSheet, window);
             menuSheet = null;
         }
-        if (tab == AppUi.TAB_UPDATE) {
-            // The tab highlights while its sheet is open; closing returns to the page
-            // that was on screen, so the nav never lies about what is showing.
-            tabBeforeUpdate = hadUpdateSheet ? tabBeforeUpdate : currentTab;
-            currentTab = AppUi.TAB_UPDATE;
-            AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
-                    navExpanded, true);
-            openUpdateSheet();
+    }
+
+    private void selectTab(int tab) {
+        if (tab == AppUi.TAB_CHAT) {
+            onChatTap();
             return;
+        }
+        // Switching tabs from under an open sheet would leave the sheet floating over a
+        // different page. Close it first; the nav then reflects the page really shown.
+        if (updateSheet != null) closeUpdateSheet();
+        if (menuSheet != null) {
+            AppUi.slideDownAndRemove(menuSheet, window);
+            menuSheet = null;
         }
         if (tab == AppUi.TAB_MORE) {
             // More is a sheet, not a page: keep the page (and its nav highlight).
@@ -470,6 +511,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             showMenuSheet();
             return;
         }
+        showTab(tab);
+    }
+
+    /** Switches the visible page (the tabs that are not sheets). */
+    private void showTab(int tab) {
+        if (tab == AppUi.TAB_UPDATE || tab == AppUi.TAB_MORE) return;
         currentTab = tab;
         hideError();
         boolean firstVisit = tabs.get(tab) == null;
@@ -596,16 +643,43 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     // ------------------------------------------------------------------ web glue
 
+    /**
+     * Everything the page navigates to stays in this WebView.
+     *
+     * This used to check a host whitelist and send every other host to ACTION_VIEW -
+     * that is exactly what kept opening Chrome, because arena links out to plenty of
+     * hosts. Links the user taps inside arena belong inside arena, so they load here.
+     * The only exceptions are a web-app-link OAuth callback (handled by loading the
+     * fallback URL it carries) and the handful of device intents nobody wants in a
+     * WebView (mailto:, tel:, sms:).
+     */
     private boolean handleUrl(Uri uri) {
         if (uri == null) return false;
+        String raw = uri.toString();
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
-        if (scheme.equals("http") || scheme.equals("https")) {
-            // Keep Arena and its sign-in providers in-app; hand the rest to other apps.
-            if (AppChrome.isInternal(uri)) return false;
-            AppChrome.openExternally(this, uri);
+
+        if (scheme.startsWith("http")) {
+            return false;   // load it right here
+        }
+        if (scheme.equals("intent")) {
+            // intent://host/path#Intent;scheme=https;package=com.google.android.gms;end
+            String inner = raw.substring(raw.indexOf(':') + 1);
+            int hash = inner.indexOf('#');
+            String path = hash >= 0 ? inner.substring(0, hash) : inner;
+            String fragment = hash >= 0 ? inner.substring(hash) : "";
+            String innerScheme = "https";
+            int schemeAt = fragment.indexOf("scheme=");
+            if (schemeAt >= 0) {
+                String rest = fragment.substring(schemeAt + 7);
+                int semi = rest.indexOf(';');
+                innerScheme = semi >= 0 ? rest.substring(0, semi) : rest;
+            }
+            if (innerScheme.startsWith("http")) {
+                tabs.loadInCurrent(innerScheme + "://" + path);
+            }
             return true;
         }
-        AppChrome.openExternally(this, uri);
+        AppChrome.openNonWebScheme(this, uri);
         return true;
     }
 
@@ -767,8 +841,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public void onOpenUpdate() {
-                // Same path as tapping the Update tab, so the nav highlight follows.
-                selectTab(AppUi.TAB_UPDATE);
+                openUpdateSheet();
             }
 
             @Override

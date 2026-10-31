@@ -666,7 +666,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             lp.topMargin = AppUi.dp(this, 56);
             window.addView(stalledBar, lp);
         }
+        // Never over a sign-in layer: the bar belongs to the page underneath, and once the
+        // sign-in sheet is raised it would sit on top of it.
+        if (signInSheet != null && signInSheet.isSignInActive()) return;
         stalledBar.setVisibility(View.VISIBLE);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            stalledBar.setTranslationZ(AppUi.dp(this, 6));
+        }
         stalledBar.bringToFront();
     }
 
@@ -778,6 +784,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     /** The sign-in sheet, created but not shown. */
     private SignInSheet ensureSignInSheet() {
         if (signInSheet == null) signInSheet = new SignInSheet(this, window, signInHost);
+        // The bar is chrome for the page that is now covered; leaving it up put a strip of
+        // the tab's UI on top of the sign-in screen.
+        if (signInSheet.isSignInActive()) hideStalledBar();
         return signInSheet;
     }
 
@@ -987,6 +996,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     /** Opens the provider's own login page inside the app, for the chosen account. */
     private void startProviderSignIn(String email) {
         ensureSignInSheet().showForEmail(email);
+        // The sign-in layer is full-screen and covers the page, so its stalled-bar chrome
+        // has nothing left to talk about and must not stay on top of it.
+        hideStalledBar();
     }
 
     /** What the sign-in sheet calls back into. */

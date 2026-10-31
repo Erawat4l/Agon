@@ -64,6 +64,8 @@ public final class SignInSheet {
     private LinearLayout headerBox;
     /** True once the driver moved to the fallback page; the dialog search restarts there. */
     private boolean onFallback;
+    /** True while the page on screen *is* the fallback page (not merely "was tried"). */
+    private boolean fallbackPage;
     /**
      * True once the provider's own page (accounts.google.com) is what the user is looking
      * at. From then on the sign-in is finished by hand on that page, and the sheet must
@@ -160,6 +162,7 @@ public final class SignInSheet {
         root.setBackgroundColor(AppUi.color(activity, R.color.bg));
         parent.addView(root, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        raise(root);
 
         final LinearLayout column = new LinearLayout(activity);
         column.setOrientation(LinearLayout.VERTICAL);
@@ -539,6 +542,7 @@ public final class SignInSheet {
         root.addView(sheet, sheetLp);
         parent.addView(root, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        raise(root);
         AppUi.slideUp(sheet);
     }
 
@@ -598,6 +602,7 @@ public final class SignInSheet {
         // state from the previous one must not survive it.
         providerPageShown = false;
         onFallback = false;
+        fallbackPage = false;
         dialogRounds = 0;
         dialogAnswered = false;
         providerChosen = false;
@@ -735,16 +740,33 @@ public final class SignInSheet {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         parent.addView(root, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        root.bringToFront();
+        raise(root);
         column.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
         if (chooser != null) chooser.setVisibility(View.GONE);
-        root.bringToFront();
+        raise(root);
         // Deliberately *not* wiping the cookie jar here. A half-finished Google page is
         // rare, and clearing session cookies threw away the one good thing on this
         // device: a Google session already established for this app. With it intact,
         // accounts.google.com renders its "choose an account" list and the sign-in is that
         // one tap; without it, every attempt starts by asking for the address again.
         web.loadUrl(startUrl);
+    }
+
+    /**
+     * Puts a layer above everything else in the window.
+     *
+     * bringToFront() only reorders the child list, which is enough on Lollipop+ because
+     * elevation decides draw order there - but the sign-in layer has no elevation of its
+     * own, so the bottom bar (which does) kept winning and drew on top of the sheet. The
+     * background matches on both sides, so what showed through was the bar and the cards
+     * underneath, which read as "the sheet is stuck behind the app".
+     */
+    private void raise(View layer) {
+        if (layer == null) return;
+        layer.bringToFront();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            layer.setTranslationZ(AppUi.dp(activity, 12));
+        }
     }
 
     /**
@@ -888,6 +910,7 @@ public final class SignInSheet {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         parent.addView(layer, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        raise(layer);
         root = layer;
         field.requestFocus();
     }
@@ -1020,6 +1043,9 @@ public final class SignInSheet {
      */
     private void driveSignIn() {
         if (web == null) return;
+        // Guard the whole thing, not just the queueing: two page loads can each call this
+        // and put two observers, two collectors and two fallback timers on one attempt.
+        if (started) return;
         if (providerPageShown || isProviderPage(web.getUrl())) {
             // Google's page owns the sign-in now. Searching it for Arena's dialog is what
             // burned every round and ended on the fallback page.
@@ -1051,7 +1077,10 @@ public final class SignInSheet {
             ui.postDelayed(this::collectDialogAnswer, waitMs);
         }
         // Nothing at all after the searches: only then is the fallback page worth a look.
-        ui.postDelayed(this::fallBackIfStillNothing, 12000);
+        // Five seconds, not twelve: the old wait meant the header sat on "Opening Arena's
+        // sign-in..." long enough to look hung, and the leaderboard (which does have a Log
+        // in control) was a whole scan later than it needed to be.
+        ui.postDelayed(this::fallBackIfStillNothing, fallbackPage ? 5000 : 8000);
     }
 
     /** Reads the observer's result out of the page without re-arming it. */
@@ -1100,9 +1129,28 @@ public final class SignInSheet {
         // nets above will collect its answer when it lands.
     }
 
-    /** The page offered nothing for twelve seconds: show the page that does. */
+    /**
+     * The page offered nothing in time: say so, and put the email route one tap away.
+     *
+     * This used to bail out whenever the page was a provider page or the flag had not been
+     * set yet, which is how the header could sit on "Opening Arena's sign-in..." forever.
+     * The only states worth waiting through are "a press is in flight" and "the password
+     * step is up"; everything else held the user on a screen that was never going to move.
+     */
     private void fallBackIfStillNothing() {
-        if (web == null || !started || providerPageShown || dialogAnswered) return;
+        if (web == null) return;
+        if (dialogAnswered || providerChosen || atPasswordStep) return;
+        if (providerPageShown) {
+            // Google's own page: this user's account cannot get through it, and it will
+            // never contain Arena's button. Point at the route that works instead.
+            setProgress(activity.getString(R.string.signin_step_nothing_found, pendingProvider));
+            SignInTrace.note(activity, "driver: provider page offered no Arena entry");
+            if (!emailOfferShown && !emailRoute) {
+                emailOfferShown = true;
+                showEmailOffer();
+            }
+            return;
+        }
         fallBackToLastResort();
     }
 
@@ -1277,6 +1325,7 @@ public final class SignInSheet {
             return;
         }
         onFallback = true;
+        fallbackPage = true;
         started = false;
         setProgress(activity.getString(R.string.signin_step_moving));
         web.loadUrl(ARENA_LAST_RESORT);

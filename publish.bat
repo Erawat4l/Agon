@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 REM ===========================================================================
-REM  Arena AI - publish a downloadable APK release to GitHub
+REM  Agora - publish a downloadable APK release to GitHub
 REM
 REM  Usage (in cmd, from this folder):
 REM     publish.bat                 auto-bump patch:  1.1.0 -> 1.1.1
@@ -11,7 +11,7 @@ REM     publish.bat 1.2.0           publish an exact version
 REM     publish.bat 1.2.0 beta      publish as a pre-release (Beta channel)
 REM     publish.bat --token ghp_xx  remember a GitHub token for next time
 REM
-REM  Result: a GitHub Release with ArenaAI-<version>.apk attached. Every
+REM  Result: a GitHub Release with Agora-<version>.apk attached. Every
 REM  installed copy of the app sees it (Update -> Check for updates) and can
 REM  download + install it, with Android still asking the user to approve.
 REM ===========================================================================
@@ -24,7 +24,7 @@ if /i "%VERSION%"=="-t" goto :save_token
 
 echo.
 echo =============================================
-echo   Arena AI  ^|  publish APK release
+echo   Agora  ^|  publish APK release
 echo =============================================
 echo.
 
@@ -96,7 +96,7 @@ if errorlevel 1 goto :failed
 
 echo.
 > version.txt echo !VERSION!
-echo Local copy: %~dp0ArenaAI-!VERSION!.apk
+echo Local copy: %~dp0Agora-!VERSION!.apk
 echo Apps already installed get it via Update -^> Check for updates.
 exit /b 0
 

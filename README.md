@@ -1,6 +1,6 @@
-# Arena AI — native Android app
+# Agora — a native Android app for arena.ai
 
-Arena AI as a real Android app, not a bookmark in Chrome.
+Agora puts arena.ai in a real Android app instead of a bookmark in Chrome.
 
 One command in **cmd** builds a ready-to-install APK:
 
@@ -8,8 +8,8 @@ One command in **cmd** builds a ready-to-install APK:
 build.bat
 ```
 
-That produces **`ArenaAI-debug.apk`** in this folder. Copy it to your phone, tap it,
-allow *"install unknown apps"*, done. App name on the home screen: **Arena**.
+That produces **`Agora-debug.apk`** in this folder. Copy it to your phone, tap it,
+allow *"install unknown apps"*, done. App name on the home screen: **Agora**.
 
 ---
 
@@ -19,9 +19,9 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 
 | Command | What it does |
 | --- | --- |
-| `build.bat` | Builds `ArenaAI-debug.apk` — signed with the debug key, installs immediately |
+| `build.bat` | Builds `Agora-debug.apk` — signed with the debug key, installs immediately |
 | `build.bat install` | Builds, then installs + launches on a USB-connected phone (needs `adb`) |
-| `build.bat release` | Builds `ArenaAI-release.apk` (signed if you ran `make-keystore.bat` first) |
+| `build.bat release` | Builds `Agora-release.apk` (signed if you ran `make-keystore.bat` first) |
 | `build.bat clean` | Wipes build output |
 | `make-keystore.bat` | Creates `arena-release.jks` + `keystore.properties` for a signed release build |
 | `publish.bat` | Builds **and publishes a downloadable APK release** to GitHub (auto-bumps the patch version) |
@@ -259,7 +259,7 @@ Seven steps in one go:
 1. `git pull --rebase --autostash` — picks up anything pushed from elsewhere, and
    clears a stale local `version.txt` first so it can never block the pull
 2. bumps the version from `version.txt` (or the latest `v*` tag), e.g. `1.2.0` → `1.2.1`
-3. builds `app-debug.apk` with that version and copies it to `ArenaAI-<version>.apk`
+3. builds `app-debug.apk` with that version and copies it to `Agora-<version>.apk`
 4. commits + pushes this branch
 5. publishes the GitHub release with the APK attached
 6. runs `adb install -r` if a phone is on USB (skipped silently otherwise)
@@ -278,7 +278,7 @@ publish.bat
 ```
 
 That builds the APK with an auto-bumped version (`1.1.0` → `1.1.1`), creates the GitHub
-release **v1.1.1**, uploads `ArenaAI-1.1.1.apk`, and leaves a copy in this folder.
+release **v1.1.1**, uploads `Agora-1.1.1.apk`, and leaves a copy in this folder.
 Every installed app then sees it: tap **Update → Check for updates**, download, tap
 Install, approve Android's prompt. The release page link opens **inside the app** —
 the app never sends you to Chrome.
@@ -313,7 +313,7 @@ No tagging, no manual step — the app picks it up on its next check.
 - Android installs updates only from the same signing key, so keep `arena-release.jks`
   once you ship release builds.
 - Release notes come from the release body, so use
-  `gh release create v1.0.1 ArenaAI-1.0.1.apk --notes "What changed…"` if you publish by hand.
+  `gh release create v1.0.1 Agora-1.0.1.apk --notes "What changed…"` if you publish by hand.
 
 **Update settings inside the sheet:** release channel (Stable = newest published
 release, Beta = includes pre-releases), auto-check on/off, and the GitHub token.
@@ -324,7 +324,7 @@ release, Beta = includes pre-releases), auto-check on/off, and the GitHub token.
 
 If **Actions** is enabled on the repository, every push runs
 `.github/workflows/build-apk.yml`: **Actions → "Build APK" → latest run →
-Artifacts → `ArenaAI-debug-apk`**. Pushing a tag like `v1.0` also attaches the APK
+Artifacts → `Agora-debug-apk`**. Pushing a tag like `v1.0` also attaches the APK
 to a GitHub Release. (If the run fails instantly with no steps, Actions is disabled
 for the repo: *Settings → Actions → General → Allow all actions*.)
 

@@ -296,32 +296,6 @@ public final class TabWebViews {
             + "if(el.querySelectorAll('a,img,button').length<1)continue;"
             + "hide(el);break;}";
 
-    /**
-     * Drives arena's own sidebar (conversation history) instead of showing a native bar.
-     *
-     * The page is a web app whose sidebar is part of its own layout, so the honest way
-     * to "open the sidebar" is to use its own control. Several candidate selectors are
-     * tried because class names change; the last resort dispatches the events the app
-     * listens to and asks arena's own toggle if one is exposed on window.
-     */
-    public static void openArenaSidebar(WebView web, boolean open) {
-        if (web == null) return;
-        String js = "(function(){"
-                + "var open=" + (open ? "true" : "false") + ";"
-                + "var sel=['[aria-label*=\"sidebar\" i]','[aria-label*=\"history\" i]',"
-                + "'[data-testid*=\"sidebar\" i]','[data-testid*=\"history\" i]',"
-                + "'button[title*=\"sidebar\" i]','button[title*=\"history\" i]',"
-                + "'[aria-label*=\"menu\" i][aria-expanded]','header button:first-of-type'];"
-                + "function visible(el){return !!el&&el.offsetParent!==null;}"
-                + "for(var i=0;i<sel.length;i++){var el=document.querySelector(sel[i]);"
-                + "if(visible(el)){"
-                + "var expanded=el.getAttribute('aria-expanded');"
-                + "if(expanded==='true'){ if(open){return true;} }"
-                + "if(expanded==='false'){ if(!open){return true;} }"
-                + "el.click();return true;}}"
-                + "return false;})();";
-        web.evaluateJavascript(js, null);
-    }
 
     /** Starts a fresh conversation using arena's own "new chat" control. */
     public static void startNewChat(WebView web) {

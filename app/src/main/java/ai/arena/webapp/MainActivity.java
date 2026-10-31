@@ -66,6 +66,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private SignInSheet signInSheet;
     private AccountPicker accountPicker;
     private SettingsSheet settingsSheet;
+    private ChatHistorySheet historySheet;
 
     private boolean navExpanded = false;
     private int currentTab = AppUi.TAB_CHAT;
@@ -74,7 +75,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private final android.os.Handler tapHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
     private int chatTaps;
-    private boolean chatSidebarOpen;
 
     /** Runs once the tap burst ends: 1 = chat, 2 = sidebar, 3+ = new chat. */
     private final Runnable flushChatTaps = () -> {
@@ -436,13 +436,38 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         hideChatSheets();
     }
 
-    /** Two taps: arena's conversation-history sidebar, inside the app. */
+    /**
+     * Two taps: the chat history.
+     *
+     * Arena's own sidebar is hidden (it duplicated the app's navigation), so the history
+     * is shown as a native sheet instead: the conversation list is read out of the live
+     * page, drawn with the app's styling, and a tap opens that conversation.
+     */
     private void openSidebar() {
         if (currentTab != AppUi.TAB_CHAT) showTab(AppUi.TAB_CHAT);
-        WebView chat = tabs.get(AppUi.TAB_CHAT);
-        if (chat == null) return;
-        TabWebViews.openArenaSidebar(chat, chatSidebarOpen);
-        chatSidebarOpen = !chatSidebarOpen;
+        if (historySheet == null) {
+            historySheet = new ChatHistorySheet(this, window, new ChatHistorySheet.Host() {
+                @Override
+                public void openConversation(String url) {
+                    if (tabs != null) tabs.loadInCurrent(url);
+                }
+
+                @Override
+                public void newChat() {
+                    openNewChat();
+                }
+
+                @Override
+                public void onDismissed() {
+                    // keep the instance; reopening is cheap
+                }
+            });
+        }
+        if (historySheet.isShowing()) {
+            historySheet.dismiss();
+            return;
+        }
+        historySheet.show(tabs.get(AppUi.TAB_CHAT));
     }
 
     /** Three taps: a fresh chat, using arena's own "new chat" affordance. */
@@ -450,13 +475,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (currentTab != AppUi.TAB_CHAT) showTab(AppUi.TAB_CHAT);
         WebView chat = tabs.get(AppUi.TAB_CHAT);
         if (chat == null) return;
-        chatSidebarOpen = false;
         TabWebViews.startNewChat(chat);
         toast(R.string.new_chat_started);
     }
 
     private void hideChatSheets() {
         closeSettingsNow();
+        if (historySheet != null && historySheet.isShowing()) historySheet.dismiss();
         if (updateSheet != null) closeUpdateSheet();
         if (menuSheet != null) {
             AppUi.slideDownAndRemove(menuSheet, window);
@@ -472,6 +497,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // Switching tabs from under an open sheet would leave the sheet floating over a
         // different page. Close it first; the nav then reflects the page really shown.
         closeSettingsNow();
+        if (historySheet != null && historySheet.isShowing()) historySheet.dismiss();
         if (updateSheet != null) closeUpdateSheet();
         if (menuSheet != null) {
             AppUi.slideDownAndRemove(menuSheet, window);
@@ -1238,6 +1264,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     @Override
     public void onBackPressed() {
+        if (historySheet != null && historySheet.isShowing()) {
+            historySheet.dismiss();
+            return;
+        }
         if (settingsSheet != null) {
             closeSettingsNow();
             return;

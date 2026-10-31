@@ -315,7 +315,7 @@ def check_tab_api(paths):
 PROJECT_CLASSES = ("AppUi", "AppChrome", "TabWebViews", "UpdateManager", "UpdateCenter",
                    "UpdateNotifications", "UpdateSheet", "MenuSheet", "SignInSheet",
                    "AccountPicker", "CrashLog", "NavIcons", "WebBridge", "Downloads",
-                   "ApkInstaller", "SettingsSheet", "Settings")
+                   "ApkInstaller", "SettingsSheet", "Settings", "ChatHistorySheet", "LocalProfile")
 # Nested handler interfaces and enum constants are not "calls".
 NOT_A_CALL = {"class", "valueOf", "values", "Host", "Callback", "DownloadCallback",
               "CheckCallback", "Progress", "Channel", "Nav", "NavItem", "Result",

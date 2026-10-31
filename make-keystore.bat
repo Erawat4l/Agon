@@ -28,7 +28,7 @@ keytool -genkeypair -v ^
   -alias arena ^
   -keyalg RSA -keysize 2048 -validity 10000 ^
   -storepass "%STOREPASS%" -keypass "%STOREPASS%" ^
-  -dname "CN=Arena AI, OU=Mobile, O=Arena, L=Internet, C=IN"
+  -dname "CN=Agora, OU=Mobile, O=Agora, L=Internet, C=IN"
 if errorlevel 1 exit /b 1
 
 (

@@ -1097,6 +1097,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 closeSettingsNow();
                 recreateWithAnimation();
             }
+
+            @Override
+            public void onDeveloperDiagnostics() {
+                closeSettingsNow();
+                SignInDiagnostics.show(MainActivity.this, window,
+                        tabs == null ? null : tabs.current());
+            }
         });
         settingsSheet.show();
     }

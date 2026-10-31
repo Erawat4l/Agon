@@ -107,9 +107,11 @@ page. Success is decided by the page, not by a redirect: a bare redirect is neve
 as a login. When Google refuses the embedded page, the browser is a labelled second route -
 and the link it comes back with is what finishes the sign-in **in the app**.
 
-1. **Google, or Arena's own email sign-in** — two rows in the sheet. *Continue with email*
-   stays on Arena's page and types the address there (Arena sends a verification link), which
-   is the route that works when a Google account's second-factor devices are not to hand.
+1. **Google, or email** — two rows in the sheet. *Continue with email* asks for the address
+   in an Agon form (the app's own field, remembered for next time, never a password), then
+   opens Arena's page for the password or the emailed link, so the account can be created or
+   confirmed there. It is the route that works when a Google account's second-factor devices
+   are not to hand.
    *Continue with Google* opens Arena's own sign-in
    page **inside the app**, full-screen, in `SignInSheet`: same cookie jar as the tabs, so
    the session lands in Arena directly. Google is the only provider listed, because it is
@@ -164,6 +166,13 @@ Light/Dark/System does not stop at the native chrome. Arena accepts a
 `?__theme=dark|light` query parameter and remembers it in `localStorage`, so the app sets
 both — and re-applies it after every page load and on each tab switch, otherwise the page
 flips itself back to light.
+
+### Developer options
+
+Nothing in the sheet advertises them. Seven taps on the build line in the footer unlocks a
+*Developer options* section: the full switch set (page, navigation, security, updates, the
+version line), **Save**-free sign-in diagnostics, and a lock row to hide it again. A normal
+sheet keeps only appearance, sign-in and data.
 
 ### Navigation, animation, theme
 

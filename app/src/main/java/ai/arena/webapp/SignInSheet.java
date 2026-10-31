@@ -762,7 +762,123 @@ public final class SignInSheet {
      */
     void openEmailSignIn() {
         emailRoute = true;
-        openProvider("Google", ARENA_SIGN_IN);
+        if (isShowing()) dismissRoot();
+        showEmailForm();
+    }
+
+    /**
+     * Asks for the address here, then continues on Arena's own page with it.
+     *
+     * Two stages, both in the app: this form asks who you are, and Arena's page asks for the
+     * password (or sends a verification link) with the address already filled in. Nothing
+     * typed here is kept beyond the address, and the address itself is stored only so the
+     * next sign-in can be prefilled - the same thing LocalProfile already does for Google.
+     */
+    private void showEmailForm() {
+        final FrameLayout layer = new FrameLayout(activity);
+        layer.setBackgroundColor(AppUi.color(activity, R.color.bg));
+
+        final LinearLayout column = new LinearLayout(activity);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setPadding(AppUi.dp(activity, 22), AppUi.dp(activity, 40),
+                AppUi.dp(activity, 22), AppUi.dp(activity, 22));
+
+        TextView back = AppUi.text(activity, "\u2039", 26f, R.color.on_bg, false);
+        back.setPadding(AppUi.dp(activity, 4), 0, AppUi.dp(activity, 16),
+                AppUi.dp(activity, 4));
+        back.setOnClickListener(v -> {
+            AppUi.press(v);
+            parent.removeView(layer);
+            emailRoute = false;
+            show();
+        });
+        column.addView(back, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView title = AppUi.heading(activity,
+                activity.getString(R.string.signin_email_title), 26f, R.color.on_bg);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.topMargin = AppUi.dp(activity, 18);
+        column.addView(title, titleLp);
+
+        TextView sub = AppUi.text(activity,
+                activity.getString(R.string.signin_email_sub), 13f,
+                R.color.on_bg_muted, false);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = AppUi.dp(activity, 6);
+        column.addView(sub, subLp);
+
+        final android.widget.EditText field = new android.widget.EditText(activity);
+        field.setHint(activity.getString(R.string.signin_email_hint_field));
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        field.setSingleLine(true);
+        field.setTextSize(16f);
+        field.setTextColor(AppUi.color(activity, R.color.on_bg));
+        field.setHintTextColor(AppUi.color(activity, R.color.on_bg_muted));
+        field.setBackground(AppUi.rounded(AppUi.color(activity, R.color.surface2), 14f,
+                activity));
+        field.setPadding(AppUi.dp(activity, 14), AppUi.dp(activity, 14),
+                AppUi.dp(activity, 14), AppUi.dp(activity, 14));
+        String known = LocalProfile.email(activity);
+        if (known.indexOf('@') > 0) field.setText(known);
+        LinearLayout.LayoutParams fieldLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        fieldLp.topMargin = AppUi.dp(activity, 22);
+        column.addView(field, fieldLp);
+
+        final TextView error = AppUi.text(activity, "", 12f, R.color.on_bg_muted, false);
+        LinearLayout.LayoutParams errLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        errLp.topMargin = AppUi.dp(activity, 8);
+        error.setPadding(AppUi.dp(activity, 2), 0, 0, 0);
+        column.addView(error, errLp);
+
+        TextView next = AppUi.text(activity,
+                activity.getString(R.string.signin_email_next), 15f, R.color.on_accent, true);
+        next.setGravity(Gravity.CENTER);
+        next.setPadding(0, AppUi.dp(activity, 15), 0, AppUi.dp(activity, 15));
+        next.setBackground(AppUi.pressable(activity, AppUi.color(activity, R.color.accent),
+                16f));
+        LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nextLp.topMargin = AppUi.dp(activity, 14);
+        column.addView(next, nextLp);
+        next.setOnClickListener(v -> {
+            AppUi.press(v);
+            String typed = field.getText() == null ? "" : field.getText().toString().trim();
+            if (!looksLikeEmail(typed)) {
+                error.setText(activity.getString(R.string.signin_email_invalid));
+                return;
+            }
+            // Remembered for the *next* sign-in only: the address, never a password.
+            LocalProfile.remember(activity, typed, "email");
+            pendingEmail = typed;
+            parent.removeView(layer);
+            openProvider("email", ARENA_SIGN_IN);
+            setProgress(activity.getString(R.string.signin_step_email_continue, typed));
+        });
+
+        column.addView(AppUi.text(activity,
+                activity.getString(R.string.signin_email_note), 11.5f,
+                R.color.on_bg_muted, false));
+        layer.addView(column, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        parent.addView(layer, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root = layer;
+        field.requestFocus();
+    }
+
+    /** A shape test, not a validation: it only catches an obvious typo before a page load. */
+    static boolean looksLikeEmail(String value) {
+        if (value == null) return false;
+        int at = value.indexOf('@');
+        if (at < 1 || at == value.length() - 1) return false;
+        String domain = value.substring(at + 1);
+        return domain.indexOf('.') > 0 && !value.contains(" ") && value.length() <= 254;
     }
 
     void openBrowserChooser(String url) {
@@ -1286,7 +1402,10 @@ public final class SignInSheet {
     }
 
     public void dismiss() {
-        if (root == null || root.getParent() == null) return;
+        if (root == null || root.getParent() == null) {
+            if (host != null) host.onDismissed();
+            return;
+        }
         final View dying = root;
         root = null;
         // Every WebView in the layer is destroyed - the provider page, the account window

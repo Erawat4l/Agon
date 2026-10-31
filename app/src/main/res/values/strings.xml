@@ -19,6 +19,13 @@
     <string name="signin_email">Continue with email</string>
     <string name="signin_email_hint">Arena\'s own email sign-in - no Google account needed</string>
     <string name="signin_step_email">Arena\'s email sign-in is on this page - enter the address there</string>
+    <string name="signin_email_title">Sign in with email</string>
+    <string name="signin_email_sub">Enter your address and Agon takes you to Arena\'s own page to finish - password, or a link sent to you.</string>
+    <string name="signin_email_hint_field">you@example.com</string>
+    <string name="signin_email_next">Continue</string>
+    <string name="signin_email_invalid">That does not look like an email address</string>
+    <string name="signin_email_note">No password is ever stored by this app. If you have no Arena account yet, Arena\'s page offers sign-up with the same address.</string>
+    <string name="signin_step_email_continue">Continuing as %1$s - finish on Arena\'s page</string>
     <string name="signin_in_progress">Signing in</string>
     <string name="signin_still_out">Still signed out - finish the sign-in on this page</string>
     <string name="signin_success">Signed in</string>
@@ -130,6 +137,13 @@
     <string name="settings_auto_check_sub">Silent check every few hours and on resume</string>
     <string name="settings_show_version">Show version in the bar</string>
     <string name="settings_show_version_sub">Small version label under the nav icons</string>
+    <string name="settings_developer">Developer options</string>
+    <string name="settings_developer_unlocked">Developer options unlocked</string>
+    <string name="settings_developer_left">%1$d more taps</string>
+    <string name="settings_developer_diag">Sign-in diagnostics</string>
+    <string name="settings_developer_diag_sub">Every fact the app can see about the current sign-in</string>
+    <string name="settings_developer_lock">Lock developer options</string>
+    <string name="settings_developer_lock_sub">Hide this section again</string>
     <string name="settings_sign_out">Sign out</string>
     <string name="settings_sign_out_sub">Clears Arena\'s session and reloads</string>
     <string name="settings_clear">Clear app data</string>

@@ -36,6 +36,8 @@ public final class Settings {
     public static final String K_NO_SELECT = "no_select";
     /** Version name + build number in the nav bar footer. */
     public static final String K_SHOW_VERSION = "show_version";
+    /** Developer options: unlocked by seven taps on the build line, never shown by default. */
+    public static final String K_DEVELOPER = "developer_options";
 
     private Settings() {
     }
@@ -106,6 +108,21 @@ public final class Settings {
     /** True when text should behave like a web page (selection allowed). */
     public static boolean selectText(Context c) {
         return !get(c, K_NO_SELECT, true);
+    }
+
+    /**
+     * True once the owner has unlocked developer options.
+     *
+     * Hidden like Android's own: nothing in the ordinary sheet mentions it, and unlocking is
+     * a deliberate gesture (seven taps on the build line in the footer). Off by default, so
+     * a normal user never sees the switches meant for testing.
+     */
+    public static boolean developerOptions(Context c) {
+        return get(c, K_DEVELOPER, false);
+    }
+
+    public static void setDeveloperOptions(Context c, boolean on) {
+        set(c, K_DEVELOPER, on);
     }
 
     public static boolean showVersion(Context c) {

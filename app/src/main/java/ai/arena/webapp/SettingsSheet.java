@@ -34,6 +34,8 @@ public final class SettingsSheet {
         void onClearData();
 
         void onResetSettings();
+
+        void onDeveloperDiagnostics();
     }
 
     /** Slides the sheet away and removes it. */
@@ -142,13 +144,74 @@ public final class SettingsSheet {
         section(R.string.settings_appearance);
         appearanceRow();
 
-        section(R.string.settings_navigation);
+        // Everything else (page, navigation, security, updates) lives in the developer
+        // section: a user needs appearance, sign-in and data, and nothing more.
+        section(R.string.settings_more);
+        action(R.string.settings_sign_out, R.string.settings_sign_out_sub,
+                R.drawable.ic_nav_account, v -> host.onSignOut());
+        action(R.string.settings_clear, R.string.settings_clear_sub,
+                R.drawable.ic_nav_trash, v -> host.onClearData());
+        action(R.string.settings_reset, R.string.settings_reset_sub,
+                R.drawable.ic_nav_reload, v -> host.onResetSettings());
+
+        if (Settings.developerOptions(activity)) developerSection();
+
+        TextView footer = AppUi.text(activity, activity.getString(R.string.settings_footer,
+                        UpdateManager.currentVersionName(activity),
+                        UpdateManager.currentVersionCode(activity)),
+                11.5f, R.color.on_bg_muted, false);
+        footer.setGravity(Gravity.CENTER);
+        // Seven taps unlocks developer options - the same deliberate gesture Android uses,
+        // so nobody finds them by accident and nothing in the sheet advertises them.
+        footer.setOnClickListener(new View.OnClickListener() {
+            private int taps;
+            private long firstTap;
+
+            @Override
+            public void onClick(View v) {
+                long now = android.os.SystemClock.elapsedRealtime();
+                if (now - firstTap > 4000) {
+                    taps = 0;
+                    firstTap = now;
+                }
+                taps++;
+                int left = 7 - taps;
+                if (left <= 0) {
+                    taps = 0;
+                    Settings.setDeveloperOptions(activity, true);
+                    android.widget.Toast.makeText(activity,
+                            R.string.settings_developer_unlocked,
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    buildRows();
+                    return;
+                }
+                if (left <= 4) {
+                    android.widget.Toast.makeText(activity,
+                            activity.getString(R.string.settings_developer_left, left),
+                            android.widget.Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        LinearLayout.LayoutParams footerLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        footerLp.topMargin = AppUi.dp(activity, 16);
+        list.addView(footer, footerLp);
+    }
+
+    /**
+     * Everything an ordinary user does not need to see.
+     *
+     * Only reachable after the unlock gesture. Same controls as the rest of the sheet, so
+     * nothing here is a second implementation that can drift: it is the full switch set,
+     * plus the sign-in trace and the diagnostics report, which is what testing on a device
+     * actually needs.
+     */
+    private void developerSection() {
+        section(R.string.settings_developer);
         toggle(Settings.K_SHOW_NAV, R.string.settings_nav_bar, R.string.settings_nav_bar_sub,
                 true);
         toggle(Settings.K_CHAT_TAPS, R.string.settings_chat_taps,
                 R.string.settings_chat_taps_sub, true);
-
-        section(R.string.settings_page);
         toggle(Settings.K_HIDE_WEB_SIDEBAR, R.string.settings_hide_sidebar,
                 R.string.settings_hide_sidebar_sub, true);
         toggle(Settings.K_HIDE_WEB_HEADER, R.string.settings_hide_header,
@@ -157,38 +220,23 @@ public final class SettingsSheet {
                 R.string.settings_keep_scroll_sub, true);
         toggle(Settings.K_NO_SELECT, R.string.settings_selectable,
                 R.string.settings_selectable_sub, true);
-
-        section(R.string.settings_security);
         toggle(Settings.K_DESKTOP_UA, R.string.settings_ua,
                 R.string.settings_ua_sub, true);
-        toggle(Settings.K_CRASH_SCREEN, R.string.settings_crash, R.string.settings_crash_sub,
-                true);
-
-        section(R.string.settings_updates);
+        toggle(Settings.K_CRASH_SCREEN, R.string.settings_crash,
+                R.string.settings_crash_sub, true);
         toggle(Settings.K_NOTIFY_UPDATES, R.string.settings_notify,
                 R.string.settings_notify_sub, true);
         toggle(Settings.K_AUTO_CHECK, R.string.settings_auto_check,
                 R.string.settings_auto_check_sub, true);
-
-        section(R.string.settings_more);
         toggle(Settings.K_SHOW_VERSION, R.string.settings_show_version,
                 R.string.settings_show_version_sub, false);
-        action(R.string.settings_sign_out, R.string.settings_sign_out_sub,
-                R.drawable.ic_nav_account, v -> host.onSignOut());
-        action(R.string.settings_clear, R.string.settings_clear_sub,
-                R.drawable.ic_nav_trash, v -> host.onClearData());
-        action(R.string.settings_reset, R.string.settings_reset_sub,
-                R.drawable.ic_nav_reload, v -> host.onResetSettings());
-
-        TextView footer = AppUi.text(activity, activity.getString(R.string.settings_footer,
-                        UpdateManager.currentVersionName(activity),
-                        UpdateManager.currentVersionCode(activity)),
-                11.5f, R.color.on_bg_muted, false);
-        footer.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams footerLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        footerLp.topMargin = AppUi.dp(activity, 16);
-        list.addView(footer, footerLp);
+        action(R.string.settings_developer_diag, R.string.settings_developer_diag_sub,
+                R.drawable.ic_nav_settings, v -> host.onDeveloperDiagnostics());
+        action(R.string.settings_developer_lock, R.string.settings_developer_lock_sub,
+                R.drawable.ic_nav_close, v -> {
+                    Settings.setDeveloperOptions(activity, false);
+                    buildRows();
+                });
     }
 
     private void section(int titleRes) {

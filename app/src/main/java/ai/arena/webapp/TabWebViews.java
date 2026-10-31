@@ -190,27 +190,8 @@ public final class TabWebViews {
         int cssTop = Math.round(Math.max(0, topPx) / density);
         int cssBottom = Math.round(Math.max(0, bottomPx) / density);
 
-        String css = ":root{--arena-top-inset:" + cssTop + "px;"
-                + "--arena-bottom-inset:" + cssBottom + "px;"
-                + "--arena-app-height:100dvh;}"
-                // Reserve the app's bars inside the document.
-                + "body{padding-top:" + cssTop + "px !important;"
-                + "padding-bottom:" + cssBottom + "px !important;"
-                + "box-sizing:border-box !important;"
-                + "min-height:100dvh !important;"
-                + "max-width:100vw !important;"
-                + "overflow-x:hidden !important;}"
-                + "html{max-width:100vw !important;overflow-x:hidden !important;}"
-                // An app is not a web page: no accidental text selection and no long-press
-                // copy callout. Inputs and editable areas keep normal behaviour.
-                + (selectable ? "" : "*{-webkit-user-select:none !important;"
-                + "user-select:none !important;-webkit-touch-callout:none !important;}"
-                + "input,textarea,[contenteditable=\"" + "true" + "\"]{"
-                + "-webkit-user-select:text !important;user-select:text !important;}")
-                // Arena's own sidebar duplicates the app's bottom bar, so it is hidden.
-                + (hideSidebar ? PAGE_SIDEBAR_CSS : "")
-                // The page's own top header (optional).
-                + (hideHeader ? PAGE_HEADER_CSS : "");
+        String css = buildFrameCss(cssTop, cssBottom, hideSidebar, hideHeader,
+                selectable);
 
         String js = "(function(){"
                 + "var old=document.getElementById('arena-app-insets');"
@@ -245,6 +226,55 @@ public final class TabWebViews {
                 + "if(s2)s2.remove();}},700);"
                 + "})();";
         web.evaluateJavascript(js, null);
+    }
+
+
+    /**
+     * The CSS that makes a web app fit inside the app frame.
+     *
+     * What it fixes, from the on-device screenshot: the page's own floating nav sat on top
+     * of the bottom four suggestion cards ("the web should start below, not mix there").
+     * Padding the body alone does not constrain anything - a fixed or sticky bar inside the
+     * document is positioned against the viewport, not the padded body - so three things
+     * happen together:
+     *
+     *  1. the *document itself* is shrunk to the free area between the app's bars
+     *     (html gets the insets as margins), which is what actually keeps a fixed bar inside
+     *     the frame;
+     *  2. the body reserves the same space and cannot scroll past it, so the last card is
+     *     reachable instead of hidden under the nav;
+     *  3. anything the page anchors to the bottom of the viewport is lifted by the inset.
+     *
+     * The variables stay in place, so a page (or a future script) can read the same numbers.
+     */
+    private static String buildFrameCss(int cssTop, int cssBottom, boolean hideSidebar,
+                                        boolean hideHeader, boolean selectable) {
+        return ":root{--arena-top-inset:" + cssTop + "px;"
+                + "--arena-bottom-inset:" + cssBottom + "px;"
+                + "--arena-app-height:100dvh;}"
+                // 1. the document is the free area between the bars, not the whole screen
+                + "html{margin-top:" + cssTop + "px !important;"
+                + "margin-bottom:" + cssBottom + "px !important;"
+                + "max-width:100vw !important;overflow-x:hidden !important;"
+                + "box-sizing:border-box !important;}"
+                // 2. the body fills that area and never grows past it
+                + "body{padding-top:0 !important;padding-bottom:0 !important;"
+                + "box-sizing:border-box !important;"
+                + "min-height:calc(100dvh - " + (cssTop + cssBottom) + "px) !important;"
+                + "max-width:100vw !important;overflow-x:hidden !important;}"
+                // 3. bottom-anchored elements inside the page are lifted clear of the nav
+                + "body [style*=\"position: fixed\"],body [style*=\"position:fixed\"]{"
+                + "margin-bottom:" + cssBottom + "px !important;}"
+                // An app is not a web page: no accidental text selection and no long-press
+                // copy callout. Inputs and editable areas keep normal behaviour.
+                + (selectable ? "" : "*{-webkit-user-select:none !important;"
+                + "user-select:none !important;-webkit-touch-callout:none !important;}"
+                + "input,textarea,[contenteditable=\"" + "true" + "\"]{"
+                + "-webkit-user-select:text !important;user-select:text !important;}")
+                // Arena's own sidebar duplicates the app's bottom bar, so it is hidden.
+                + (hideSidebar ? PAGE_SIDEBAR_CSS : "")
+                // The page's own top header (optional).
+                + (hideHeader ? PAGE_HEADER_CSS : "");
     }
 
     /**

@@ -28,6 +28,10 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 First build downloads Gradle and the Android build tools (~3–5 minutes). Later builds
 take well under a minute, since everything is cached in `%USERPROFILE%\.gradle`.
 
+`build.bat` also runs `tools/check-resources.py` before Gradle, so a bad string
+(unescaped apostrophe, invalid escape, mismatched `%1$s`) fails with a readable line
+instead of an aapt2 stack trace.
+
 **Requires:** JDK 17–21 and the Android SDK.
 
 No Android Studio needed — you can install just the SDK from cmd (~5 min):

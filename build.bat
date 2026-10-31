@@ -121,6 +121,13 @@ REM ---------- 3. Build ----------------------------------------------------
 if /i "%MODE%"=="clean" goto :do_clean
 if /i "%MODE%"=="release" goto :do_release
 
+REM Run the resource pre-flight so broken strings fail with a readable message.
+where python >nul 2>nul
+if errorlevel 1 goto :no_preflight
+python tools\check-resources.py
+if errorlevel 1 goto :bad_resources
+:no_preflight
+
 echo [3/4] Compiling debug APK... first run downloads Gradle + build tools ^(a few minutes^).
 call gradlew.bat --no-daemon assembleDebug
 if errorlevel 1 goto :failed
@@ -195,6 +202,11 @@ echo   * Copy the APK to your phone and tap it ^(allow "install unknown apps"^).
 echo   * Or with a USB cable:  build.bat install
 echo.
 exit /b 0
+
+:bad_resources
+echo.
+echo [X] Fix the resource problems listed above, then re-run build.bat.
+exit /b 1
 
 :failed
 echo.

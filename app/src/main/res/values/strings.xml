@@ -12,10 +12,10 @@
     <string name="account_signin">Sign in</string>
     <string name="account_signin_sub">Google, inside the app</string>
     <string name="signin_choose">Sign in to Arena</string>
-    <string name="signin_choose_sub">Arena accounts use Google. The page opens inside the app.</string>
-    <string name="signin_choose_sub_returning">Your Google account for this device is already known here - picking it is the whole sign-in</string>
+    <string name="signin_choose_sub">First time: sign in once on Google\'s own page. After that, picking your account is the whole sign-in.</string>
+    <string name="signin_choose_sub_returning">Signing in as %1$s - picking the account is the whole sign-in</string>
     <string name="signin_google">Continue with Google</string>
-    <string name="signin_google_hint">Google\'s own account page, in this app</string>
+    <string name="signin_google_hint">Google\'s own page, inside the app</string>
     <string name="signin_in_progress">Signing in</string>
     <string name="signin_still_out">Still signed out - finish the sign-in on this page</string>
     <string name="signin_success">Signed in</string>
@@ -167,9 +167,9 @@
     <string name="diag_copy">Copy report</string>
     <string name="diag_copied">Report copied</string>
     <string name="diag_close">Close</string>
-    <string name="signin_browser_row">Sign in in a browser - it comes back to the app</string>
+    <string name="signin_browser_row">A browser instead - it stays signed in there, not here</string>
     <string name="signin_no_browser">No browser found that can open sign-in</string>
-    <string name="signin_browser_open">Finish signing in there, then come back - the app picks it up</string>
+    <string name="signin_browser_open">Finish there, then come back. If the link returns to Agon, the session comes with it.</string>
     <string name="signin_browser_returned">Back from the browser - checking the session…</string>
-    <string name="signin_note">Google does not always allow sign-in inside an embedded page. If the page stays blank, the browser row above is the reliable route: finish there, come back, and Agon picks the session up when the link returns.</string>
+    <string name="signin_note">The first sign-in has to be typed on Google\'s page - a fresh app has no Google session of its own, and that is what makes the account list appear next time. After that, picking the account is enough.</string>
 </resources>

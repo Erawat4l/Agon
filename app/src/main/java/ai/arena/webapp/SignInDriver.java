@@ -87,15 +87,15 @@ final class SignInDriver {
                     + "})();";
 
     /**
-     * Opens Arena's sign-in dialog.
+     * The body of {@link #OPEN_DIALOG_JS}, without the wrapper, so the watching script
+     * below runs exactly this logic instead of a second copy that drifts from it.
      *
      * Answer: "clicked" (a Log in control was pressed), "open" (the dialog with the
      * provider buttons is already showing), "provider" (this *is* the provider's page, so
      * there is nothing of Arena's to open), "retry" (a menu or "Get started" was pressed,
      * so the sign-in entry may exist now) or "none" (nothing matched at all).
      */
-    static final String OPEN_DIALOG_JS = JS_PRELUDE
-            + "(function(){try{"
+    private static final String OPEN_DIALOG_BODY =
             // The page the sheet is showing may already be the provider's own sign-in.
             // Arena's dialog does not exist there, and the old code spent all ten of its
             // search rounds on accounts.google.com before giving up - which is exactly the
@@ -157,7 +157,56 @@ final class SignInDriver {
             // collapsed nav renders one, and its click handler still works).
             + "hit=want(C,exact,false,'clicked')||want(T,exact,false,'clicked');"
             + "if(hit)return hit;"
-            + "return 'none';"
+            + "return 'none';";
+
+    /** Opens Arena's sign-in dialog. */
+    static final String OPEN_DIALOG_JS = JS_PRELUDE
+            + "(function(){try{"
+            + OPEN_DIALOG_BODY
+            + "}catch(e){return 'error:'+e.message;}})();";
+
+    /**
+     * Opens Arena's sign-in dialog as soon as the control exists.
+     *
+     * The old loop asked the page every 900 ms and gave up after ten looks - so a page that
+     * painted its Log in control at 1.4 s cost a round trip, and a slow one cost ten. This
+     * script tries once immediately and, if there is nothing yet, installs a
+     * MutationObserver that clicks the moment the control appears. Later calls return what
+     * the observer did.
+     *
+     * Answer: the same answers as {@link #OPEN_DIALOG_JS} ("clicked", "open", "provider",
+     * "retry", "none") plus "watch" (armed, still nothing on the page).
+     */
+    static final String WATCH_DIALOG_JS = JS_PRELUDE
+            + "(function(){try{"
+            + "var w=window;"
+            // The observer already clicked, or the page has since turned into the provider.
+            + "if(w.__agonHit)return w.__agonHit;"
+            + "var __h=(location.hostname||'').toLowerCase();"
+            + "if(__h&&__h.indexOf('arena.ai')<0&&__h.indexOf('lmarena.ai')<0"
+            + "&&__h.indexOf('google')<0)return 'none';"
+            + "if(__h.indexOf('google')>=0){"
+            + "var hasMail=__A.all('input[type=email],input[name=identifier]').length>0;"
+            + "var asksArena=/continue to arena|choose an account|sign in with google/i"
+            + ".test(((document.body&&document.body.innerText)||'').slice(0,4000));"
+            + "if(hasMail||asksArena)return 'provider';}"
+            // One pass of the real search, so a page that is already ready clicks now.
+            + "var found=(function(){" + OPEN_DIALOG_BODY + "})();"
+            + "if(found&&found!=='none'&&found!=='watch'){w.__agonHit=found;return found;}"
+            + "if(w.__agonArmed)return 'watch';"
+            + "w.__agonArmed=true;"
+            + "function look(){var hit=(function(){" + OPEN_DIALOG_BODY + "})();"
+            + "if(hit&&hit!=='none'&&hit!=='watch'){w.__agonHit=hit;"
+            + "try{w.__agonWatch.disconnect();}catch(e){}return;}}"
+            + "try{"
+            + "w.__agonWatch=new MutationObserver(function(){try{look();}catch(e){}});"
+            + "w.__agonWatch.observe(document.documentElement||document,"
+            + "{childList:true,subtree:true,attributes:true});"
+            + "}catch(e){w.__agonArmed=false;}"
+            // A single-element React app can finish rendering its dialog without a DOM
+            // mutation this observer sees only once: one extra look on the next frame.
+            + "try{setTimeout(look,600);}catch(e){}"
+            + "return 'watch';"
             + "}catch(e){return 'error:'+e.message;}})();";
 
     /**

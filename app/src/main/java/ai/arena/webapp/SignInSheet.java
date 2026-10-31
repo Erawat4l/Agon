@@ -77,8 +77,10 @@ public final class SignInSheet {
     private View underRoot;
     /** How many looks the dialog search has taken on the current page. */
     private int dialogRounds;
-    /** Look-at-the-page rounds allowed before moving to the fallback page. */
-    private static final int MAX_DIALOG_ROUNDS = 10;
+    /** True once the watcher reported something that was acted on. */
+    private boolean dialogAnswered;
+    /** True once the provider button has been pressed, so it is never pressed twice. */
+    private boolean providerChosen;
 
     public SignInSheet(Activity activity, ViewGroup parent, Host host) {
         this.activity = activity;
@@ -254,12 +256,14 @@ public final class SignInSheet {
         return new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (applyLoginHint(view, request.getUrl())) return true;
                 return handleProviderUrl(request.getUrl());
             }
 
             @Override
             @SuppressWarnings("deprecation")
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (applyLoginHint(view, Uri.parse(url))) return true;
                 return handleProviderUrl(Uri.parse(url));
             }
 
@@ -410,9 +414,10 @@ public final class SignInSheet {
         // Once this device has signed in before, say so: the next attempt shows Google's
         // account list instead of an address form, and that is the fast path worth knowing
         // about.
-        final String subText = activity.getString(LocalProfile.signedInAt(activity) > 0
-                ? R.string.signin_choose_sub_returning
-                : R.string.signin_choose_sub);
+        final String savedWho = LocalProfile.email(activity);
+        final String subText = savedWho.indexOf('@') > 0
+                ? activity.getString(R.string.signin_choose_sub_returning, savedWho)
+                : activity.getString(R.string.signin_choose_sub);
         TextView sub = AppUi.text(activity, subText, 13f, R.color.on_bg_muted, false);
         sub.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
@@ -475,11 +480,12 @@ public final class SignInSheet {
                 "Google", ARENA_SIGN_IN, R.string.signin_google_hint));
         sheet.addView(chooser);
 
-        // Google's OAuth policy can stop sign-in from completing inside an embedded WebView
-        // (403: disallowed_useragent). The row above still starts in-app, because Google's
-        // chooser works on many builds - this row is the labelled fallback for when it does
-        // not, and the app then finishes the sign-in from the ticket the browser brings
-        // back (takeBrowserHandoff), so the session still ends up in the app.
+        // The browser route, labelled honestly. Two things are true about it: Chrome usually
+        // does show Google's real account picker (it has a Google session), and the session
+        // it creates belongs to Chrome. Getting it back into the app needs a link Arena
+        // itself publishes (arena.ai/auth/handoff?ticket=...) - see takeBrowserHandoff. This
+        // build has never observed such a link on a real device, so the row does not promise
+        // the transfer: it says the sign-in stays in the browser.
         TextView viaBrowser = AppUi.text(activity,
                 activity.getString(R.string.signin_browser_row), 13f,
                 R.color.on_bg, true);
@@ -567,6 +573,8 @@ public final class SignInSheet {
         providerPageShown = false;
         onFallback = false;
         dialogRounds = 0;
+        dialogAnswered = false;
+        providerChosen = false;
         // Save the choice locally *before* the provider page runs: if the page is slow or
         // the user leaves, the next attempt already knows which account this is.
         LocalProfile.remember(activity, pendingEmail, hostFilter);
@@ -623,12 +631,14 @@ public final class SignInSheet {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (applyLoginHint(view, request.getUrl())) return true;
                 return handleProviderUrl(request.getUrl());
             }
 
             @Override
             @SuppressWarnings("deprecation")
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (applyLoginHint(view, Uri.parse(url))) return true;
                 return handleProviderUrl(Uri.parse(url));
             }
 
@@ -791,6 +801,11 @@ public final class SignInSheet {
 
     private void finishBrowserHandoff(Uri uri) {
         if (uri == null) return;
+        // Only a link Arena itself publishes can start a session here. Anything else that
+        // reaches this method returns without loading, so no other site can hand the app a
+        // URL and have it treated as a sign-in.
+        String from = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (!from.endsWith("arena.ai") && !from.endsWith("lmarena.ai")) return;
         if (!isShowing()) {
             // The sheet is gone (the activity was recreated while the browser was on top):
             // open the provider layer so there is somewhere for the session to land.
@@ -845,42 +860,95 @@ public final class SignInSheet {
         runDialogRound();
     }
 
-    /** One look for the log-in control; keeps going on "retry", retreats on "none". */
+    /**
+     * Arms the watcher that presses Arena's Log in control the moment it appears.
+     *
+     * This used to be a ten-round poll, one look every 900 ms: a page that painted its
+     * control at 1.4 s cost two round trips, and a slow page cost ten. The observer lives
+     * in the page, so the tap happens on the frame the control is inserted, and this
+     * method only has to collect the answer. Times are only a safety net now.
+     */
     private void runDialogRound() {
         if (web == null) return;
-        if (dialogRounds++ > MAX_DIALOG_ROUNDS) {
-            fallBackToLastResort();
+        dialogRounds++;
+        SignInDriver.step(RUNNER, SignInDriver.WATCH_DIALOG_JS, 1, 0, ui, this::onDialogAnswer);
+        // Collect whatever the observer did: quickly at first, then patiently.
+        for (long waitMs : new long[]{700, 1400, 2200, 3000, 4000}) {
+            ui.postDelayed(this::collectDialogAnswer, waitMs);
+        }
+        // Nothing at all after the searches: only then is the fallback page worth a look.
+        ui.postDelayed(this::fallBackIfStillNothing, 12000);
+    }
+
+    /** Reads the observer's result out of the page without re-arming it. */
+    private void collectDialogAnswer() {
+        if (web == null || !started || providerPageShown || providerChosen) return;
+        SignInDriver.step(RUNNER, SignInDriver.WATCH_DIALOG_JS, 1, 0, ui, this::onDialogAnswer);
+    }
+
+    /** Acts on what the watcher (or the immediate search) reported. */
+    private void onDialogAnswer(String answer) {
+        if (web == null) return;
+        // The watcher keeps its answer in the page, so every later read returns it again:
+        // pressing Arena's provider button twice would open the round trip twice.
+        if (providerChosen) return;
+        if (SignInDriver.CLICKED.equals(answer) || SignInDriver.ALREADY.equals(answer)
+                || SignInDriver.ON_PROVIDER.equals(answer)) {
+            dialogAnswered = true;
+        }
+        if (SignInDriver.CLICKED.equals(answer) || SignInDriver.ALREADY.equals(answer)) {
+            chooseProvider();
             return;
         }
-        SignInDriver.step(RUNNER, SignInDriver.OPEN_DIALOG_JS, 3, 900, ui, first -> {
-            if (web == null) return;
-            if (SignInDriver.CLICKED.equals(first) || SignInDriver.ALREADY.equals(first)) {
-                chooseProvider();
-                return;
-            }
-            if (SignInDriver.ON_PROVIDER.equals(first)) {
-                // Google's own page is on screen: Arena's dialog is not on this host, so
-                // searching it again only ever ended in the fallback, which is what left
-                // the phone on "accounts.google.com is opening its own sign-in page".
-                started = true;
-                providerPageShown = true;
-                setProgress(activity.getString(R.string.signin_provider_open,
-                        pendingProvider));
-                return;
-            }
-            if (SignInDriver.RETRY.equals(first)) {
-                // A menu opened (or the landing page's CTA was followed): what it revealed
-                // needs a moment to render before it can be looked at.
-                setProgress(activity.getString(R.string.signin_step_wait));
-                ui.postDelayed(this::runDialogRound, 1500);
-                return;
-            }
-            fallBackToLastResort();
-        });
+        if (SignInDriver.ON_PROVIDER.equals(answer)) {
+            // Google's own page is on screen: Arena's dialog is not on this host, so
+            // searching it again only ever ended in the fallback, which is what left
+            // the phone on "accounts.google.com is opening its own sign-in page".
+            started = true;
+            providerPageShown = true;
+            setProgress(activity.getString(R.string.signin_provider_open, pendingProvider));
+            return;
+        }
+        if (SignInDriver.RETRY.equals(answer)) {
+            // A menu opened (or the landing page's CTA was followed): what it revealed
+            // needs a moment to render before it can be looked at.
+            setProgress(activity.getString(R.string.signin_step_wait));
+            ui.postDelayed(this::collectDialogAnswer, 1200);
+        }
+        // "watch" and "none" need nothing: the observer is in the page, and the safety
+        // nets above will collect its answer when it lands.
+    }
+
+    /** The page offered nothing for twelve seconds: show the page that does. */
+    private void fallBackIfStillNothing() {
+        if (web == null || !started || providerPageShown || dialogAnswered) return;
+        fallBackToLastResort();
+    }
+
+    /**
+     * Sends Google the address this device signed in with, so its page skips the form.
+     *
+     * {@code login_hint} is a documented Google parameter: given an address, its page goes
+     * straight to the password/consent step for that account instead of asking who you are.
+     * The hint is only ever the address the user stored in this app ({@link LocalProfile}),
+     * never something read off Google's page - reading that page's fields would be
+     * harvesting credentials, which this app does not do.
+     */
+    private boolean applyLoginHint(WebView view, Uri uri) {
+        if (view == null || uri == null || view != web) return false;
+        if (!"accounts.google.com".equalsIgnoreCase(uri.getHost())) return false;
+        if (uri.getQueryParameter("login_hint") != null) return false;
+        String saved = LocalProfile.email(activity);
+        if (saved == null || saved.isEmpty() || saved.indexOf('@') < 1) return false;
+        Uri hinted = uri.buildUpon().appendQueryParameter("login_hint", saved).build();
+        view.loadUrl(hinted.toString());
+        return true;
     }
 
     /** Presses the provider button the user chose. */
     private void chooseProvider() {
+        if (providerChosen) return;
+        providerChosen = true;
         setProgress(activity.getString(R.string.signin_step_provider, pendingProvider));
         SignInDriver.step(RUNNER, SignInDriver.chooseProviderScript(pendingProvider),
                 5, 900, ui, second -> {
@@ -1052,6 +1120,9 @@ public final class SignInSheet {
     }
 
     private void finishSuccessfully() {
+        // Android 9 writes cookies asynchronously: without this a session that was just
+        // established can be lost if the process is killed next.
+        CookieManager.getInstance().flush();
         dismiss();
         if (host != null) host.onSignedIn();
     }

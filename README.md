@@ -111,24 +111,35 @@ and the link it comes back with is what finishes the sign-in **in the app**.
    the session lands in Arena directly. Google is the only provider listed, because it is
    the only one Arena accepts for an account — the GitHub account is what connects Agent
    Mode connectors and authorises app updates, not a way into Arena.
-2. `SignInDriver` taps Arena's own "Log in" control and then "Continue with Google" (the
-   home page has no such control; the driver looks inside shadow roots, behind the menu
-   button, and finally on `/leaderboard`, which does render one).
+2. `SignInDriver` watches the page with a `MutationObserver` and presses Arena's own
+   "Log in" control the moment it is inserted, then "Continue with Google" (the home page
+   has no such control; the search covers shadow roots, the menu button, and finally
+   `/leaderboard`, which does render one). The old build polled every 900 ms; the observer
+   makes the tap part of the page's own paint instead of a round trip after it.
 3. `window.open` / `target=_blank` from the page is captured by `onCreateWindow` and hosted
    as a layer of the same in-app sheet instead of being dropped or pushed to Chrome.
 4. When arena hands the account step to Google (`accounts.google.*`), the sheet stops
    looking for Arena's dialog — there is none on that host — and says whose page is on
-   screen. The account is entered there, and the round-trip back to arena.ai finishes the
-   sign-in. If Google refuses the embedded page outright ("This browser or app may not be
-   secure"), the header says so and the *Sign in in a browser* row is always one tap away.
+   screen. If Google refuses the embedded page outright ("This browser or app may not be
+   secure"), the header says so and the browser row is always one tap away.
+4b. **The first sign-in has to be typed on Google's page, and that is not avoidable.** A
+   WebView has its own cookie jar, separate from Android's accounts and from Chrome, so a
+   fresh app has no Google session and Google shows its email form. Once that jar holds a
+   Google session, Google shows *"Choose an account"* instead, and the sign-in is that one
+   tap plus the return to Arena. The jar is never wiped (that was a 1.4.6 bug), it is
+   flushed on completion and on pause (Android 9 writes cookies lazily), and the address
+   the user typed is sent back as `login_hint` on later attempts so Google can skip the
+   form entirely.
 5. Success is decided by the page: cookies cannot be read when they are HttpOnly, so a
    rendered arena page that offers no sign-in control **is** the signed-in state. A page
    that still offers one keeps the sheet open and says so.
-6. **If Google refuses the embedded page** (403 `disallowed_useragent`): the labelled
-   *Sign in in a browser* row opens the site in the real browser, and the ticket that
-   returns (`arena.ai/auth/handoff?ticket=…`, or any arena link carrying a ticket/code)
-   comes back to the app, is opened in its own WebView, and becomes a normal in-app
-   session. The browser is a step, not the destination.
+6. **The browser row is a fallback with a caveat.** Chrome usually does show Google's real
+   picker, because Chrome has a Google session — but a session created there belongs to
+   Chrome. Bringing it into the app needs a link Arena itself publishes
+   (`arena.ai/auth/handoff?ticket=…`); `takeBrowserHandoff` handles one and only accepts an
+   `arena.ai` / `lmarena.ai` host, but that link has never been observed on a real device,
+   so the row says "it stays signed in there, not here" rather than promising a transfer.
+   If that link does turn up in real traffic, the handoff already works.
 7. Back closes the sheet.
 
 `AppChrome.openExternally()` no longer hands http(s) links to another app at all: only

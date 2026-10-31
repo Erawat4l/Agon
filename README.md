@@ -332,11 +332,23 @@ for publishing from your PC.
 
 ### B. GitHub Actions: automatic on every push to `main`
 
-`.github/workflows/build-apk.yml` builds *and publishes* a release on every push to `main`,
-with the APK attached. No tagging, no manual step — the app picks it up on its next check.
+`.github/workflows/build.yml` builds *and publishes* **one release with both platforms** on
+every push to `main`, under a single version number:
 
-Work branches do **not** publish: they build and upload an artifact for inspection only, so
-a side branch can never become "the latest release" for people who already installed the app.
+| Asset in the release | Platform |
+| --- | --- |
+| `Agon-<version>.apk` | Android - install on the phone |
+| `Agon-Setup-<version>-x64.exe` | Windows installer, 64-bit |
+| `Agon-Setup-<version>-ia32.exe` | Windows installer, 32-bit |
+| `Agon-Portable-<version>-{x64,ia32}.exe` | no installation needed |
+| `latest.yml` + `.blockmap` | what the Windows auto-updater verifies |
+
+The APK job decides the version and publishes the release; the Windows job takes that same
+tag from it, so the two never drift apart. No tagging by hand — both updaters pick the
+release up on their next check.
+
+Work branches do **not** publish: they build and upload artifacts for inspection only, so a
+side branch can never become "the latest release" for people who already installed the app.
 
 The version follows `app/build.gradle`: patch = base patch + commits since the last `v*` tag
 (so `1.4.22` / `1002033` becomes `1.4.23` / `1002034`), keeping the `1002xxx` convention the
@@ -365,11 +377,12 @@ release, Beta = includes pre-releases), auto-check on/off, and the GitHub token.
 
 ## Building the APK on GitHub instead (no local setup)
 
-If **Actions** is enabled on the repository, every push runs
-`.github/workflows/build-apk.yml`: **Actions → "Build APK" → latest run →
-Artifacts → `Agon-debug-apk`**. Pushing a tag like `v1.0` also attaches the APK
-to a GitHub Release. (If the run fails instantly with no steps, Actions is disabled
-for the repo: *Settings → Actions → General → Allow all actions*.)
+Every push to `main` runs `.github/workflows/build.yml`:
+**Actions → "Build Agon (APK + Windows)" → latest run → Artifacts** gives you
+`Agon-apk` and `Agon-windows` separately, and the same run attaches everything to a
+GitHub Release. (If the run fails instantly with no steps, Actions is not permitted for
+the repository: *Settings → Actions → General → Allow all actions* — this happens on
+private repos without paid minutes.)
 
 ---
 
@@ -384,7 +397,7 @@ app/src/main/java/ai/arena/webapp/
     MainActivity.java         WebView shell: navigation, uploads, downloads, permissions
     CrashLog.java             last-crash recorder shown on screen
 app/src/main/res/             icons (adaptive + legacy), theme, colors, strings
-.github/workflows/build-apk.yml
+.github/workflows/build.yml
 ```
 
 Almost dependency-free: only `androidx.core` (for `FileProvider`, which the package

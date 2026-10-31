@@ -30,6 +30,32 @@ const PROVIDER_HOSTS = ['accounts.google.com', 'accounts.youtube.com', 'google.c
 const PARTITION = 'persist:agon';
 const isDev = !app.isPackaged;
 
+/**
+ * Portable build vs installed build.
+ *
+ * electron-builder's "portable" target unpacks the app next to wherever the .exe was
+ * started from and sets PORTABLE_EXECUTABLE_DIR to that folder. Left alone, Chromium still
+ * writes its session (cookies, cache, window size) to %APPDATA%\Agon, which is exactly what
+ * a portable build is supposed to avoid - and which breaks when the stick is moved to a PC
+ * where the account has no write access to %APPDATA%.
+ *
+ * So: when PORTABLE_EXECUTABLE_DIR is set, keep everything in Agon-data\ next to the exe.
+ * If that is not writable (read-only USB stick, Program Files), fall back to %APPDATA%
+ * instead of refusing to start.
+ */
+function userDataDir() {
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (!portableDir) return null;              // installed build: Electron's default
+  const candidate = path.join(portableDir, 'Agon-data');
+  try {
+    fs.mkdirSync(candidate, { recursive: true });
+    fs.accessSync(candidate, fs.constants.W_OK);
+    return candidate;
+  } catch (notWritable) {
+    return null;                              // fall back to %APPDATA%, still runs
+  }
+}
+
 let mainWindow = null;
 /** Windows this app opened itself (provider popups), so they can be closed together. */
 const childWindows = new Set();
@@ -471,6 +497,11 @@ function checkForUpdates(manual) {
 }
 
 // ---------------------------------------------------------------- lifecycle
+
+// Before the single-instance lock: that lock lives in userData, and a portable copy on a USB
+// stick must lock its own folder rather than fight the installed copy over %APPDATA%.
+const portableData = userDataDir();
+if (portableData) app.setPath('userData', portableData);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

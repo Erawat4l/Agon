@@ -38,6 +38,26 @@ npm run dist      :: build the installers into desktop\release\
 | `Agon-Portable-<version>-x64.exe` / `-ia32.exe` | no install, runs from anywhere |
 | `latest.yml` + `.blockmap` | what the auto-updater reads |
 
+### Setup vs Portable - what actually differs
+
+Same app, same binaries, same release; the only difference is **where it lives and what it
+writes**, plus whether an uninstaller exists.
+
+| | `Agon-Setup-<ver>-x64.exe` (= `Agon.exe`) | `Agon-Portable-<ver>-x64.exe` |
+| --- | --- | --- |
+| Install step | NSIS wizard: choose the folder, per-user (no admin prompt, `asInvoker`) | none - it runs where it is |
+| Where the app files go | `%LOCALAPPDATA%\Programs\Agon\` | a temp folder unpacked on every launch from the single `.exe` |
+| Start Menu / desktop shortcut | yes, named **Agon**, points at the installed copy | no |
+| Add/Remove Programs entry + uninstaller | yes | no - delete the `.exe` |
+| Where the session lives (cookies, cache, window size) | `%APPDATA%\Agon` | `Agon-data\` **next to the .exe** (falls back to `%APPDATA%\Agon` if that folder is read-only) |
+| Startup time | faster - nothing to unpack | a few seconds slower on each launch |
+| Portable on a USB stick, keeps you signed in | no (that PC keeps the session) | yes, the session travels with the stick |
+| Auto-update | yes (`latest.yml`) | yes, but it rewrites the file it was started from - keep it on a writable stick |
+| Best for | your own PC | a friend's PC, a lab machine, a USB stick |
+
+Neither one is signed with a paid certificate, so SmartScreen shows "unrecognised app" on the
+first run of both - *More info* → *Run anyway*.
+
 ### If packaging fails
 
 **`Cannot create symbolic link … darwin\10.12\lib\libcrypto.dylib` (error exit status 2).**

@@ -406,8 +406,7 @@ let autoUpdater = null;
  *
  * Never installs silently: electron-updater downloads in the background and only asks
  * once the file is verified, then installs on the user's confirmation and relaunch.
- * A private repository needs a token in GH_TOKEN (read-only Contents), which is the same
- * rule the Android app has.
+ * The releases are public, so no token or account is involved, exactly like the Android app.
  */
 function updates() {
   try {
@@ -429,13 +428,11 @@ function updates() {
       let detail;
       if (status && status[1] === '404') {
         detail = 'GitHub has no release it can see (404).\n\n'
-          + 'That usually means no release has been published yet, or the repository is '
-          + 'private. A private repository needs a read-only token in GH_TOKEN, which is the '
-          + 'same rule the Android app follows.';
+          + 'That means no release has been published yet, or the repository was renamed. '
+          + 'Check https://github.com/Erawat4l/Agon/releases in a browser.';
       } else if (status) {
         detail = 'GitHub answered HTTP ' + status[1] + '.\n\n'
-          + 'Check your connection, and whether a private repository needs a token in '
-          + 'GH_TOKEN (Contents: read-only).';
+          + 'Check your internet connection and try again in a few minutes.';
       } else {
         detail = raw.length > 400 ? raw.slice(0, 400) + '...' : raw;
       }

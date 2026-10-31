@@ -49,36 +49,38 @@ jobs:
         id: v
         run: |
           set -euo pipefail
-          # The version follows app/build.gradle, which is the single source of truth:
-          #   1.4.22 / versionCode 1002033, and exactly +1 on both per build.
+          # Version rule, identical to app/build.gradle and to UpdateManager.pack():
+          #     versionCode = major * 1_000_000 + minor * 1_000 + patch
           #
-          # The first version of this file used the commit count alone and produced 1.4.78
-          # with code 1004078 - nowhere near the 1002xxx convention, and far ahead of the
-          # 1.4.22 the app was actually on, so the in-app updater would have called every
-          # CI build a downgrade. Now the count only ever adds to the patch number.
-          BASE="$(grep -oE "VERSION_NAME.\) \?: '[0-9.]+'" app/build.gradle | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
-          BASE="${BASE:-1.4.22}"
-          CODEBASE="$(grep -oE "VERSION_CODE.\) \?: '[0-9]+'" app/build.gradle | head -1 | grep -oE '[0-9]+')"
-          CODEBASE="${CODEBASE:-1002033}"
-          MAJ="$(echo "$BASE" | cut -d. -f1)"
-          MIN="$(echo "$BASE" | cut -d. -f2)"
-          PATCHBASE="$(echo "$BASE" | cut -d. -f3)"
-          # Builds since the last release tag, so the patch number crawls instead of jumping
-          # with every commit ever made. No tag yet (fresh clone, shallow tags) -> 1.
-          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
-          if [ -n "$LAST_TAG" ]; then
-            STEP="$(git rev-list --count "$LAST_TAG"..HEAD)"
+          # Earlier runs mixed two schemes and broke updates: 1.4.26 was stamped 1002035
+          # (the old 1002xxx base + commit count) while the app derived 1004026 from the
+          # tag, so it treated its own install as out of date and offered 1.4.26 again,
+          # every check, forever.
+          #
+          # Now the tag is the only source of truth, and the patch number is
+          # "last released patch + 1". Nothing else can drift.
+          BASE_NAME="$(grep -oE "VERSION_NAME.\\) \\?: '[0-9.]+'" app/build.gradle | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          BASE_NAME="${BASE_NAME:-1.4.22}"
+          MAJ="$(echo "$BASE_NAME" | cut -d. -f1)"
+          MIN="$(echo "$BASE_NAME" | cut -d. -f2)"
+
+          # Highest patch already released under the same major.minor.
+          LATEST_TAG="$(git tag --list "v$MAJ.$MIN.*" --sort=-v:refname | head -1)"
+          if [ -n "$LATEST_TAG" ]; then
+            PATCH="$(echo "$LATEST_TAG" | sed -E 's/^v[0-9]+\.[0-9]+\.([0-9]+)$/\1/')"
+            PATCH=$((PATCH + 1))
           else
-            STEP=1
+            # No release yet for this major.minor: start from the one build.gradle names.
+            PATCH="$(echo "$BASE_NAME" | cut -d. -f3)"
           fi
-          if [ "$STEP" -lt 1 ]; then STEP=1; fi
-          PATCH=$((PATCHBASE + STEP))
+
           NAME="$MAJ.$MIN.$PATCH"
-          CODE=$((CODEBASE + STEP))
+          CODE=$((MAJ * 1000000 + MIN * 1000 + PATCH))
+
+          echo "Version $NAME (code $CODE, previous tag: ${LATEST_TAG:-none})"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
-          echo "Version $NAME (code $CODE)"
 
       - name: Build
         run: |

@@ -255,21 +255,28 @@ notification with its own chime — and it can never install anything silently.
    asks to allow *install unknown apps* for Arena — the app sends you straight to that
    toggle and then retries. **There is no silent install path anywhere in the code.**
 
-**Now that the repository is public, no token is needed.** The app reads
-`https://api.github.com/repos/Erawat4l/Agon/releases/latest` anonymously.
+**No token, no account, nothing to configure.** The releases are public, so the app asks
+`https://api.github.com/repos/Erawat4l/Agon/releases/latest` anonymously, takes the
+`browser_download_url` of the `.apk` in that release, downloads it and hands it to Android's
+installer. The token support that existed while the repository was private is gone: no token
+field, no first-run prompt, no stored credential.
 
-A token is only for the private case: a private repository answers `404` without one, and
-the token never leaves the app except in the `Authorization` header of that one request.
-If you ever make the repository private again, any one of these works:
+Two things are still checked, because they protect the install rather than the account:
 
-| Where | How |
-| --- | --- |
-| In the app (easiest) | Update sheet → *GitHub token (private repo)* → **Add** → paste a fine-grained token with **Contents: read-only** on just this repo. Stored in app-private prefs. |
-| Build time | `gradle.properties` → `ARENA_GH_TOKEN=github_pat_…` (file is git-ignored) |
-| Environment | `set ARENA_GH_TOKEN=github_pat_…` before `build.bat` |
+- the asset URL must point at GitHub (`github.com`, `api.github.com`,
+  `objects.githubusercontent.com`) - a release cannot redirect the installer elsewhere;
+- the download is verified against the size and, where the server sends one, the checksum
+  before the installer is opened.
 
-Without a token the sheet shows *"private repo: add a GitHub token"* and everything
-else keeps working.
+If you ever make the repository private again, updates will stop working; a token would have
+to come back with them.
+
+**One version number, one formula.** `versionCode` is always
+`major * 1_000_000 + minor * 1_000 + patch`, derived from the version name by Gradle, by CI
+and by the app when it reads a release tag. Earlier builds mixed that with a separate
+`1002xxx` base, which made an installed app think its own release was newer than itself and
+offer the same update forever. `1.4.26` is the last build with the broken number; `1.4.27`
+onwards is consistent.
 
 **Publishing a release (this is what makes the update appear)**
 
@@ -320,7 +327,8 @@ Every installed app then sees it: tap **Update → Check for updates**, download
 Install, approve Android's prompt. The release page link opens **inside the app** —
 the app never sends you to Chrome.
 
-First run asks for a GitHub token once (stored in `gh-token.txt`, git-ignored):
+`publish.bat` needs a token **only for publishing** (write access to your own repo), not for
+updating:
 
 1. <https://github.com/settings/personal-access-tokens/new>
 2. Repository access → *Only select repositories* → `Agon`
@@ -360,8 +368,9 @@ in-app updater compares against.
 
 **Rules of thumb**
 
-- Version code = `major*1,000,000 + minor*1,000 + patch`, derived from the tag, so a
-  higher tag is always seen as newer.
+- Version code = `major*1,000,000 + minor*1,000 + patch`, derived from the version name in
+  `app/build.gradle` and from the release tag - the same formula in all three places, so the
+  number an app computes for a release is the number that release was built with.
 - The release must contain an `.apk` asset; the app picks the first one.
 - Debug and release builds are separate installs (`ai.arena.webapp.debug` vs
   `ai.arena.webapp`) — each updates itself from the same release.
@@ -371,7 +380,8 @@ in-app updater compares against.
   `gh release create v1.0.1 Agon-1.0.1.apk --notes "What changed…"` if you publish by hand.
 
 **Update settings inside the sheet:** release channel (Stable = newest published
-release, Beta = includes pre-releases), auto-check on/off, and the GitHub token.
+release, Beta = includes pre-releases) and auto-check on/off. Nothing else - there is no
+credential to enter.
 
 ---
 
@@ -471,7 +481,6 @@ must ship whenever the project is made public.
 | --- | --- | --- |
 | Arena session cookie | the WebView cookie jar (HttpOnly, owned by arena.ai) | only to arena.ai, as any browser does |
 | Account email + provider | `agon_profile` prefs | no |
-| GitHub token (private-repo update checks) | `agon_update` prefs, or `ARENA_GH_TOKEN` at build time | only to api.github.com |
 | Sign-in trace (URLs, query values stripped to `name=set`) | `agon_signin_trace` prefs | no |
 | Crash trace | `files/last_crash.txt` | no |
 
@@ -548,7 +557,8 @@ client, keep `NOTICE.md`, and do not put Arena's logo in it.
 | `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | You had a build with a different signature — uninstall the old app first |
 | Play Protect blocks the install | Normal for sideloaded APKs — choose *"Install anyway"* |
 | Blank page after sign-in | Clear the app's data (More → Clear app data), or check that your network allows Google sign-in |
-| Update check says *private repo* | Add the GitHub token — the app asks on first launch, or use Update → GitHub token |
+| Update check says *no release found* | The repository has no published release, or it was renamed: check `repos/Erawat4l/Agon/releases/latest` in a browser |
+| Update offered forever, same version | You are on `1.4.26` or older, whose `versionCode` disagreed with its tag. Install `1.4.27`+ once by hand; the loop cannot come back |
 | `publish.bat` says 401/403 | Token needs **Contents: read and write** on this exact repo |
 | Actions run fails instantly, 0 steps | Actions is blocked for the repo — use `publish.bat` |
 | *App not installed* when updating | Old APK was signed with a different key — uninstall once, then install |

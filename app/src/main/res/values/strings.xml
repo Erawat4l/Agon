@@ -81,7 +81,6 @@
     <string name="update_channel_beta">Beta channel</string>
     <string name="update_auto_on">Auto-check on</string>
     <string name="update_auto_off">Auto-check off</string>
-    <string name="update_private_hint">Private repo: add a token to check</string>
     <string name="update_no_file">The downloaded file is missing. Download it again.</string>
     <string name="update_allow_install">Allow Agon to install unknown apps, then tap Install again.</string>
     <string name="update_install_failed">Could not open the package installer</string>
@@ -90,19 +89,6 @@
     <string name="update_notification_big">Version %1$s is ready — you have %2$s. Tap to review and download; nothing installs without your approval.</string>
     <string name="update_setting_channel">Release channel</string>
     <string name="update_setting_auto">Check automatically</string>
-    <string name="update_setting_token">GitHub token (private repo)</string>
-    <string name="update_token_add">Add</string>
-    <string name="update_token_change">Change</string>
-    <string name="update_token_set">Token saved</string>
-    <string name="update_token_title">Private repository</string>
-    <string name="update_token_help">Agon\'s releases live in a private GitHub repo, so GitHub needs a token to answer. Create a fine-grained token with read-only Contents access on this repository and paste it here. It is stored only on this device.</string>
-    <string name="token_prompt_title">Enable in-app updates</string>
-    <string name="token_prompt_body">Agon\'s builds live in a private GitHub repo, so the app needs a read-only token to check for new versions and download them. Create a fine-grained token with Contents: Read-only on Arena-Ai-App and paste it here. It never leaves this device. You can skip this and add it later from Update → GitHub token.</string>
-    <string name="token_prompt_save">Save &amp; check for updates</string>
-    <string name="token_prompt_skip">Not now</string>
-    <string name="update_token_hint">github_pat_… or ghp_…</string>
-    <string name="update_token_save">Save &amp; check</string>
-    <string name="update_token_skip">Not now</string>
     <string name="on">On</string>
     <string name="off">Off</string>
     <string name="channel_updates">App updates</string>

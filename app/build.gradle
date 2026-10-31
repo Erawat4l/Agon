@@ -15,13 +15,23 @@ android {
         // plan to publish on Google Play.
         targetSdk 34
         // versionName drives the in-app updater. publish.bat / CI stamp the real
-        // version from the release tag, so these are just local defaults.
-        def vCode = (project.findProperty('VERSION_CODE') ?: '1002033').toString()
+        // version from the release tag, so these are local defaults.
+        //
+        // THE RULE, and it must not be broken: versionCode is DERIVED from versionName with
+        //     major * 1_000_000 + minor * 1_000 + patch
+        // because that is exactly how UpdateManager turns a release tag into a number. When
+        // the two disagreed (1.4.26 shipped as 1002035 - the old 1002xxx convention - while
+        // the app computed 1004026 from the tag) the app saw its own install as older than
+        // the release it came from, and offered the same update forever.
         def vName = (project.findProperty('VERSION_NAME') ?: '1.4.22').toString()
+        def vParts = vName.tokenize('.')
+        def vDerived = (vParts.size() > 0 ? vParts[0].toInteger() : 0) * 1000000 \
+                + (vParts.size() > 1 ? vParts[1].toInteger() : 0) * 1000 \
+                + (vParts.size() > 2 ? vParts[2].toInteger() : 0)
+        // VERSION_CODE may override, for a one-off build only.
+        def vCode = (project.findProperty('VERSION_CODE') ?: vDerived.toString()).toString()
         versionCode vCode.toInteger()
         versionName vName
-
-        buildConfigField "String", "ARENA_GH_TOKEN", '"' + (project.findProperty("ARENA_GH_TOKEN") ?: "") + '"'
 
         // 32-bit and 64-bit are both real targets, not an afterthought.
         //

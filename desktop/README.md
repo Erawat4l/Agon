@@ -100,9 +100,8 @@ number on the phone and on the PC always match.
   *Agon → Check for updates…*.
 - `electron-updater` verifies the download against the SHA-512 in the release's
   `latest.yml` before it is offered. Nothing installs silently: it asks, then restarts.
-- A private repository needs a token. Set `GH_TOKEN` before launching `npm run dist`
-  (read-only *Contents* is enough to download; the upload needs the write token that
-  `publish.bat` already uses).
+- The releases are public, so no token is involved at any point: the updater reads
+  `latest.yml` anonymously and verifies the SHA-512 before offering the installer.
 
 ## What it does and does not do
 

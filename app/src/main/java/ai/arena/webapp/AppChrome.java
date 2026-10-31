@@ -13,10 +13,26 @@ public final class AppChrome {
     private AppChrome() {
     }
 
-    /** WebView's stock UA is refused by some identity providers; present a Chrome-ish one. */
+    /**
+     * A clean Chrome user agent.
+     *
+     * Cloudflare Turnstile ("Verify you are human") and Google's sign-in both treat a
+     * WebView UA ("; wv") as a bot/unsupported browser, which is where the robot check
+     * came from. This strips the WebView marker and the app token, keeps the real
+     * Android version so the page still serves mobile content, and adds no vendor
+     * suffix that a bot-detection rule could key on.
+     */
     public static String userAgent(Activity activity, String defaultUa) {
-        String ua = defaultUa == null ? "" : defaultUa.replace("; wv", "").replace("Version/4.0 ", "");
-        return ua + " ArenaApp/" + UpdateManager.currentVersionName(activity);
+        String ua = defaultUa == null ? "" : defaultUa;
+        ua = ua.replace("; wv)", ")").replace("; wv ", " ").replace("Version/4.0 ", "");
+        // Drop any previous app suffix so the string stays byte-stable across updates.
+        int marker = ua.indexOf(" ArenaApp/");
+        if (marker > 0) ua = ua.substring(0, marker);
+        if (ua.trim().isEmpty()) {
+            ua = "Mozilla/5.0 (Linux; Android " + Build.VERSION.RELEASE + "; " + Build.MODEL
+                    + ") AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+        }
+        return ua.trim();
     }
 
     /** True for URLs that belong inside the app. */

@@ -113,8 +113,9 @@ public final class AccountPicker {
         }
         if (found == 0) {
             TextView empty = new TextView(activity);
-            empty.setText(activity.getString(google
-                    ? R.string.signin_no_accounts : R.string.signin_no_accounts_hint));
+            // Not an error: the chooser below still signs you in through the provider's
+            // own page, which lists the account on its side.
+            empty.setText(activity.getString(R.string.signin_no_accounts_soft));
             empty.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
             empty.setTextColor(0xFF5F6368);
             empty.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -155,7 +156,7 @@ public final class AccountPicker {
 
     /** Adds one row per Google account on the device. Returns how many were added. */
     private int addDeviceAccounts(LinearLayout card) {
-        Account[] accounts = accountsOnDevice();
+        String[] accounts = accountsOnDevice();
         if (accounts.length == 0) return 0;
 
         TextView label = new TextView(activity);
@@ -166,25 +167,48 @@ public final class AccountPicker {
         label.setPadding(AppUi.dp(activity, 4), 0, 0, AppUi.dp(activity, 6));
         card.addView(label);
 
-        for (final Account account : accounts) {
-            card.addView(row(account.name, initials(account.name), false,
-                    v -> {
-                        dismiss(false);
-                        host.onAccountChosen(account.name, account.name);
-                    }));
+        for (final String email : accounts) {
+            card.addView(row(email, initials(email), false, v -> {
+                dismiss(false);
+                host.onAccountChosen(email, email);
+            }));
         }
         return accounts.length;
     }
 
-    /** Google accounts known to Android; empty when the app may not read them. */
-    private Account[] accountsOnDevice() {
+    /**
+     * Google accounts known to Android.
+     *
+     * getAccountsByType("com.google") stopped returning anything on recent Android
+     * versions, and it also throws when the app has no GET_ACCOUNTS grant - which is why
+     * the picker used to say "No Google account found". The Authenticator description is
+     * the supported lookup (it only needs the account metadata, never a password), and
+     * the plain type lookup is kept as a fallback. Any failure returns an empty list and
+     * the picker falls back to "Continue with Google", which is not a dead end.
+     */
+    private String[] accountsOnDevice() {
+        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
         try {
             AccountManager am = AccountManager.get(activity);
-            Account[] all = am.getAccountsByType("com.google");
-            return all == null ? new Account[0] : all;
-        } catch (SecurityException e) {
-            return new Account[0];
+            for (android.accounts.AuthenticatorDescription d : am.getAuthenticators()) {
+                if ("com.google".equals(d.type)) {
+                    for (Account a : am.getAccountsByType(d.type)) {
+                        if (a.name != null && a.name.contains("@")) names.add(a.name);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // fall through to the plain lookup
         }
+        try {
+            AccountManager am = AccountManager.get(activity);
+            for (Account a : am.getAccountsByType("com.google")) {
+                if (a.name != null && a.name.contains("@")) names.add(a.name);
+            }
+        } catch (Exception ignored) {
+            // no permission / no accounts: an empty list is a valid answer
+        }
+        return names.toArray(new String[0]);
     }
 
     private static String initials(String email) {

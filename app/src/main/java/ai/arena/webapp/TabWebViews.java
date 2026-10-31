@@ -176,15 +176,14 @@ public final class TabWebViews {
                 // Never wider than the phone: arena's desktop grid would otherwise
                 // overflow and get cropped on the right.
                 + "html{max-width:100vw !important;overflow-x:hidden !important;}"
-                // Arena's own sidebar is a full-height flex column whose footer ("Log in"
-                // / account) sits at the very bottom. Adding the nav's height to the
-                // document is not enough for a column sized in 100vh, so the sidebar
-                // itself gets the reserved space and can scroll its own list.
+                // Arena's own sidebar ("New Chat / Leaderboard / Search" + history) is
+                // hidden: the app navigates with its own bar, so the page's duplicate
+                // navigation is removed instead of being reserved space for. The selectors
+                // cover the shapes the page uses today; the JS below also hides a
+                // matching element it can identify by its text, for layouts we do not know.
                 + "[class*=\"sidebar\" i],[data-testid*=\"sidebar\" i],"
-                + "aside{max-height:calc(100dvh - " + (cssTop + cssBottom) + "px) !important;"
-                + "overflow-y:auto !important;}"
-                + "[class*=\"sidebar-footer\" i],[data-testid*=\"sidebar-footer\" i]{"
-                + "margin-bottom:" + cssBottom + "px !important;}";
+                + "nav[class*=\"side\" i],aside{display:none !important;}"
+                + "html{--arena-sidebar-hidden:1;}";
 
         String js = "(function(){"
                 + "var id='arena-app-insets';var old=document.getElementById(id);"
@@ -196,6 +195,19 @@ public final class TabWebViews {
                 // 100vh elements (composer, panels) sit inside the frame.
                 + "document.documentElement.style.height='100%';"
                 + "document.body.style.height='auto';"
+                // Fallback: hide the container that holds arena's own navigation links.
+                + "var words=['new chat','leaderboard','search'];"
+                + "function looksLikeSidebar(el){"
+                + "var t=((el.innerText||'')+' '+(el.getAttribute&&el.getAttribute('aria-label')||''))"
+                + ".toLowerCase();"
+                + "var hits=0;for(var i=0;i<words.length;i++){if(t.indexOf(words[i])>=0)hits++;}"
+                + "return hits>=3;}"
+                + "var all=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
+                + "for(var i=0;i<all.length;i++){var el=all[i];"
+                + "if(el.offsetParent===null)continue;"
+                + "var w=el.getBoundingClientRect().width,h=el.getBoundingClientRect().height;"
+                + "if(w>420||h<0.5*w)continue;"
+                + "if(looksLikeSidebar(el)){el.style.setProperty('display','none','important');break;}}"
                 + "window.dispatchEvent(new Event('arena-insets'));"
                 + "})();";
         web.evaluateJavascript(js, null);
@@ -326,6 +338,11 @@ public final class TabWebViews {
         // Cache aggressively: repeat visits paint from disk, then refresh in place.
         s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         s.setUserAgentString(AppChrome.userAgent(activity, s.getUserAgentString()));
+        // A WebView is identified to bot-detection scripts by these two too, not just the
+        // UA string: without a profile the page can report "in-app browser" and serve a
+        // Turnstile challenge. Keep the DOM/storage behaviour, hide the wrapper.
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(w, true);

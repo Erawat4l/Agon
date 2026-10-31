@@ -322,45 +322,6 @@ public final class AppUi {
         }
     }
 
-    // ------------------------------------------------------------ top bar
-
-    public static View brandView(Context c) {
-        LinearLayout row = new LinearLayout(c);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        ImageView logo = new ImageView(c);
-        logo.setImageResource(R.mipmap.ic_launcher);
-        row.addView(logo, new LinearLayout.LayoutParams(dp(c, 24), dp(c, 24)));
-
-        TextView name = text(c, c.getString(R.string.app_name), 17f, R.color.on_bg, true);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.leftMargin = dp(c, 8);
-        row.addView(name, lp);
-        return row;
-    }
-
-    /** Small "v1.0.1" chip that only exists while an update is pending. */
-    public static TextView updateChip(Context c) {
-        TextView chip = text(c, "", 12f, R.color.on_accent, true);
-        chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(c, 10), dp(c, 6), dp(c, 10), dp(c, 6));
-        chip.setBackground(pressable(c, color(c, R.color.accent), 14f));
-        return chip;
-    }
-
-    /**
-     * Background for the floating bars: the bar tint at 96% so a sliver of page shows
-     * through and the content never looks clamped, while text on the bar stays legible.
-     */
-    public static Drawable chromeBg(Context c) {
-        int base = color(c, R.color.surface);
-        GradientDrawable d = new GradientDrawable();
-        d.setColor((base & 0x00FFFFFF) | 0xF5000000);
-        return d;
-    }
-
     public static View divider(Context c) {
         View v = new View(c);
         v.setBackgroundColor(color(c, R.color.divider));

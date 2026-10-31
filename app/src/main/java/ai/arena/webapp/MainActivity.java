@@ -59,9 +59,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private FrameLayout contentFrame;
     private TabWebViews tabs;
     private AppUi.Nav nav;
-    private View topBar;
     private View navArea;
-    private TextView updateChip;
     private View errorView;
     private UpdateSheet updateSheet;
     private View menuSheet;
@@ -185,18 +183,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
         });
 
-        // Both bars are overlays over the page, so the page itself gets the whole
-        // screen: arena centres its composer with vertical padding, and any strip taken
-        // from the page height pushed its content out of frame. The page reserves the
-        // bar heights itself through CSS (applyChromeInsets), and the bars are
-        // translucent + translucent-until-touched so nothing is hidden behind them.
-        topBar = buildTopBar();
-        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        topLp.gravity = Gravity.TOP;
-        window.addView(topBar, topLp);
-
-        // Collapsible navigation: icons always visible, labels slide in/out.
+        // No head panel and no top strip: arena's own header is the header. The page is
+        // the whole screen apart from the bottom nav, which is reserved in CSS.
         navArea = buildNavArea();
         FrameLayout.LayoutParams navLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -337,61 +325,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     // ------------------------------------------------------------------ chrome
 
-    /**
-     * Compact 40dp overlay bar: brand on the left, update pill + More on the right.
-     * It floats over the page (the page reserves its height in CSS), so it does not
-     * steal a strip from arena's own layout.
-     */
-    private View buildTopBar() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackground(AppUi.chromeBg(this));
-        int pad = AppUi.dp(this, 14);
-        bar.setPadding(pad, 0, AppUi.dp(this, 8), 0);
-
-        // Deliberately minimal: brand on the left, only contextual actions on the right.
-        bar.addView(AppUi.brandView(this), new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        View spacer = new View(this);
-        bar.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1f));
-
-        updateChip = AppUi.updateChip(this);
-        updateChip.setOnClickListener(v -> openUpdateSheet());
-        updateChip.setVisibility(View.GONE);
-        LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        chipLp.rightMargin = AppUi.dp(this, 6);
-        bar.addView(updateChip, chipLp);
-
-        ImageButton more = new ImageButton(this);
-        more.setImageResource(R.drawable.ic_nav_more);
-        more.setBackground(AppUi.pressable(this, android.graphics.Color.TRANSPARENT, 20f));
-        more.setColorFilter(AppUi.color(this, R.color.on_bg_muted));
-        more.setContentDescription(getString(R.string.nav_more));
-        int p = AppUi.dp(this, 9);
-        more.setPadding(p, p, p, p);
-        more.setOnClickListener(v -> {
-            AppUi.press(v);
-            showMenuSheet();
-        });
-        bar.addView(more, new LinearLayout.LayoutParams(
-                AppUi.dp(this, 40), AppUi.dp(this, 40)));
-
-        bar.setMinimumHeight(AppUi.dp(this, 40));
-        View line = AppUi.divider(this);
-        FrameLayout wrap = new FrameLayout(this);
-        wrap.addView(bar, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        FrameLayout.LayoutParams lineLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, AppUi.dp(this, 0.6f)));
-        lineLp.gravity = Gravity.BOTTOM;
-        wrap.addView(line, lineLp);
-        topBar = wrap;
-        return wrap;
-    }
-
+    /** The head panel is gone: arena draws its own header, so the app draws none. */
     /**
      * Slim, icon-only nav: Chat, Rankings, Search, More.
      *
@@ -427,8 +361,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      */
     void applyChromeInsets() {
         if (tabs == null) return;
-        final int top = topBar != null && topBar.getHeight() > 0
-                ? topBar.getHeight() : AppUi.dp(this, 40);
+        // Nothing is drawn over the top of the page any more.
+        final int top = 0;
         // Measured once laid out; the first pass uses the known bar height. The nav is an
         // overlay over the page, so its height has to be reserved inside the page -
         // without it the last row of arena's own sidebar (its "Log in" button) sat
@@ -776,6 +710,18 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * then the provider's own login page inside the app. Never a browser.
      */
     void startSignIn() {
+        // Any sheet that was open (More, Update, the token prompt) goes away first, so the
+        // picker is never buried under another overlay - that is why a sign-in started
+        // from the Update sheet looked like it did nothing.
+        if (updateSheet != null) closeUpdateSheet();
+        if (menuSheet != null) {
+            AppUi.slideDownAndRemove(menuSheet, window);
+            menuSheet = null;
+        }
+        if (tokenSheet != null) {
+            dismissSheet(tokenSheet);
+            tokenSheet = null;
+        }
         if (accountPicker == null) accountPicker = new AccountPicker(this, window,
                 new AccountPicker.Host() {
                     @Override
@@ -795,6 +741,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                         // keep the instance; it is cheap and reusable
                     }
                 });
+        if (accountPicker.isShowing()) {
+            accountPicker.dismiss();
+        }
         accountPicker.show(true);
     }
 
@@ -981,18 +930,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     private void refreshUpdateUi() {
         boolean available = UpdateManager.isUpdateAvailable(this);
-        if (updateChip != null) {
-            if (available) {
-                updateChip.setText(getString(R.string.update_pill,
-                        UpdateManager.latestVersionName(this)));
-                if (updateChip.getVisibility() != View.VISIBLE) {
-                    updateChip.setVisibility(View.VISIBLE);
-                    AppUi.pop(updateChip);
-                }
-            } else {
-                updateChip.setVisibility(View.GONE);
-            }
-        }
+        // No chip in a top bar (there is no top bar): the More icon carries a dot and
+        // the More sheet spells the version out.
         if (nav != null) {
             AppUi.styleNav(this, nav, currentTab, available, navExpanded, false);
         }

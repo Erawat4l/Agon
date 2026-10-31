@@ -8,8 +8,6 @@
     <string name="nav_more">More</string>
     <string name="nav_more_update">Update!</string>
     <string name="new_chat_started">New chat</string>
-    <string name="nav_expand_hint">Show or hide navigation labels</string>
-    <string name="signin_title">Sign in to Arena</string>
     <string name="appearance">Appearance</string>
     <string name="account_signin">Sign in to Arena</string>
     <string name="account_signin_sub">Google or GitHub, inside the app</string>
@@ -22,8 +20,7 @@
     <string name="signin_add_account">Use another account</string>
     <string name="signin_device_account">On this device</string>
     <string name="signin_use_account">Continue as %1$s</string>
-    <string name="signin_no_accounts">No Google account found on this phone</string>
-    <string name="signin_no_accounts_hint">Add one in Android settings, or continue with GitHub instead - both stay inside the app.</string>
+    <string name="signin_no_accounts_soft">Pick the account on Google\'s own page - it opens right here in the app.</string>
     <string name="signin_native_note">Arena\'s own account picker. The sign-in page itself is the provider\'s, shown inside the app.</string>
     <string name="signin_in_progress">Signing in</string>
     <string name="signin_still_out">Still signed out - finish the sign-in on this page</string>
@@ -49,7 +46,6 @@
     <!-- update -->
     <string name="app_update">Update</string>
     <string name="menu_version">Arena %1$s (build %2$d)</string>
-    <string name="update_pill">v%1$s</string>
     <string name="update_available_short">Version %1$s is ready</string>
     <string name="update_sheet_title">App Update</string>
     <string name="update_versions">Installed %1$s · last check %2$s</string>

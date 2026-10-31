@@ -12,7 +12,8 @@
     "icon": "python ../artwork/make-icons.py",
     "dist": "electron-builder --win nsis portable",
     "dist:dir": "electron-builder --win --dir",
-    "release": "electron-builder --win nsis portable --publish always"
+    "release": "electron-builder --win nsis portable --publish always",
+    "dist:branded": "electron-builder --win nsis portable -c.win.signAndEditExecutable=true"
   },
   "devDependencies": {
     "electron": "26.6.10",

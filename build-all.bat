@@ -90,8 +90,11 @@ goto :summary
 
 :desktop_build_failed
 echo        [X] electron-builder failed - see the messages above.
-echo            A "Cannot create symbolic link" error is an old cache problem; delete
+echo            "Cannot create symbolic link" means Windows refused to unpack the signing
+echo            tools - that should not happen now. If it does: delete
 echo            %LOCALAPPDATA%\electron-builder\Cache and run this again.
+echo            For an exe that carries the Agon icon, turn on Windows Developer Mode
+echo            and run:  cd desktop ^&^& npm run dist:branded
 goto :exe_failed
 
 :nothing_built

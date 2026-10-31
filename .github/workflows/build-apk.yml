@@ -8,9 +8,13 @@ name: Build APK
 # Settings -> Actions -> General -> "Allow all actions", or publish from your PC
 # with:  publish.bat
 
+# Pushing to main publishes a release (that is what the app's updater reads). Any other
+# branch only builds and uploads an artifact: a second branch must never be able to become
+# "the latest release" for people who already installed the app.
 on:
   push:
-    branches: [main, 'arena/**']
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -39,14 +43,23 @@ jobs:
         id: v
         run: |
           set -euo pipefail
+          # The version comes from app/build.gradle (the single source of truth), and the
+          # patch number only grows with the commit count *on top of* it. The first version
+          # of this file used the commit count alone, which produced 1.4.78 - far ahead of
+          # the 1.4.22 that build.gradle and the published APKs were on, so the in-app
+          # updater would have seen every CI build as a downgrade.
           BASE="$(grep -oE "VERSION_NAME.\) \?: '[0-9.]+'" app/build.gradle | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
           BASE="${BASE:-1.1.0}"
+          CODEBASE="$(grep -oE "VERSION_CODE.\) \?: '[0-9]+'" app/build.gradle | head -1 | grep -oE '[0-9]+')"
+          CODEBASE="${CODEBASE:-1002000}"
           MAJ="$(echo "$BASE" | cut -d. -f1)"
           MIN="$(echo "$BASE" | cut -d. -f2)"
-          # PATCH = commit count, so every push is a newer version than the last one.
-          PATCH="$(git rev-list --count HEAD)"
+          PATCHBASE="$(echo "$BASE" | cut -d. -f3)"
+          PATCH=$((PATCHBASE + $(git rev-list --count HEAD)))
           NAME="$MAJ.$MIN.$PATCH"
+          # Never go backwards from the code in build.gradle: the updater compares this.
           CODE=$((MAJ * 1000000 + MIN * 1000 + PATCH))
+          if [ "$CODE" -lt "$CODEBASE" ]; then CODE="$CODEBASE"; fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "Version $NAME (code $CODE)"
@@ -69,6 +82,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish release (this is what the app's updater reads)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.v.outputs.name }}

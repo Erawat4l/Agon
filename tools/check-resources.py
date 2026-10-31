@@ -124,6 +124,80 @@ def check_java_unary_plus(path):
                             f"so the first piece is a bare literal")
 
 
+def check_interface_calls(java_paths):
+    """A `callback.foo()` must exist on the interface that variable's type declares.
+
+    When the appearance and diagnostics rows moved into Settings, three
+    `callback.setAppearance(...)` calls stayed behind in MenuSheet and the interface no longer
+    declared the method - so javac reported "cannot find symbol: method setAppearance(int)"
+    three times. Deleting a method and leaving a caller behind is the easiest way to break a
+    build without touching the caller's file, so the rule is worth having.
+    """
+    # Every interface in the tree and the methods it declares. Inside an interface every
+    # method is a declaration, so any `type name(` is one - primitives included.
+    ifaces = {}
+    for path in java_paths:
+        src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+        for m in re.finditer(r"\binterface\s+(\w+)", src):
+            body_start = src.find("{", m.end())
+            if body_start < 0:
+                continue
+            depth, i = 1, body_start + 1
+            while i < len(src) and depth > 0:
+                if src[i] == "{":
+                    depth += 1
+                elif src[i] == "}":
+                    depth -= 1
+                i += 1
+            body = src[body_start + 1:i]
+            # nested braces (default methods) would hide declarations; flatten instead
+            names = set(re.findall(r"\b(?:void|boolean|int|long|float|double|String|char|byte|"
+                                   r"[A-Z][\w.<>\[\]]*)\s+(\w+)\s*\(", body))
+            # Several unrelated classes each declare a nested `interface Host`, so the
+            # methods are unioned by name: a call is accepted if any Host declares it.
+            # That can miss a mistake (two same-named interfaces, different methods), but it
+            # never invents one - and a checker that cries wolf gets switched off.
+            ifaces.setdefault(m.group(1), set()).update(names)
+
+    for path in java_paths:
+        src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+        if not any(name in src for name in ifaces):
+            continue
+        # `Callback callback` / `final Callback callback)` - the variable's declared type
+        # A name can be a different interface in different methods of one file (`callback`
+        # is a CheckCallback here and a DownloadCallback there), so every candidate type is
+        # kept and a call is only reported when *none* of them declares the method. That can
+        # miss a mistake; it never invents one, which matters more for a check that has to
+        # stay switched on.
+        typed = {}
+        for tm in re.finditer(r"\b([A-Z]\w*)\s+(\w+)\s*(?=[,)=;])", src):
+            typed.setdefault(tm.group(2), set()).add(tm.group(1))
+        for sig in re.finditer(r"\b(?:public|private|protected|static|final|synchronized|"
+                               r"abstract|default|native|\s)+[\w.<>\[\]]+\s+\w+\s*"
+                               r"\(([^)]*)\)", src):
+            for tm in re.finditer(r"\b([A-Z]\w*)\s+(\w+)\s*(?=[,)]|$)", sig.group(1)):
+                typed.setdefault(tm.group(2), set()).add(tm.group(1))
+        for m in re.finditer(r"\b(\w+)\.(\w+)\s*\(", src):
+            var, method = m.group(1), m.group(2)
+            candidates = typed.get(var)
+            if not candidates:
+                continue
+            known = [c for c in candidates if c in ifaces]
+            if not known:
+                continue
+            # A local `String host` shadowing the field `Host host` is a rename, not a
+            # mistake: skip any name that is declared as a plain JDK type somewhere too.
+            if candidates & {"String", "Integer", "Long", "Boolean", "Float", "Double",
+                             "CharSequence", "Object", "Uri", "File"}:
+                continue
+            if any(method in ifaces[c] for c in known):
+                continue
+            iface = known[0]
+            line = src[:m.start()].count("\n") + 1
+            problems.append(f"{path}:{line}: {var}.{method}() is called, but {iface} does not "
+                            f"declare {method} - the method was removed or renamed")
+
+
 def check_java_shadowing(path):
     """A local that shadows a field silently changes what a call refers to.
 
@@ -1043,6 +1117,7 @@ def main():
     check_colour_names(java_paths)
     check_resource_refs(java_paths)
     check_injected_js(java_paths)
+    check_interface_calls(java_paths)
     for path in java_paths:
         check_anonymous_this([path])
         check_method_refs([path])

@@ -125,65 +125,6 @@ public final class MenuSheet {
                 }).start();
     }
 
-    private static void addAppearanceRow(Activity activity, LinearLayout parent,
-                                         Callback callback) {
-        LinearLayout row = new LinearLayout(activity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 12),
-                AppUi.dp(activity, 12), AppUi.dp(activity, 12));
-
-        ImageView icon = new ImageView(activity);
-        icon.setImageResource(R.drawable.ic_nav_theme);
-        icon.setColorFilter(AppUi.color(activity, R.color.on_bg_muted));
-        int p = AppUi.dp(activity, 8);
-        icon.setPadding(p, p, p, p);
-        icon.setBackground(AppUi.rounded(AppUi.color(activity, R.color.surface2), 12f, activity));
-        row.addView(icon, new LinearLayout.LayoutParams(AppUi.dp(activity, 38),
-                AppUi.dp(activity, 38)));
-
-        TextView label = AppUi.text(activity, activity.getString(R.string.appearance), 15f,
-                R.color.on_bg, false);
-        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        labelLp.leftMargin = AppUi.dp(activity, 14);
-        row.addView(label, labelLp);
-
-        LinearLayout chips = new LinearLayout(activity);
-        chips.setOrientation(LinearLayout.HORIZONTAL);
-        int mode = AppUi.appearance(activity);
-        chips.addView(chip(activity, R.string.appearance_system, mode == AppUi.APPEARANCE_SYSTEM,
-                () -> callback.setAppearance(AppUi.APPEARANCE_SYSTEM)));
-        chips.addView(chip(activity, R.string.appearance_light, mode == AppUi.APPEARANCE_LIGHT,
-                () -> callback.setAppearance(AppUi.APPEARANCE_LIGHT)));
-        chips.addView(chip(activity, R.string.appearance_dark, mode == AppUi.APPEARANCE_DARK,
-                () -> callback.setAppearance(AppUi.APPEARANCE_DARK)));
-        row.addView(chips);
-
-        parent.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-    }
-
-    private static View chip(Activity activity, int labelRes, boolean selected,
-                             Runnable onClick) {
-        TextView chip = AppUi.text(activity, activity.getString(labelRes), 12f,
-                selected ? R.color.on_accent : R.color.on_bg_muted, selected);
-        chip.setPadding(AppUi.dp(activity, 10), AppUi.dp(activity, 6),
-                AppUi.dp(activity, 10), AppUi.dp(activity, 6));
-        chip.setBackground(AppUi.pressable(activity,
-                selected ? AppUi.color(activity, R.color.accent)
-                        : AppUi.color(activity, R.color.surface2), 12f));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.leftMargin = AppUi.dp(activity, 6);
-        chip.setLayoutParams(lp);
-        chip.setOnClickListener(v -> {
-            AppUi.press(v);
-            onClick.run();
-        });
-        return chip;
-    }
-
     private static void addRow(Activity activity, LinearLayout parent, int titleRes,
                                String subtitle, int iconRes, boolean accent,
                                View.OnClickListener click) {

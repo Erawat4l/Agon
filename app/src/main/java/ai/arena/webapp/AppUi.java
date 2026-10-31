@@ -52,8 +52,13 @@ public final class AppUi {
      * Night mode currently in effect. When the user picked Light/Dark, MainActivity has
      * already forced that into the resources via attachBaseContext(), so reading the
      * configuration is always correct - including inside WebViews.
+     *
+     * Must be asked of the activity/application context: a configuration context made
+     * by wrap() carries the forced uiMode, a bare base context does not, so this is
+     * only guarded against a null.
      */
     public static boolean isDark(Context c) {
+        if (c == null) return false;
         return (c.getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
     }

@@ -33,18 +33,14 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 | `commit.bat "msg" 1.3.0` | Same, at a version you choose |
 | `commit.bat "msg" skipbuild` | Commit + push only |
 | `commit.bat "msg" beta` | Publish as a pre-release |
-| `commit.bat` | **All-in-one:** pull → bump version → build → commit → push → publish release → install on USB phone → open release page |
-| `commit.bat "my changes"` | Same, with your commit message |
-| `commit.bat "msg" 1.3.0` | Same, at a version you choose |
-| `commit.bat "msg" skipbuild` | Commit + push only |
-| `commit.bat "msg" beta` | Publish as a pre-release |
 
 First build downloads Gradle and the Android build tools (~3–5 minutes). Later builds
 take well under a minute, since everything is cached in `%USERPROFILE%\.gradle`.
 
 `build.bat` also runs `tools/check-resources.py` before Gradle, so a bad string
-(unescaped apostrophe, invalid escape, mismatched `%1$s`) fails with a readable line
-instead of an aapt2 stack trace.
+(unescaped apostrophe, invalid escape, mismatched `%1$s`), a wrong `AppUi` helper
+arity, a shadowed field, an unbalanced brace or a tab-id lookup that can go out of
+bounds fails with a readable line instead of an aapt2/javac stack trace.
 
 **Requires:** JDK 17–21 and the Android SDK.
 
@@ -172,6 +168,15 @@ are real Android views, so it reads as an app.
 
 ---
 
+## If the app ever fails to start
+
+Startup is wrapped in a crash guard. A failure no longer closes the app silently:
+the trace is written to `files/last_crash.txt` and shown on screen with a
+**Copy error details** button, so the exact exception can be pasted into a chat
+(and `adb logcat -b crash -d` works too).
+
+---
+
 ## In-app updates from your private GitHub releases
 
 The app checks this repo's releases, marks the **Update** button and fires a
@@ -183,13 +188,13 @@ notification with its own chime — and it can never install anything silently.
    `api.github.com/repos/Erawat4l/Arena-Ai-App/releases/latest` (or all releases when
    the Beta channel is selected).
 2. If the release's version is newer than the installed `versionCode`, the app:
-   - tints the **Update** entry in the nav bar and shows a dot on its icon,
+   - tints the **Update** entry inside the More sheet and shows a dot on the More icon,
    - reveals a `v1.2.3` pill in the top bar,
    - posts a high-priority notification (*"Arena update available"*) that plays
      `res/raw/update_chime.wav` — a short two-note chime, not the system blip.
      The chime is a notification-channel sound, so you control it in
      *Settings → Apps → Arena → Notifications*.
-3. Tapping the pill, the nav entry or the notification opens the **App Update** sheet:
+3. Tapping the pill, *More → App Update*, or the notification opens the **App Update** sheet:
    release notes, download size, **Download update** (progress bar + progress
    notification), then **Install update**.
 4. Install always goes through Android's package installer: it shows

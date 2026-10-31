@@ -160,6 +160,76 @@ def check_java_tab_arrays(path):
                     f"tab ids are not dense - use a switch")
 
 
+def _strip_java_noise(src):
+    """Removes comments, string and char literals so brace counting is honest."""
+    out = []
+    i, n = 0, len(src)
+    while i < n:
+        c = src[i]
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            while i < n and src[i] != "\n":
+                i += 1
+        elif c == "/" and i + 1 < n and src[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (src[i] == "*" and src[i + 1] == "/"):
+                i += 1
+            i += 2
+        elif c == '"':
+            i += 1
+            while i < n and src[i] != '"':
+                i += 2 if src[i] == "\\" else 1
+            i += 1
+        elif c == "'":
+            i += 1
+            while i < n and src[i] != "'":
+                i += 2 if src[i] == "\\" else 1
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def check_java_braces(path):
+    """Balanced braces/parens and no stray text after the final closing brace.
+
+    The sandbox has no JDK, so this is the cheapest way to catch an edit that broke
+    the structure of a Java file before the user's build burns a cycle on it.
+    """
+    src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+    depth = 0
+    parens = 0
+    line = 1
+    closed_at = None
+    for ch in src:
+        if ch == "\n":
+            line += 1
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and closed_at is None:
+                closed_at = line
+            if depth < 0:
+                problems.append(f"{path}:{line}: unbalanced '}}'")
+                return
+        elif ch == "(":
+            parens += 1
+        elif ch == ")":
+            parens -= 1
+    if depth != 0:
+        problems.append(f"{path}: {depth} unclosed '{{' at end of file")
+    if parens != 0:
+        problems.append(f"{path}: {parens} unbalanced '(' at end of file")
+    if closed_at is not None:
+        tail = src.split("}", 1)[0]
+        # everything after the last brace of the outermost block must be whitespace
+        last = src.rfind("}")
+        if src[last + 1:].strip():
+            problems.append(f"{path}: text after the final closing brace: "
+                            f"{src[last + 1:].strip()[:40]!r}")
+
+
 def check_batch(path):
     """cmd.exe gotchas: duplicate labels, unresolved jumps, unbalanced parens."""
     import collections
@@ -191,6 +261,7 @@ def main():
         check_java_shadowing(path)
         check_java_helper_calls(path)
         check_java_tab_arrays(path)
+        check_java_braces(path)
 
     for path in glob.glob("app/src/main/res/values*/*.xml"):
         raw = open(path, encoding="utf-8").read()

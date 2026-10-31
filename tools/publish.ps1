@@ -48,6 +48,16 @@ Write-Host "Publishing Arena $Version (versionCode $code)" -ForegroundColor Cyan
 $apk = Join-Path $root "app\build\outputs\apk\debug\app-debug.apk"
 $asset = Join-Path $root "ArenaAI-$Version.apk"
 
+# Pre-flight: catch broken strings, arity, shadowed fields, unbalanced braces and
+# out-of-bounds tab lookups before the build, so a crashing APK is never published.
+$preflight = Join-Path $root "tools\check-resources.py"
+$python = Get-Command python -ErrorAction SilentlyContinue
+if ($null -ne $python -and (Test-Path $preflight)) {
+    Write-Host "[0/3] Pre-flight checks..."
+    & $python.Source $preflight | Out-Host
+    if ($LASTEXITCODE -ne 0) { Fail "Pre-flight checks failed (see above). Nothing was published." }
+}
+
 Write-Host "[1/3] Building..."
 & (Join-Path $root "gradlew.bat") --no-daemon assembleDebug `
     "-PVERSION_NAME=$Version" "-PVERSION_CODE=$code" | Out-Host

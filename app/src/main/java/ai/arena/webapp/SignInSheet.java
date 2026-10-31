@@ -85,6 +85,8 @@ public final class SignInSheet {
     private boolean emailRoute;
     /** How many times the provider press has been attempted for this sign-in. */
     private int providerTries;
+    /** How many times the email field has been filled for this sign-in. */
+    private int emailTries;
 
     public SignInSheet(Activity activity, ViewGroup parent, Host host) {
         this.activity = activity;
@@ -591,6 +593,7 @@ public final class SignInSheet {
         dialogAnswered = false;
         providerChosen = false;
         providerTries = 0;
+        emailTries = 0;
         emailRoute = false;
         // Save the choice locally *before* the provider page runs: if the page is slow or
         // the user leaves, the next attempt already knows which account this is.
@@ -858,6 +861,11 @@ public final class SignInSheet {
             pendingEmail = typed;
             parent.removeView(layer);
             openProvider("email", ARENA_SIGN_IN);
+            // openProvider() resets the per-attempt flags, and the address is part of this
+            // attempt: put both back *after* it, or the field is never filled.
+            emailRoute = true;
+            pendingEmail = typed;
+            LocalProfile.remember(activity, typed, "email");
             setProgress(activity.getString(R.string.signin_step_email_continue, typed));
         });
 
@@ -1127,10 +1135,12 @@ public final class SignInSheet {
 
     /** Presses the provider button the user chose. */
     private void chooseProvider() {
-        if (providerChosen) return;
         if (emailRoute) {
-            // Nothing to press first: Arena's dialog is already the email form.
-            setProgress(activity.getString(R.string.signin_step_email));
+            // Arena's dialog is already up: type the address the user gave us into Arena's
+            // own field and press Arena's own button. Leaving the field empty is what made
+            // the page answer "Email is required" with the address sitting in the app.
+            providerChosen = false;
+            pressEmailField();
             return;
         }
         providerChosen = true;
@@ -1139,6 +1149,40 @@ public final class SignInSheet {
         dialogAnswered = true;
         setProgress(activity.getString(R.string.signin_step_provider, pendingProvider));
         pressProvider();
+    }
+
+    /**
+     * Types the address into Arena's field and presses its email button, retrying while the
+     * dialog settles.
+     *
+     * Same schedule as the provider press: a dialog that has not rendered its field yet
+     * answers "nofield", which is a reason to look again, not to give up. Six attempts is
+     * about seven seconds - enough for a slow page, short enough that the header is honest.
+     */
+    private void pressEmailField() {
+        if (web == null || !providerChosen) return;
+        if (emailTries >= 6) {
+            setProgress(activity.getString(R.string.signin_step_email_manual));
+            return;
+        }
+        emailTries++;
+        final String address = pendingEmail == null ? LocalProfile.email(activity) : pendingEmail;
+        if (address == null || address.indexOf('@') < 1) {
+            setProgress(activity.getString(R.string.signin_step_email));
+            return;
+        }
+        SignInDriver.step(RUNNER, SignInDriver.fillEmailScript(address), 1, 0, ui, answer -> {
+            if ("filled".equals(answer)) {
+                // Arena owns the next step: the password field, or the emailed link.
+                setProgress(activity.getString(R.string.signin_step_email_sent, address));
+                return;
+            }
+            if (answer.startsWith("error")) {
+                setProgress(activity.getString(R.string.signin_step_email_manual));
+                return;
+            }
+            ui.postDelayed(this::pressEmailField, 1200);
+        });
     }
 
     /**

@@ -36,6 +36,8 @@ public final class SettingsSheet {
         void onResetSettings();
 
         void onDeveloperDiagnostics();
+
+        void onSignIn();
     }
 
     /** Slides the sheet away and removes it. */
@@ -144,9 +146,19 @@ public final class SettingsSheet {
         section(R.string.settings_appearance);
         appearanceRow();
 
-        // Everything else (page, navigation, security, updates) lives in the developer
-        // section: a user needs appearance, sign-in and data, and nothing more.
-        section(R.string.settings_more);
+        // Sign-in lives here too. Before, it was only in the More sheet, so a user who had
+        // not signed in yet could open Settings and find no way in.
+        section(R.string.settings_account);
+        action(R.string.settings_sign_in, R.string.settings_sign_in_sub,
+                R.drawable.ic_nav_account, v -> host.onSignIn());
+
+        section(R.string.settings_page);
+        toggle(Settings.K_HIDE_WEB_SIDEBAR, R.string.settings_hide_sidebar,
+                R.string.settings_hide_sidebar_sub, true);
+        toggle(Settings.K_HIDE_WEB_HEADER, R.string.settings_hide_header,
+                R.string.settings_hide_header_sub, true);
+
+        section(R.string.settings_app);
         action(R.string.settings_sign_out, R.string.settings_sign_out_sub,
                 R.drawable.ic_nav_account, v -> host.onSignOut());
         action(R.string.settings_clear, R.string.settings_clear_sub,

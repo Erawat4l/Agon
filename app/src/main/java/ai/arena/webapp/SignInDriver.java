@@ -280,6 +280,64 @@ final class SignInDriver {
             + "return 'none';"
             + "}catch(e){return 'error:'+e.message;}})();";
 
+    /**
+     * Fills Arena's own email field and presses its "Continue with email" button.
+     *
+     * The form is Arena's: the "Your email" input sits inside its sign-in dialog and its
+     * button posts it to Arena's own endpoint. This script only types the address the user
+     * entered in the app and presses that button - the password (or the emailed link) is
+     * still Arena's to ask for, which is the point: Agon never handles it.
+     *
+     * Why it is needed at all: the first version pressed "Continue with email" with the
+     * field empty, and Arena answered "Email is required" - a dead end with the address
+     * sitting in the app's own form. React inputs ignore a plain value assignment, so the
+     * value goes through the native setter and a real input event.
+     *
+     * Answer: "filled" (address typed and button pressed), "nofield" (no email input on the
+     * page), "nobutton", or "error:...".
+     */
+    static final String FILL_EMAIL_JS = JS_PRELUDE
+            + "(function(){try{"
+            + "var addr='{EMAIL}';"
+            + "function isEmail(el){try{if(el.tagName!=='INPUT')return false;"
+            + "var t=(el.getAttribute('type')||'').toLowerCase();"
+            + "if(t==='email')return true;"
+            + "var hay=((el.name||'')+' '+(el.id||'')+' '+(el.placeholder||'')+' '"
+            + "+(el.getAttribute('aria-label')||'')).toLowerCase();"
+            + "return /email|e-mail/.test(hay)&&t!=='password';}catch(e){return false;}}"
+            + "var fields=__A.all('input');var target=null;"
+            + "for(var i=0;i<fields.length;i++){if(isEmail(fields[i])){target=fields[i];break;}}"
+            + "if(!target)return 'nofield';"
+            + "function setValue(el,v){"
+            + "try{var proto=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement:window.HTMLInputElement;"
+            + "var desc=Object.getOwnPropertyDescriptor(proto.prototype,'value');"
+            + "if(desc&&desc.set)desc.set.call(el,v);else el.value=v;}catch(e){el.value=v;}"
+            + "try{el.dispatchEvent(new Event('input',{bubbles:true}));}catch(e){}"
+            + "try{el.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}"
+            + "try{el.dispatchEvent(new FocusEvent('blur',{bubbles:true}));}catch(e){}}"
+            // Focus the field the way a tap would, so a framework that commits on focus
+            // treats this as a real edit rather than a scripted one.
+            + "try{target.focus();}catch(e){}"
+            + "setValue(target,addr);"
+            + "var c=__A.all('button,a,[role=\"button\"],div[tabindex],span[tabindex]');"
+            + "function L(el){return __A.label(el).toLowerCase();}"
+            + "for(var j=0;j<c.length;j++){var el=c[j],t=L(el);"
+            + "if(t.indexOf('email')<0)continue;"
+            + "if(t.indexOf('google')>=0)continue;"
+            + "if(!__A.seen(el))continue;"
+            + "if(__A.click(el))return 'filled';}"
+            + "return 'nobutton';"
+            + "}catch(e){return 'error:'+e.message;}})();";
+
+    static String fillEmailScript(String email) {
+        String safe = email == null ? "" : email;
+        // The address is data, not code: it is escaped for a single-quoted JS literal and
+        // then for a Java string. Anything else would be an injection into Arena's page.
+        String js = safe.replace("\\", "\\\\").replace("'", "\\'")
+                .replace("\n", " ").replace("\r", " ");
+        return FILL_EMAIL_JS.replace("{EMAIL}", js);
+    }
+
     static String chooseProviderScript(String provider) {
         String p = provider == null ? "google" : provider.toLowerCase();
         return CHOOSE_PROVIDER_JS.replace("{PROVIDER}", p);

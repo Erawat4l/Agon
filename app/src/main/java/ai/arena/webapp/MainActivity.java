@@ -1099,6 +1099,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
+            public void onSignIn() {
+                closeSettingsNow();
+                startSignIn();
+            }
+
+            @Override
             public void onDeveloperDiagnostics() {
                 closeSettingsNow();
                 SignInDiagnostics.show(MainActivity.this, window,

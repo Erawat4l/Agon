@@ -294,9 +294,6 @@ public final class UpdateSheet {
                         ? R.string.update_channel_beta : R.string.update_channel_stable)));
         badgeRow.addView(chip(activity.getString(UpdateManager.autoCheck(activity)
                 ? R.string.update_auto_on : R.string.update_auto_off)));
-        badgeRow.addView(chip(UpdateManager.hasToken(activity)
-                ? activity.getString(R.string.update_token_set)
-                : activity.getString(R.string.update_private_hint)));
 
         settingsBox.removeAllViews();
         settingsBox.addView(settingRow(
@@ -319,17 +316,6 @@ public final class UpdateSheet {
                 v -> {
                     UpdateManager.setAutoCheck(activity, !UpdateManager.autoCheck(activity));
                     refresh();
-                }));
-        settingsBox.addView(settingRow(
-                activity.getString(R.string.update_setting_token),
-                activity.getString(UpdateManager.hasToken(activity)
-                        ? R.string.update_token_change : R.string.update_token_add),
-                v -> {
-                    if (activity instanceof MainActivity) {
-                        ((MainActivity) activity).requestToken();
-                    } else {
-                        promptForToken();
-                    }
                 }));
 
         if (downloadedApk != null && downloadedApk.exists()) {
@@ -408,10 +394,6 @@ public final class UpdateSheet {
     }
 
     private void checkNow() {
-        if (!UpdateManager.hasToken(activity)) {
-            promptForToken();
-            return;
-        }
         runCheck();
     }
 
@@ -549,45 +531,6 @@ public final class UpdateSheet {
         pageOverlay.setAlpha(0f);
         pageOverlay.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
         page.loadUrl(url);
-    }
-
-    /** Asks for a GitHub token (only needed for private repos) and checks again. */
-    private void promptForToken() {
-        final android.widget.EditText input = new android.widget.EditText(activity);
-        input.setHint(R.string.update_token_hint);
-        input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        input.setSingleLine(false);
-        input.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 10),
-                AppUi.dp(activity, 12), AppUi.dp(activity, 10));
-        input.setBackground(AppUi.rounded(AppUi.color(activity, R.color.surface2), 12f, activity));
-
-        LinearLayout box = new LinearLayout(activity);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = AppUi.dp(activity, 20);
-        box.setPadding(pad, pad, pad, pad);
-
-        box.addView(AppUi.text(activity, activity.getString(R.string.update_token_title),
-                17f, R.color.on_bg, true));
-        TextView help = AppUi.text(activity, activity.getString(R.string.update_token_help),
-                12.5f, R.color.on_bg_muted, false);
-        help.setPadding(0, AppUi.dp(activity, 8), 0, AppUi.dp(activity, 12));
-        box.addView(help);
-        box.addView(input);
-
-        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(activity)
-                .setView(box)
-                .setPositiveButton(R.string.update_token_save, null)
-                .setNegativeButton(R.string.update_token_skip, null)
-                .create();
-        dialog.setOnShowListener(d -> dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(v -> {
-                    String value = input.getText().toString().trim();
-                    UpdateManager.setToken(activity, value);
-                    dialog.dismiss();
-                    refresh();
-                    if (!value.isEmpty()) runCheck();
-                }));
-        dialog.show();
     }
 
     /** Small text row used to flip update settings without leaving the sheet. */

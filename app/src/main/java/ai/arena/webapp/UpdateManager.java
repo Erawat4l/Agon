@@ -19,7 +19,7 @@ import java.net.URL;
 import java.util.Locale;
 
 /**
- * In-app updates from the project's own (private) GitHub releases.
+ * In-app updates from the project's own public GitHub releases.
  *
  * Never installs anything silently: this class only *finds* an update, downloads the
  * APK next to the cache, and hands it to Android's package installer, which always
@@ -63,40 +63,6 @@ public final class UpdateManager {
     private static final int TIMEOUT_MS = 15000;
 
     private UpdateManager() {
-    }
-
-    // ---------------------------------------------------------------- token
-
-    private static final String K_TOKEN = "gh_token";
-
-    /**
-     * GitHub token for private repos (the API answers 404 without one).
-     * Resolution order: token entered in the app, then the ARENA_GH_TOKEN
-     * environment variable, then a build-time token. Use a fine-grained token with
-     * read-only "Contents" access, and remember it is stored in app-private prefs.
-     */
-    public static String token(Context context) {
-        if (context != null) {
-            String saved = prefs(context).getString(K_TOKEN, "");
-            if (saved != null && !saved.trim().isEmpty()) return saved.trim();
-        }
-        String env = System.getenv("ARENA_GH_TOKEN");
-        if (env != null && !env.trim().isEmpty()) return env.trim();
-        String fromBuild = BuildConfig.ARENA_GH_TOKEN;
-        if (fromBuild != null && !fromBuild.trim().isEmpty()) return fromBuild.trim();
-        return null;
-    }
-
-    public static boolean hasToken(Context context) {
-        return token(context) != null;
-    }
-
-    public static void setToken(Context context, String token) {
-        prefs(context).edit().putString(K_TOKEN, token == null ? "" : token.trim()).apply();
-    }
-
-    public static void clearToken(Context context) {
-        prefs(context).edit().remove(K_TOKEN).apply();
     }
 
     // ---------------------------------------------------------------- state
@@ -182,12 +148,6 @@ public final class UpdateManager {
 
     public static String lastError(Context c) {
         return prefs(c).getString(K_LAST_ERROR, null);
-    }
-
-    /** True when the last check failed because the private repo had no token. */
-    public static boolean tokenMissing(Context c) {
-        String error = lastError(c);
-        return error != null && error.contains("token");
     }
 
     /** Name + size of the newest release APK, for the "Update available" prompt. */
@@ -372,27 +332,25 @@ public final class UpdateManager {
         conn.setInstanceFollowRedirects(true);
         conn.setRequestProperty("Accept", "application/vnd.github+json");
         conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-        conn.setRequestProperty("User-Agent", "ArenaAndroid/" + "1.0");
-        String token = token(context);
-        if (token != null) conn.setRequestProperty("Authorization", "Bearer " + token);
+        conn.setRequestProperty("User-Agent", "ArenaAndroid/1.0");
+        // No credentials at all: the releases are public, so GitHub answers anonymously.
+        // Nothing about this device is sent and nothing needs to be stored.
         int status = conn.getResponseCode();
         InputStream stream = status >= 200 && status < 300
                 ? conn.getInputStream() : conn.getErrorStream();
         String body = stream == null ? "" : readAll(stream);
         conn.disconnect();
         if (status == 404) {
-            // A private repo answers 404 when the token is missing, but it also answers
-            // 404 when the token is fine and no release has been published yet, so both
-            // possibilities are named instead of blaming the token.
-            throw new IllegalStateException(hasToken(context)
-                    ? "no release found yet - publish one with publish.bat, then check again"
-                    : "private repo: add a GitHub token");
+            // Only two things answer 404 for a public repository: no release published yet,
+            // or the repository was renamed/deleted. Say which one to check.
+            throw new IllegalStateException(
+                    "no release found for " + REPO_OWNER + "/" + REPO_NAME
+                            + " - publish one (publish.bat), or check the repository name");
         }
-        if (status == 403) {
-            // A fine-grained token without "Contents: read" on this repo answers 403.
-            throw new IllegalStateException(hasToken(context)
-                    ? "GitHub refused the token - it needs Contents: read on " + REPO_NAME
-                    : "private repo: add a GitHub token");
+        if (status == 403 || status == 429) {
+            // GitHub's anonymous rate limit: 60 API calls an hour per IP address.
+            throw new IllegalStateException(
+                    "GitHub is rate-limiting this network - try again in a few minutes");
         }
         if (status != 200) {
             throw new IllegalStateException("GitHub API HTTP " + status);
@@ -418,8 +376,8 @@ public final class UpdateManager {
 
     /**
      * Downloads the release APK to cache. Returns the file, or null on failure.
-     * Follows GitHub's redirect to the signed asset URL and sends the token only
-     * to api.github.com / github.com, never to the asset CDN.
+     * The asset URL is only accepted when it points at GitHub itself, and the redirect to
+     * GitHub's CDN is followed by hand so no request header follows it there.
      */
     public static File downloadApk(Context context, Progress progress) throws Exception {
         Context app = context.getApplicationContext();
@@ -427,15 +385,14 @@ public final class UpdateManager {
         if (url == null || url.isEmpty()) throw new IllegalStateException("no_apk");
         if (!isGitHubDownload(url)) throw new IllegalStateException("untrusted apk host");
 
-        String token = token(app);
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setConnectTimeout(TIMEOUT_MS);
         conn.setReadTimeout(60000);
         conn.setRequestProperty("Accept", "application/octet-stream");
-        conn.setRequestProperty("User-Agent", "ArenaAndroid/" + "1.0");
-        if (token != null) conn.setRequestProperty("Authorization", "Bearer " + token);
+        conn.setRequestProperty("User-Agent", "ArenaAndroid/1.0");
 
-        // The asset URL redirects to a CDN; "Authorization" must not follow it.
+        // Release assets redirect to a CDN. Following the redirect by hand keeps the request
+        // headers of the first hop from leaking into the second.
         int status = conn.getResponseCode();
         String location = conn.getHeaderField("Location");
         if (status >= 300 && status < 400 && location != null) {
@@ -443,7 +400,7 @@ public final class UpdateManager {
             conn = (HttpURLConnection) new URL(new URL(url), location).openConnection();
             conn.setConnectTimeout(TIMEOUT_MS);
             conn.setReadTimeout(60000);
-            conn.setRequestProperty("User-Agent", "ArenaAndroid/" + "1.0");
+            conn.setRequestProperty("User-Agent", "ArenaAndroid/1.0");
             conn.setInstanceFollowRedirects(true);
             status = conn.getResponseCode();
         }

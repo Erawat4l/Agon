@@ -31,6 +31,8 @@ npm run dist      :: build the installers into desktop\release\
 
 | File | What it is |
 | --- | --- |
+| `Agon.exe` | the 64-bit installer under its short name (`build-all.bat` makes this copy for you) |
+| `Agon-32.exe` | the 32-bit installer under its short name |
 | `Agon-Setup-<version>-x64.exe` | 64-bit installer (per-user, choose the folder) |
 | `Agon-Setup-<version>-ia32.exe` | **32-bit** installer, for old Windows on old hardware |
 | `Agon-Portable-<version>-x64.exe` / `-ia32.exe` | no install, runs from anywhere |

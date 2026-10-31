@@ -31,7 +31,7 @@ public final class UpdateManager {
 
     /** Repo that hosts the releases. Set in one place so forks can reuse this. */
     public static final String REPO_OWNER = "Erawat4l";
-    public static final String REPO_NAME = "Arena-Ai-App";   // the repo keeps its name
+    public static final String REPO_NAME = "Arena-Ai-App";   // tools/set-repo.py changes this
 
     /** Which release channel to follow. */
     public enum Channel {
@@ -455,7 +455,7 @@ public final class UpdateManager {
         long total = conn.getContentLengthLong();
         File dir = new File(app.getCacheDir(), "updates");
         if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("no_cache_dir");
-        File out = new File(dir, "ArenaAI-" + latestVersionCode(app) + ".apk");
+        File out = new File(dir, "Agon-" + latestVersionCode(app) + ".apk");
         if (out.exists() && total > 0 && out.length() == total) {
             conn.disconnect();
             if (progress != null) progress.onProgress(100);

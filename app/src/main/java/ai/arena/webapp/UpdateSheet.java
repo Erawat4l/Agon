@@ -378,7 +378,7 @@ public final class UpdateSheet {
     }
 
     /**
-     * "Latest on GitHub: 1.4.21 (build 1002032) - v1.4.21, 2 hours ago, ArenaAI-1.4.21.apk"
+     * "Latest on GitHub: 1.4.21 (build 1002032) - v1.4.21, 2 hours ago, Agon-1.4.21.apk"
      *
      * Everything here comes from the check that just ran, so the line can never claim a
      * release the button is not about to download.

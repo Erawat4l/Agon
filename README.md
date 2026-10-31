@@ -11,6 +11,10 @@ build.bat
 That produces **`Agon-debug.apk`** in this folder. Copy it to your phone, tap it,
 allow *"install unknown apps"*, done. App name on the home screen: **Agon**.
 
+For both platforms at once, `build-all.bat` also leaves the short names
+**`Agon.apk`** (Android) and **`Agon.exe`** (64-bit Windows installer, plus `Agon-32.exe`
+for 32-bit Windows) next to the versioned files.
+
 ---
 
 ## The commands
@@ -20,11 +24,14 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 | Command | What it does |
 | --- | --- |
 | `build.bat` | Builds `Agon-debug.apk` — signed with the debug key, installs immediately |
-| `build-all.bat` | **Both apps in one command:** the APK *and* the Windows installers (x64 + ia32, setup + portable) |
+| `build-all.bat` | **Both apps in one command:** the APK *and* the Windows installers (x64 + ia32, setup + portable), renamed to `Agon.apk` / `Agon.exe` |
 | `build-all.bat release` | Same, but a signed release APK |
 | `build.bat install` | Builds, then installs + launches on a USB-connected phone (needs `adb`) |
 | `build.bat release` | Builds `Agon-release.apk` (signed if you ran `make-keystore.bat` first) |
 | `build.bat clean` | Wipes build output |
+| `rename-repo.bat Agon` | Renames the GitHub repository (`gh`), repoints `origin`, and updates every place the repo name is written down |
+| `clean-all.bat` | Deletes the build leftovers (`desktop\node_modules`, `desktop\release`, `app\build`, `.gradle`, the electron-builder cache) and keeps `Agon.apk` / `Agon.exe` |
+| `python tools\set-repo.py Agon` | Points the app, the desktop client and the publish scripts at a renamed repository |
 | `make-keystore.bat` | Creates `arena-release.jks` + `keystore.properties` for a signed release build |
 | `publish.bat` | Builds **and publishes a downloadable APK release** to GitHub (auto-bumps the patch version) |
 | `publish.bat 1.2.0` | Publishes that exact version |

@@ -46,7 +46,7 @@ Write-Host "Publishing Arena $Version (versionCode $code)" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------- build
 $apk = Join-Path $root "app\build\outputs\apk\debug\app-debug.apk"
-$asset = Join-Path $root "ArenaAI-$Version.apk"
+$asset = Join-Path $root "Agon-$Version.apk"
 
 # Pre-flight: catch broken strings, arity, shadowed fields, unbalanced braces and
 # out-of-bounds tab lookups before the build, so a crashing APK is never published.
@@ -114,10 +114,10 @@ if ($repoInfo.permissions -and -not $repoInfo.permissions.push) {
 
 $sha = (& git rev-parse HEAD).Trim()
 if (-not $Notes) {
-    $Notes = "Arena $Version`n`nInstall: download the APK below, tap it and approve Android's update prompt. Apps already running this build detect the release automatically."
+    $Notes = "Agon $Version`n`nInstall: download the APK below, tap it and approve Android's update prompt. Apps already running this build detect the release automatically."
 }
 
-$Notes = "$Notes`n`nAPK: ArenaAI-$Version.apk ($sizeMb MB)"
+$Notes = "$Notes`n`nAPK: Agon-$Version.apk ($sizeMb MB)"
 
 Write-Host "[2/3] Creating release $tag on $($sha.Substring(0,7))..."
 
@@ -131,7 +131,7 @@ try {
 $body = @{
     tag_name         = $tag
     target_commitish = $sha
-    name             = "Arena $Version"
+    name             = "Agon $Version"
     body             = $Notes
     draft            = $false
     prerelease       = ($Channel -eq "beta")
@@ -148,13 +148,13 @@ if ($existing) {
 
 # Replace an asset with the same name, otherwise GitHub answers 422.
 foreach ($a in @($release.assets)) {
-    if ($a.name -eq "ArenaAI-$Version.apk") {
+    if ($a.name -eq "Agon-$Version.apk") {
         Invoke-RestMethod -Uri "$api/releases/assets/$($a.id)" -Headers $headers -Method Delete | Out-Null
     }
 }
 
 Write-Host "[3/3] Uploading $((Split-Path $asset -Leaf))..."
-$upload = "https://uploads.github.com/repos/$Owner/$Repo/releases/$($release.id)/assets?name=ArenaAI-$Version.apk"
+$upload = "https://uploads.github.com/repos/$Owner/$Repo/releases/$($release.id)/assets?name=Agon-$Version.apk"
 Invoke-RestMethod -Uri $upload -Headers $headers -Method Post `
     -ContentType "application/vnd.android.package-archive" -InFile $asset | Out-Null
 

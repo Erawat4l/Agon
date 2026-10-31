@@ -57,6 +57,26 @@ white.putalpha(fg.getchannel('A'))
 white.save(os.path.join(RES, 'mipmap-xxxhdpi', 'ic_launcher_monochrome.png'))
 print('written')
 
+# ---- desktop icon (Windows .ico, electron-builder reads build/icon.ico) --------------
+# One multi-size .ico: 256 for the taskbar/Explorer large view, 16 for a title-bar corner.
+def desktop_icon():
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'desktop', 'build')
+    out_dir = os.path.normpath(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    sizes = [16, 24, 32, 48, 64, 128, 256]
+    tiles = [icon(n, 0.72 if n >= 48 else 0.82).convert('RGBA') for n in sizes]
+    # Pillow writes a multi-image ICO when given the largest and a sizes list.
+    big = tiles[-1]
+    big.save(os.path.join(out_dir, 'icon.ico'), format='ICO', sizes=[(n, n) for n in sizes],
+             append_images=tiles[:-1])
+    tiles[-1].save(os.path.join(out_dir, 'icon.png'))
+    # Tray / window icon used by the running app.
+    icon(64, 0.78).save(os.path.join(out_dir, 'icon-64.png'))
+    print('desktop icon written')
+
+
+desktop_icon()
+
 # ---- preview sheet -------------------------------------------------------------------
 def shape(base, kind, scale=1.0):
     s = base.size[0]

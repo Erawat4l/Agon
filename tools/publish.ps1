@@ -158,6 +158,56 @@ $upload = "https://uploads.github.com/repos/$Owner/$Repo/releases/$($release.id)
 Invoke-RestMethod -Uri $upload -Headers $headers -Method Post `
     -ContentType "application/vnd.android.package-archive" -InFile $asset | Out-Null
 
+# ---------------------------------------------------------------- windows build
+# The desktop client is published from the same tag, so both platforms have exactly one
+# version number. It is optional on purpose: a PC without Node.js still publishes the APK
+# (and says why the Windows files were skipped) instead of failing the whole release.
+$desktopDir = Join-Path $root "desktop"
+$npm = Get-Command npm -ErrorAction SilentlyContinue
+if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
+    Write-Host "[3b] Building the Windows client..."
+    Push-Location $desktopDir
+    try {
+        # Keep package.json in step with the tag that was just published, so the Windows
+        # build carries the same version number as the APK in the same release.
+        $desktopPkg = Join-Path $desktopDir "package.json"
+        $pkg = Get-Content $desktopPkg -Raw | ConvertFrom-Json
+        if ($pkg.version -ne $Version) {
+            $pkg.version = $Version
+            ($pkg | ConvertTo-Json -Depth 20) | Set-Content $desktopPkg -Encoding UTF8
+        }
+        & $npm.Source install --no-audit --no-fund | Out-Host
+        & $npm.Source run dist | Out-Host
+        $distOk = ($LASTEXITCODE -eq 0)
+    } finally {
+        Pop-Location
+    }
+    if (-not $distOk) {
+        Write-Host "      [i] Windows build failed - the APK release is still published." -ForegroundColor Yellow
+    } else {
+        $releaseDir = Join-Path $desktopDir "release"
+        $desktopAssets = @()
+        if (Test-Path $releaseDir) {
+            $desktopAssets = Get-ChildItem $releaseDir -File |
+                Where-Object { $_.Extension -in ".exe", ".blockmap", ".yml" }
+        }
+        $yml = $desktopAssets | Where-Object { $_.Name -eq "latest.yml" }
+        if ($null -eq $yml) {
+            Write-Host "      [i] No latest.yml from electron-builder; skipping desktop upload." -ForegroundColor Yellow
+        } else {
+            foreach ($file in $desktopAssets) {
+                Write-Host "      uploading $($file.Name)..."
+                $name = [uri]::EscapeDataString($file.Name)
+                $assetUpload = "https://uploads.github.com/repos/$Owner/$Repo/releases/$($release.id)/assets?name=$name"
+                Invoke-RestMethod -Uri $assetUpload -Headers $headers -Method Post `
+                    -ContentType "application/octet-stream" -InFile $file.FullName | Out-Null
+            }
+        }
+    }
+} else {
+    Write-Host "[3b] Windows client: skipped (Node.js/npm not found, or desktop/ missing)."
+}
+
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Green
 Write-Host "  [OK] Release live: $tag" -ForegroundColor Green

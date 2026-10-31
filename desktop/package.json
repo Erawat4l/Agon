@@ -1,0 +1,89 @@
+{
+  "name": "agon-desktop",
+  "productName": "Agon",
+  "version": "1.4.22",
+  "description": "Agon - an unofficial desktop client for arena.ai",
+  "author": "Erawat4l",
+  "license": "Apache-2.0",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "icon": "python ../artwork/make-icons.py",
+    "dist": "electron-builder --win nsis portable",
+    "dist:dir": "electron-builder --win --dir",
+    "release": "electron-builder --win nsis portable --publish always"
+  },
+  "devDependencies": {
+    "electron": "26.6.10",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "build": {
+    "appId": "app.erawat.agon",
+    "productName": "Agon",
+    "copyright": "Copyright 2026 the Agon contributors",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "build/icon-64.png",
+      "package.json",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../NOTICE.md",
+        "to": "NOTICE.md"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Agon-Desktop-${version}-${arch}.${ext}",
+      "publisherName": "Agon",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Agon",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Erawat4l",
+        "repo": "Arena-Ai-App",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

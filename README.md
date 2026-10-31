@@ -375,6 +375,30 @@ installer requires) — everything else is platform APIs, so the APK stays small
 
 ---
 
+## Platforms: Android and Windows (iOS needs a Mac)
+
+| Platform | Where | State |
+| --- | --- | --- |
+| **Android** | `app/` (this repository's main project) | builds here; one APK for 32- and 64-bit |
+| **Windows** | `desktop/` | Electron 26 (the last line with 32-bit builds), installers for x64 **and** ia32, self-updates from this repo's releases |
+| **iOS** | — | not buildable from this repository |
+| macOS / Linux | — | out of scope |
+
+The Windows client is a one-window shell with the same rules as the phone: no Node in the
+page, only arena.ai may load in the window, provider popups stay in the same session,
+downloads flattened to one path segment, and updates verified against the release's
+`latest.yml`. `publish.bat` builds it for the same tag as the APK, so both carry one
+version number. See `desktop/README.md`.
+
+**iOS honestly:** there is no iOS app in here, and adding a fake Xcode project would be
+worse than nothing. An iOS client is a separate Swift project around `WKWebView` (same
+host allow-list, same "sign in on Arena's own page" rule), and Apple requires a Mac with
+Xcode and a paid developer account to sign and install it — none of which this repository
+can provide. The Android and Windows sources are the reference for what that shell has to
+do.
+
+---
+
 ## Which devices it runs on (32-bit and 64-bit)
 
 **One APK, every Android architecture.** The app ships no native library of its own (the

@@ -1,0 +1,193 @@
+name: Build Agon (APK + Windows)
+
+# Every push to main publishes ONE release with both deliverables, under one version:
+#
+#     Agon-<version>.apk                 Android (32- and 64-bit, no native code)
+#     Agon-Setup-<version>-x64.exe       Windows installer, 64-bit
+#     Agon-Setup-<version>-ia32.exe      Windows installer, 32-bit
+#     Agon-Portable-<version>-{x64,ia32}.exe
+#     latest.yml + *.blockmap            what the Windows auto-updater reads
+#
+# The APK and the installers share the version number because they are one release; the
+# in-app updaters on both platforms compare against it. No tagging by hand.
+#
+# Any other branch (a work branch, a pull request) only builds and uploads artifacts, so a
+# side branch can never become "the latest release" for people who already installed Agon.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      # The tag the release was published under, so the Windows job joins that release
+      # instead of inventing a version of its own.
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Decide version
+        id: v
+        run: |
+          set -euo pipefail
+          # The version follows app/build.gradle, which is the single source of truth:
+          #   1.4.22 / versionCode 1002033, and exactly +1 on both per build.
+          #
+          # The first version of this file used the commit count alone and produced 1.4.78
+          # with code 1004078 - nowhere near the 1002xxx convention, and far ahead of the
+          # 1.4.22 the app was actually on, so the in-app updater would have called every
+          # CI build a downgrade. Now the count only ever adds to the patch number.
+          BASE="$(grep -oE "VERSION_NAME.\) \?: '[0-9.]+'" app/build.gradle | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          BASE="${BASE:-1.4.22}"
+          CODEBASE="$(grep -oE "VERSION_CODE.\) \?: '[0-9]+'" app/build.gradle | head -1 | grep -oE '[0-9]+')"
+          CODEBASE="${CODEBASE:-1002033}"
+          MAJ="$(echo "$BASE" | cut -d. -f1)"
+          MIN="$(echo "$BASE" | cut -d. -f2)"
+          PATCHBASE="$(echo "$BASE" | cut -d. -f3)"
+          # Builds since the last release tag, so the patch number crawls instead of jumping
+          # with every commit ever made. No tag yet (fresh clone, shallow tags) -> 1.
+          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+          if [ -n "$LAST_TAG" ]; then
+            STEP="$(git rev-list --count "$LAST_TAG"..HEAD)"
+          else
+            STEP=1
+          fi
+          if [ "$STEP" -lt 1 ]; then STEP=1; fi
+          PATCH=$((PATCHBASE + STEP))
+          NAME="$MAJ.$MIN.$PATCH"
+          CODE=$((CODEBASE + STEP))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
+          echo "Version $NAME (code $CODE)"
+
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug \
+            -PVERSION_NAME=${{ steps.v.outputs.name }} \
+            -PVERSION_CODE=${{ steps.v.outputs.code }}
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk "Agon-${{ steps.v.outputs.name }}.apk"
+
+      # Always keep a build artifact, even if the release upload is not permitted.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Agon-apk
+          path: Agon-*.apk
+          if-no-files-found: error
+
+      - name: Publish release (this is what the app's updater reads)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.name }}
+          name: Agon ${{ steps.v.outputs.name }}
+          files: Agon-*.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            **Agon ${{ steps.v.outputs.name }}**
+
+            ### Android
+            Download `Agon-${{ steps.v.outputs.name }}.apk` and tap it to install.
+            Runs on 32- and 64-bit phones (the app has no native code).
+
+            ### Windows
+            `Agon-Setup-${{ steps.v.outputs.name }}-x64.exe` is the installer for 64-bit
+            Windows, `-ia32.exe` for 32-bit Windows. The `Agon-Portable-*.exe` files need no
+            installation. Windows SmartScreen warns on the first run because the installers
+            are not signed with a paid certificate: *More info* → *Run anyway*.
+
+            Apps already running Agon detect this release automatically
+            (**Update → Check for updates** on Android, **Help → Check for updates** on
+            Windows) and will download it and ask you to approve the install — nothing
+            installs silently.
+
+  # ---------------------------------------------------------------- Windows
+  # Same version number, same release. electron-builder writes latest.yml, which is what
+  # the desktop auto-updater reads, so the .exe must land in the release the APK is in.
+  windows:
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The version must be the one the APK job just decided, otherwise the release ends up
+      # with two different numbers and one updater or the other sees a downgrade.
+      - name: Same version as the APK job
+        id: v
+        shell: pwsh
+        run: |
+          $tag = '${{ needs.build.outputs.tag }}'
+          if (-not $tag) { throw 'The APK job did not publish a tag, so there is no release to add to.' }
+          $version = $tag.TrimStart('v')
+          $pkgPath = 'desktop/package.json'
+          $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+          $pkg.version = $version
+          ($pkg | ConvertTo-Json -Depth 20) | Set-Content $pkgPath -Encoding UTF8
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Windows build version $version"
+
+      - name: Install the desktop dependencies
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      # No code-signing certificate, so electron-builder must not try to download or unpack
+      # its signing tools (that step is what fails on Windows without Developer Mode when
+      # run locally; on a runner it is simply a waste). --publish never: the upload is done
+      # explicitly below, once both files exist.
+      - name: Package
+        working-directory: desktop
+        run: npm run dist -- --publish never
+
+      - name: Keep the installers as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Agon-windows
+          path: |
+            desktop/release/*.exe
+            desktop/release/latest.yml
+            desktop/release/*.blockmap
+          if-no-files-found: error
+
+      - name: Add the installers to the same release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ needs.build.outputs.tag }}'
+          $files = Get-ChildItem desktop/release -File |
+            Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' } |
+            ForEach-Object { $_.FullName }
+          if (-not $files) { throw 'electron-builder produced no installers.' }
+          foreach ($f in $files) {
+            Write-Host "uploading $(Split-Path $f -Leaf)"
+            gh release upload $tag $f --clobber
+          }

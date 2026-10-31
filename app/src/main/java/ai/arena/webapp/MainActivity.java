@@ -1401,6 +1401,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 4201) {
+            // The account picker asked for the account list: rebuild it either way, so the
+            // card shows the accounts (or the honest reason it cannot) immediately.
+            if (accountPicker != null) accountPicker.refreshAccounts();
+            return;
+        }
         if (requestCode == REQ_NOTIFICATIONS) return;
         if (requestCode != REQ_PERMISSIONS || pendingPermissionRequest == null) return;
         boolean granted = grantResults.length > 0;

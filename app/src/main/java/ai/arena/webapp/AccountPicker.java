@@ -113,15 +113,31 @@ public final class AccountPicker {
         }
         if (found == 0) {
             TextView empty = new TextView(activity);
-            // Not an error: the chooser below still signs you in through the provider's
-            // own page, which lists the account on its side.
-            empty.setText(activity.getString(R.string.signin_no_accounts_soft));
+            // Say what is actually true instead of a generic "no accounts": either the
+            // permission is missing, or the phone really has no Google account. Either
+            // way the button below still signs you in on the provider's own page.
+            empty.setText(activity.getString(
+                    "denied".equals(lastLookupProblem) || "error".equals(lastLookupProblem)
+                            ? R.string.signin_accounts_blocked
+                            : R.string.signin_no_accounts_soft));
             empty.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
             empty.setTextColor(0xFF5F6368);
             empty.setGravity(Gravity.CENTER_HORIZONTAL);
             empty.setPadding(AppUi.dp(activity, 6), AppUi.dp(activity, 10),
                     AppUi.dp(activity, 6), AppUi.dp(activity, 14));
             card.addView(empty);
+            if ("denied".equals(lastLookupProblem) && hasAccountsPermission()) {
+                TextView allow = new TextView(activity);
+                allow.setText(activity.getString(R.string.signin_allow_accounts));
+                allow.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
+                allow.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+                allow.setTextColor(0xFF1A73E8);
+                allow.setGravity(Gravity.CENTER_HORIZONTAL);
+                allow.setPadding(AppUi.dp(activity, 6), 0, AppUi.dp(activity, 6),
+                        AppUi.dp(activity, 12));
+                allow.setOnClickListener(v -> requestAccountsPermission());
+                card.addView(allow);
+            }
         }
 
         card.addView(row(google ? activity.getString(R.string.signin_add_account)
@@ -185,13 +201,18 @@ public final class AccountPicker {
      * Google", which is why signing in no longer depends on a Google account being set
      * up on the phone.
      */
+    /** Why the last lookup returned nothing: "denied", "error" or "" (genuinely none). */
+    private String lastLookupProblem = "";
+
     private String[] accountsOnDevice() {
         java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        lastLookupProblem = "";
 
         AccountManager am = null;
         try {
             am = AccountManager.get(activity);
-        } catch (Exception ignored) {
+        } catch (Exception error) {
+            lastLookupProblem = "error";
             // no account service at all: the empty list below is a valid answer
         }
         if (am != null) {
@@ -200,8 +221,10 @@ public final class AccountPicker {
                 for (Account a : am.getAccountsByType("com.google")) {
                     addName(names, a);
                 }
-            } catch (Exception ignored) {
-                // no permission: try the broader lookup next
+            } catch (Exception error) {
+                // Android 8+ throws instead of returning an empty array when the app has
+                // no permission; keep the reason so the card can explain the empty list.
+                lastLookupProblem = "denied";
             }
             // 2. Anything else whose type mentions Google (some ROMs use a variant type).
             try {
@@ -211,12 +234,40 @@ public final class AccountPicker {
                         addName(names, a);
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception error) {
+                if (lastLookupProblem.isEmpty()) lastLookupProblem = "denied";
                 // same as above: keep whatever the first lookup found
             }
         }
         return names.toArray(new String[0]);
     }
+
+    /** True when Android will show this app the account list at all. */
+    private boolean hasAccountsPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 23) return true;
+        return activity.checkSelfPermission("android.permission.GET_ACCOUNTS")
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** Standard runtime request; the next open of the picker shows the accounts. */
+    private void requestAccountsPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 23) return;
+        activity.requestPermissions(
+                new String[]{"android.permission.GET_ACCOUNTS"}, REQUEST_ACCOUNTS);
+    }
+
+    /** Call after onRequestPermissionsResult so the list refreshes without a relaunch. */
+    public void refreshAccounts() {
+        if (root == null || root.getParent() == null) return;
+        final boolean provider = google;
+        dismiss(false);
+        // show() refuses while a card is attached, and the dismissal animates out first.
+        activity.getWindow().getDecorView().postDelayed(() -> {
+            if (!isShowing()) show(provider);
+        }, AppUi.ANIM_FAST + 40);
+    }
+
+    private static final int REQUEST_ACCOUNTS = 4201;
 
     /** Keeps only entries that look like an e-mail address (a Google account name does). */
     private static void addName(java.util.Set<String> names, Account account) {

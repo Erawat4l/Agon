@@ -158,4 +158,9 @@
     <string name="history_search">Search chats</string>
     <string name="history_open">Open</string>
     <string name="history_refresh">Refresh list</string>
+    <string name="signin_step_dialog">Opening Arena\'s sign-in…</string>
+    <string name="signin_step_provider">Connecting to %1$s…</string>
+    <string name="signin_step_manual">Tap Arena\'s own Log in button, then %1$s</string>
+    <string name="signin_accounts_blocked">Android is not showing this app your account list. Allow contacts/accounts access for Agora, or just continue - Google\'s own page lists your account.</string>
+    <string name="signin_allow_accounts">Show my accounts (allow access)</string>
 </resources>

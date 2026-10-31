@@ -315,7 +315,8 @@ def check_tab_api(paths):
 PROJECT_CLASSES = ("AppUi", "AppChrome", "TabWebViews", "UpdateManager", "UpdateCenter",
                    "UpdateNotifications", "UpdateSheet", "MenuSheet", "SignInSheet",
                    "AccountPicker", "CrashLog", "NavIcons", "WebBridge", "Downloads",
-                   "ApkInstaller", "SettingsSheet", "Settings", "ChatHistorySheet", "LocalProfile")
+                   "ApkInstaller", "SettingsSheet", "Settings", "ChatHistorySheet", "LocalProfile",
+                   "SignInDriver")
 # Nested handler interfaces and enum constants are not "calls".
 NOT_A_CALL = {"class", "valueOf", "values", "Host", "Callback", "DownloadCallback",
               "CheckCallback", "Progress", "Channel", "Nav", "NavItem", "Result",
@@ -601,6 +602,110 @@ def check_resource_refs(java_paths):
             note(path, m.group(1), m.group(2))
 
 
+
+# ------------------------------------------------------------------ injected JavaScript
+# The app builds JS strings in Java and runs them in a WebView. A missing quote there is
+# invisible to javac and only fails on the phone, which is how a broken "hide the sidebar"
+# script shipped twice. The literals are joined the way Java joins them, then parsed with
+# node when it is available (and with a small bracket checker when it is not).
+JS_CONSTANTS = ("OPEN_DIALOG_JS", "CHOOSE_PROVIDER_JS", "PAGE_SIDEBAR_CSS",
+                "PAGE_HEADER_CSS", "JS_SIDEBAR", "JS_HEADER")
+
+
+def _java_literals(expr):
+    """Every "..." literal in a Java expression, with escapes decoded."""
+    out = []
+    for m in re.finditer(r'"((?:\\.|[^"\\])*)"', expr):
+        raw = m.group(1)
+        text = []
+        i = 0
+        while i < len(raw):
+            ch = raw[i]
+            if ch == "\\" and i + 1 < len(raw):
+                nxt = raw[i + 1]
+                if nxt == "u" and i + 5 < len(raw) + 1:
+                    try:
+                        text.append(chr(int(raw[i + 2:i + 6], 16)))
+                        i += 6
+                        continue
+                    except ValueError:
+                        pass
+                text.append({"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\",
+                             "'": "'"}.get(nxt, nxt))
+                i += 2
+                continue
+            text.append(ch)
+            i += 1
+        out.append("".join(text))
+    return out
+
+
+def check_injected_js(java_paths):
+    """Extracts the JS constants and parses them with node (or a bracket check)."""
+    import shutil
+    import subprocess
+    import tempfile
+    scripts = []
+    for path in java_paths:
+        src = open(path, encoding="utf-8", errors="replace").read()
+        for name in JS_CONSTANTS:
+            at = src.find("String " + name)
+            if at < 0:
+                continue
+            end = src.find(";\n", at)
+            body = src[at:end]
+            if "{" in body and name.endswith("_JS"):
+                # a {PROVIDER}-style token is data, not JS structure: replace it first
+                joined = "".join(_java_literals(body))
+                joined = re.sub(r"\{[A-Z_]+\}", "google", joined)
+            else:
+                joined = " ".join(_java_literals(body))
+            scripts.append((path, name, joined))
+
+    node = shutil.which("node")
+    for path, name, js in scripts:
+        if not js.strip():
+            problems.append(f"{path}: {name} is empty")
+            continue
+        if not name.endswith("_JS"):
+            continue     # CSS: parsed by the browser, not by node
+        if node:
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as handle:
+                handle.write(js)
+                temp = handle.name
+            try:
+                result = subprocess.run([node, "--check", temp],
+                                        capture_output=True, text=True)
+                if result.returncode != 0:
+                    first = (result.stderr.strip().splitlines() or ["invalid JS"])[0]
+                    problems.append(f"{path}: {name} is not valid JavaScript ({first})")
+            finally:
+                __import__("os").unlink(temp)
+        else:
+            # No node: at least catch an unbalanced literal by counting brackets outside
+            # of strings.
+            depth = 0
+            in_str = None
+            escaped = False
+            for ch in js:
+                if in_str:
+                    if escaped:
+                        escaped = False
+                    elif ch == "\\":
+                        escaped = True
+                    elif ch == in_str:
+                        in_str = None
+                    continue
+                if ch in "'\"":
+                    in_str = ch
+                elif ch in "([{":
+                    depth += 1
+                elif ch in ")]}":
+                    depth -= 1
+            if depth != 0 or in_str is not None:
+                problems.append(f"{path}: {name} has unbalanced brackets or quotes")
+
+
 def main():
     for path in glob.glob("*.bat"):
         check_batch(path)
@@ -611,6 +716,7 @@ def main():
     check_android_api(java_paths)
     check_colour_names(java_paths)
     check_resource_refs(java_paths)
+    check_injected_js(java_paths)
     for path in java_paths:
         check_java_self_calls(path)
         check_java_shadowing(path)

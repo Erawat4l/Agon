@@ -36,10 +36,14 @@ public final class SignInSheet {
         void onPickAccount(boolean google);
     }
 
-    /** Arena's own entry point; the page decides which provider to sign in with. */
-    private static final String ARENA_SIGN_IN = "https://arena.ai/?signin=1";
+    /**
+     * Arena's home page. There is no /signin endpoint: the sign-in is a dialog on the
+     * home page, so the sheet starts there and {@link SignInDriver} opens the dialog and
+     * presses the right provider button. (An invented "?signin=1" query did nothing, so a
+     * provider tap only ever showed the marketing page.)
+     */
+    private static final String ARENA_SIGN_IN = "https://arena.ai/";
 
-    /** href the sheet records so the caller can give the picker a matching state. */
 
     private final Activity activity;
     private final ViewGroup parent;
@@ -48,6 +52,10 @@ public final class SignInSheet {
     private WebView web;
     private LinearLayout chooser;
     private String pendingEmail;
+    private String pendingProvider = "Google";
+    private final android.os.Handler ui = new android.os.Handler(
+            android.os.Looper.getMainLooper());
+    private boolean started;
     private TextView progressText;
 
     public SignInSheet(Activity activity, ViewGroup parent, Host host) {
@@ -230,10 +238,9 @@ public final class SignInSheet {
         // GitHub has no account list on the device, so its own page opens directly.
         chooser.addView(providerRow(R.drawable.ic_google, R.string.signin_google,
                 "Google", ARENA_SIGN_IN, true));
-        // GitHub has no account list on the phone, so its own page opens directly - but
-        // it IS offered, which is what was missing from the sheet.
+        // GitHub has no account list on the device, so its login page opens directly.
         chooser.addView(providerRow(R.drawable.ic_github, R.string.signin_github,
-                "GitHub", ARENA_SIGN_IN + "&provider=github", false));
+                "GitHub", ARENA_SIGN_IN, false));
         sheet.addView(chooser);
 
         TextView note = AppUi.text(activity, activity.getString(R.string.signin_note), 11.5f,
@@ -335,6 +342,8 @@ public final class SignInSheet {
 
     /** Opens the provider's real login page inside the app, full-screen. */
     private void openProvider(String hostFilter, String startUrl) {
+        pendingProvider = hostFilter;
+        started = false;
         // Save the choice locally *before* the provider page runs: if the page is slow or
         // the user leaves, the next attempt already knows which account this is.
         LocalProfile.remember(activity, pendingEmail, hostFilter);
@@ -397,6 +406,16 @@ public final class SignInSheet {
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return handleProviderUrl(Uri.parse(url));
             }
+
+            @Override
+            public void onPageFinished(WebView view, String webUrl) {
+                super.onPageFinished(view, webUrl);
+                if (webUrl == null || !webUrl.contains("arena.ai")) return;
+                // Arena's own page is up: open its sign-in dialog, then press the
+                // provider the user chose. Without this, tapping GitHub only loaded the
+                // home page, because there is no "?signin=1" endpoint to link to.
+                driveSignIn();
+            }
         });
         web.setWebChromeClient(new AppChrome.Base(activity) {
         });
@@ -424,6 +443,54 @@ public final class SignInSheet {
                     "try{localStorage.setItem('arena-account','" + pendingEmail + "');}"
                             + "catch(e){}", null), 400);
         }
+    }
+
+    /**
+     * Opens Arena's sign-in dialog and presses the chosen provider.
+     *
+     * Both steps retry: arena renders the dialog a beat after the page settles, and a
+     * click can be swallowed while a hydration pass is running. If the dialog never
+     * appears the user is told to press arena's own "Log in" button, which is right in
+     * front of them in this same WebView - never a dead end.
+     */
+    private void driveSignIn() {
+        if (started || web == null) return;
+        started = true;
+        setProgress(activity.getString(R.string.signin_step_dialog));
+        SignInDriver.step(RUNNER, SignInDriver.OPEN_DIALOG_JS, 6, 900, ui, first -> {
+            if (web == null) return;
+            if (SignInDriver.NOTHING.equals(first)) {
+                // No "Log in" control matched: let the page be the page, and say so.
+                setProgress(activity.getString(R.string.signin_step_manual,
+                        pendingProvider));
+                return;
+            }
+            setProgress(activity.getString(R.string.signin_step_provider, pendingProvider));
+            SignInDriver.step(RUNNER, SignInDriver.chooseProviderScript(pendingProvider),
+                    6, 900, ui, second -> {
+                if (SignInDriver.NOTHING.equals(second)) {
+                    setProgress(activity.getString(R.string.signin_step_manual,
+                            pendingProvider));
+                }
+            });
+        });
+    }
+
+    /** Runs JS in the provider WebView on the UI thread. */
+    private final SignInDriver.Runner RUNNER = (js, host, callback) -> {
+        final WebView target = web;
+        if (target == null) return;
+        ui.post(() -> {
+            try {
+                target.evaluateJavascript(js, callback);
+            } catch (Exception ignored) {
+                if (callback != null) callback.onReceiveValue("none");
+            }
+        });
+    };
+
+    private void setProgress(String text) {
+        if (progressText != null) progressText.setText(text);
     }
 
     /**

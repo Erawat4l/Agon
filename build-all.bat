@@ -11,8 +11,13 @@ REM     build-all.bat release    APK (release, signed if keystore.properties exi
 REM                              + Windows installer + portable EXE
 REM
 REM  What you get, in this folder:
-REM     Agon-debug.apk                     (or Agon-release.apk)  <- phones
-REM     Agon-Setup-<ver>-x64.exe / -ia32.exe                      <- installer (the EXE)
+REM     Agon.apk                     the Android build               <- phones
+REM     Agon.exe                     64-bit Windows installer        <- PCs
+REM     Agon-32.exe                  32-bit Windows installer
+REM  The versioned files those are copied from stay too, because the Windows
+REM  updater and the release page refer to them:
+REM     Agon-debug.apk / Agon-release.apk
+REM     Agon-Setup-<ver>-x64.exe / -ia32.exe                      <- installer
 REM     Agon-Portable-<ver>-x64.exe / -ia32.exe                   <- no install needed
 REM
 REM  The APK needs: JDK 17-21 + Android SDK (build.bat finds them).
@@ -33,7 +38,6 @@ echo.
 
 set "APK_OK=0"
 set "EXE_OK=0"
-set "NPM="
 
 REM ---------- 1. Android APK -------------------------------------------------
 echo [1/2] Android APK...
@@ -53,7 +57,6 @@ REM ---------- 2. Windows EXE -------------------------------------------------
 echo [2/2] Windows EXE...
 where npm >nul 2>nul
 if errorlevel 1 goto :no_node
-set "NPM=npm"
 
 if not exist "desktop\package.json" goto :no_desktop
 if exist "desktop\node_modules\electron\package.json" goto :have_modules
@@ -76,7 +79,7 @@ pushd desktop
 call npm run dist
 set "DIST_RC=!errorlevel!"
 popd
-if not "!DIST_RC!"=="0" goto :desktop_build_failed
+if not "!DIST_RC!"=="0" goto :dist_failed
 if not exist "desktop\release" goto :nothing_built
 
 REM Copy every produced .exe up here, keeping the name electron-builder gave it:
@@ -86,9 +89,19 @@ for %%f in ("desktop\release\*.exe") do (
     if exist "%%~f" copy /y "%%~f" "%~dp0%%~nxf" >nul
 )
 set "EXE_OK=1"
+goto :collect_names
+
+REM Short, predictable names next to the APK: Agon.apk + Agon.exe (+ Agon-32.exe).
+REM The versioned originals stay - the Windows updater and the release page use them.
+:collect_names
+where python >nul 2>nul
+if errorlevel 1 goto :summary
+echo.
+echo        Naming the builds Agon.apk / Agon.exe...
+python tools\collect-artifacts.py
 goto :summary
 
-:desktop_build_failed
+:dist_failed
 echo        [X] electron-builder failed - see the messages above.
 echo            "Cannot create symbolic link" means Windows refused to unpack the signing
 echo            tools - that should not happen now. If it does: delete
@@ -122,17 +135,20 @@ echo =============================================
 echo   [DONE] what was built
 echo =============================================
 if "!APK_OK!"=="1" (
+    echo   APK   : %~dp0Agon.apk
     if /i "%MODE%"=="release" (
-        echo   APK   : %~dp0Agon-release.apk
+        echo           ^(from Agon-release.apk^)
     ) else (
-        echo   APK   : %~dp0Agon-debug.apk
+        echo           ^(from Agon-debug.apk^)
     )
 ) else (
     echo   APK   : not built
 )
 if "!EXE_OK!"=="1" (
-    echo   EXE   : %~dp0Agon-Setup-*.exe       ^(installer, x64 + ia32^)
-    echo           %~dp0Agon-Portable-*.exe    ^(portable, x64 + ia32^)
+    echo   EXE   : %~dp0Agon.exe             ^(64-bit installer^)
+    echo           %~dp0Agon-32.exe          ^(32-bit installer, if built^)
+    echo           %~dp0Agon-Setup-*.exe     ^(same installers, versioned^)
+    echo           %~dp0Agon-Portable-*.exe  ^(no install needed^)
 ) else (
     echo   EXE   : not built
 )

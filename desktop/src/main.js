@@ -395,12 +395,29 @@ function updates() {
 
   autoUpdater.on('error', (error) => {
     if (autoUpdater.__manualCheck && mainWindow && !mainWindow.isDestroyed()) {
+      // Say what actually went wrong instead of dumping a few hundred bytes of HTTP
+      // headers at the user. The old dialog pasted the whole 404 response, cookies
+      // included, which was both unreadable and needlessly revealing.
+      const raw = String(error && error.message ? error.message : error);
+      const status = /status code (\d{3})/i.exec(raw) || /\b(404|403|401)\b/.exec(raw);
+      let detail;
+      if (status && status[1] === '404') {
+        detail = 'GitHub has no release it can see (404).\n\n'
+          + 'That usually means no release has been published yet, or the repository is '
+          + 'private. A private repository needs a read-only token in GH_TOKEN, which is the '
+          + 'same rule the Android app follows.';
+      } else if (status) {
+        detail = 'GitHub answered HTTP ' + status[1] + '.\n\n'
+          + 'Check your connection, and whether a private repository needs a token in '
+          + 'GH_TOKEN (Contents: read-only).';
+      } else {
+        detail = raw.length > 400 ? raw.slice(0, 400) + '...' : raw;
+      }
       dialog.showMessageBox(mainWindow, {
         type: 'warning',
         title: 'Update check failed',
         message: 'Could not check for updates.',
-        detail: String(error && error.message ? error.message : error)
-          + '\n\nA private repository needs a GitHub token in GH_TOKEN.',
+        detail,
         buttons: ['OK'],
       });
     }

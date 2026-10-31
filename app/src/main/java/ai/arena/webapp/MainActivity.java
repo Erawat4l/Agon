@@ -625,11 +625,26 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * is hosted in a fresh in-app WebView that shares this app's cookie jar, so the
      * session it sets is the session the arena tab uses - nothing ever leaves the app.
      *
-     * A small guard on top: a popup that opens on the *provider's own* site is shown in
-     * the sign-in sheet; anything else (a window opened by an ordinary page) is placed in
+     * A small guard on top: a popup that opens on the *provider's own* site (or one the
+     * page created without a URL yet, which is what a lazy popup looks like) is shown in
+     * the sign-in window; anything else (a window opened by an ordinary page) is placed in
      * the main tab instead, so a stray popup can never cover the app.
      */
     private void showAuthPopup(WebView parent, android.os.Message resultMsg) {
+        // A sign-in is already on screen: whatever the page opens belongs to it (Google's
+        // chooser opens its own window in some builds), so it is hosted by the sheet. It
+        // is also never destroyed in that case - destroying a window the user is looking
+        // at is how "the account chooser flashed and vanished" happens.
+        if (signInSheet != null && signInSheet.isSignInActive()) {
+            final WebView popup = buildPopupWebView();
+            if (resultMsg != null && resultMsg.obj instanceof WebView.WebViewTransport) {
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(popup);
+                resultMsg.sendToTarget();
+            }
+            signInSheet.openAccountWindow(popup, true);
+            return;
+        }
         final WebView popup = buildPopupWebView();
         if (resultMsg != null && resultMsg.obj instanceof WebView.WebViewTransport) {
             WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
@@ -640,18 +655,30 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         popup.post(() -> {
             String url = popup.getUrl();
             if (url == null) url = "";
-            boolean provider = url.contains("accounts.google") || url.contains("google.com")
-                    || url.contains("github.com") || url.contains("appleid.apple.com")
-                    || url.contains("arena.ai") || url.isEmpty();
-            if (provider && signInSheet != null) {
-                signInSheet.showProviderView(popup);
-            } else if (provider) {
-                startProviderSignIn(null);
-                if (signInSheet != null) signInSheet.showProviderView(popup);
+            // A popup with no URL yet is a lazy window: it only loads once it is attached,
+            // and it is always part of whatever flow opened it.
+            String host = "";
+            try {
+                host = Uri.parse(url).getHost() == null ? "" : Uri.parse(url).getHost();
+            } catch (Exception ignored) {
+            }
+            boolean provider = url.isEmpty() || AppChrome.isSignInHost(host);
+            if (provider) {
+                // The sheet owns the window from here: it attaches the popup (a lazy one
+                // renders nothing until it is attached), keeps the navigation inside the
+                // app and watches for the session coming back.
+                ensureSignInSheet().openAccountWindow(popup, true);
             } else if (tabs != null) {
+                popup.destroy();
                 tabs.loadInCurrent(url);
             }
         });
+    }
+
+    /** The sign-in sheet, created but not shown. */
+    private SignInSheet ensureSignInSheet() {
+        if (signInSheet == null) signInSheet = new SignInSheet(this, window, signInHost);
+        return signInSheet;
     }
 
     /**
@@ -894,40 +921,42 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     /** Opens the provider's own login page inside the app, for the chosen account. */
     private void startProviderSignIn(String email) {
-        if (signInSheet == null) signInSheet = new SignInSheet(this, window, new SignInSheet.Host() {
-            @Override
-            public void onSignedIn() {
-                // The provider round-trip set the session cookie: remember it locally and
-                // refresh the tabs so they pick up the signed-in UI immediately.
-                LocalProfile.markSignedIn(MainActivity.this);
-                Toast.makeText(MainActivity.this, R.string.signin_success,
-                        Toast.LENGTH_SHORT).show();
-                if (tabs != null) {
-                    // Arena re-renders its own UI when it notices the session, so a
-                    // reload of the whole page is not needed (and a reload here is what
-                    // made the app feel slow right after signing in).
-                    tabs.applyThemeToAll(AppUi.isDark(MainActivity.this));
-                    WebView w = tabs.current();
-                    if (w != null) {
-                        w.evaluateJavascript(
-                                "window.dispatchEvent(new Event('focus'));", null);
-                    }
+        ensureSignInSheet().showForEmail(email);
+    }
+
+    /** What the sign-in sheet calls back into. */
+    private final SignInSheet.Host signInHost = new SignInSheet.Host() {
+        @Override
+        public void onSignedIn() {
+            // The provider round-trip set the session cookie: remember it locally and
+            // refresh the tabs so they pick up the signed-in UI immediately.
+            LocalProfile.markSignedIn(MainActivity.this);
+            Toast.makeText(MainActivity.this, R.string.signin_success,
+                    Toast.LENGTH_SHORT).show();
+            if (tabs != null) {
+                // Arena re-renders its own UI when it notices the session, so a
+                // reload of the whole page is not needed (and a reload here is what
+                // made the app feel slow right after signing in).
+                tabs.applyThemeToAll(AppUi.isDark(MainActivity.this));
+                WebView w = tabs.current();
+                if (w != null) {
+                    w.evaluateJavascript(
+                            "window.dispatchEvent(new Event('focus'));", null);
                 }
             }
+        }
 
-            @Override
-            public void onDismissed() {
-                // keep the instance; it is cheap and reusable
-            }
+        @Override
+        public void onDismissed() {
+            // keep the instance; it is cheap and reusable
+        }
 
-            @Override
-            public void onPickAccount(boolean google) {
-                if (signInSheet != null) signInSheet.dismiss();
-                showAccountPicker(google);
-            }
-        });
-        signInSheet.showForEmail(email);
-    }
+        @Override
+        public void onPickAccount(boolean google) {
+            if (signInSheet != null) signInSheet.dismiss();
+            showAccountPicker(google);
+        }
+    };
 
     private void showMenuSheet() {
         if (menuSheet != null) return;

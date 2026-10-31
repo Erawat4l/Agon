@@ -160,6 +160,9 @@
     <string name="signin_step_dialog">Opening Arena\'s sign-in…</string>
     <string name="signin_step_provider">Connecting to %1$s…</string>
     <string name="signin_step_manual">Tap Arena\'s own Log in button, then %1$s</string>
+    <string name="signin_step_wait">Waiting for the page to show its sign-in entry…</string>
+    <string name="signin_step_moving">Arena\'s Log in entry is on the next page - opening it…</string>
+    <string name="signin_popup_blank">This window stayed empty. Google may refuse embedded sign-in - use the browser row below.</string>
     <string name="signin_accounts_blocked">Android is not showing this app your account list. Allow contacts/accounts access for Agon, or just continue - Google\'s own page lists your account.</string>
     <string name="signin_allow_accounts">Show my accounts (allow access)</string>
     <string name="menu_diagnostics">Sign-in diagnostics</string>
@@ -170,6 +173,7 @@
     <string name="diag_copied">Report copied</string>
     <string name="diag_close">Close</string>
     <string name="signin_via_browser">Open a browser for Google sign-in</string>
+    <string name="signin_browser_row">Sign in in a browser (session stays there)</string>
     <string name="signin_no_browser">No browser found that can open sign-in</string>
-    <string name="signin_note">Google blocks sign-in inside embedded views, so if the in-app page stalls, use the browser option above. That session lives in the browser, not in this app.</string>
+    <string name="signin_note">If the provider page stays blank, Agon says so and offers a browser. Google does not always allow sign-in in an embedded page, and a browser session stays in the browser - Agon never pretends otherwise.</string>
 </resources>

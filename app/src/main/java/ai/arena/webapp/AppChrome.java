@@ -68,6 +68,27 @@ public final class AppChrome {
                 || host.endsWith("recaptcha.net") || host.endsWith("stripe.com");
     }
 
+    /**
+     * True for hosts an in-app sign-in legitimately passes through.
+     *
+     * Two of these are OAuth providers (Google, GitHub). The rest are not decoration:
+     * Google's identity pages load proof-of-work and script from gstatic, and the
+     * Cloudflare/reCAPTCHA/hCaptcha challenges sit in front of arena itself. A host that
+     * is not here is still never opened - it is simply loaded inside the app like any
+     * other page; this list only decides what a *popup* is allowed to be.
+     */
+    public static boolean isSignInHost(String host) {
+        if (host == null) return false;
+        String h = host.toLowerCase();
+        return h.endsWith("google.com") || h.endsWith("gstatic.com")
+                || h.endsWith("googleusercontent.com") || h.endsWith("github.com")
+                || h.endsWith("githubusercontent.com") || h.endsWith("githubassets.com")
+                || h.endsWith("apple.com") || h.endsWith("appleid.apple.com")
+                || h.endsWith("cloudflare.com") || h.endsWith("hcaptcha.com")
+                || h.endsWith("recaptcha.net") || h.endsWith("arena.ai")
+                || h.endsWith("lmarena.ai");
+    }
+
     /** Base chrome client: file chooser + permissions + window.open capture. */
     public abstract static class Base extends WebChromeClient {
 

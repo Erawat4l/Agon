@@ -119,6 +119,7 @@ final class SignInDiagnostics {
         facts.append("session cookie: ")
                 .append(SignInSheet.hasSessionCookie(cookies) ? "present" : "absent")
                 .append('\n');
+        facts.append("last crash: ").append(CrashLog.lastLine(activity)).append('\n');
         facts.append("accounts permission: ")
                 .append(activity.checkSelfPermission("android.permission.GET_ACCOUNTS")
                         == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -128,19 +129,34 @@ final class SignInDiagnostics {
         if (page == null) return;
 
         // Facts from the live page: what Arena's own markup offers right now.
+        //
+        // The report that decided the 1.4.2 driver fix said "controls: 25, login: 0" -
+        // the page the sheet loaded had no log-in control at all. So the page half now
+        // says more: whether the control is there under *any* selector (bare text nodes
+        // included) and whether the page runs arena's app shell (a shadow root or a
+        // hydrated nav), because those decide which route the driver takes.
         String js = "(function(){try{"
                 + "function label(el){var t=(el.innerText||el.textContent||'').trim();"
                 + "if(!t)t=(el.getAttribute&&el.getAttribute('aria-label'))||'';return t;}"
-                + "var c=document.querySelectorAll('button,a,[role=\"button\"]');"
-                + "var login=0,google=0,github=0,visible=0;"
+                + "function box(el){var r=el.getBoundingClientRect();"
+                + "return r.width>0&&r.height>0;}"
+                + "var c=document.querySelectorAll("
+                + "'button,a,[role=\"button\"],[role=\"menuitem\"],[aria-label]');"
+                + "var t2=document.querySelectorAll('span,div,li,p');"
+                + "var login=0,google=0,github=0,visible=0,textLogin=0,shadow=0;"
                 + "for(var i=0;i<c.length;i++){var el=c[i];var t=label(el).toLowerCase();"
-                + "var r=el.getBoundingClientRect();"
-                + "if(r.width>0&&r.height>0)visible++;"
-                + "if(/log ?in|sign ?in/.test(t))login++;"
+                + "if(box(el))visible++;"
+                + "if(/log ?in|sign ?in|login/.test(t))login++;"
                 + "if(t.indexOf('google')>=0)google++;"
                 + "if(t.indexOf('github')>=0)github++;}"
-                + "return JSON.stringify({url:location.href,"
-                + "controls:c.length,visible:visible,login:login,google:google,github:github,"
+                + "for(var i=0;i<t2.length;i++){var t=label(t2[i]).toLowerCase();"
+                + "if(t.length<40&&/^(log ?in|login|sign ?in)$/.test(t)&&box(t2[i]))textLogin++;}"
+                + "var hosts=document.querySelectorAll('*');"
+                + "for(var i=0;i<hosts.length&&i<3000;i++){"
+                + "if(hosts[i].shadowRoot)shadow++;}"
+                + "return JSON.stringify({url:location.href,controls:c.length,"
+                + "visible:visible,login:login,google:google,github:github,"
+                + "textLogin:textLogin,shadowRoots:shadow,"
                 + "title:document.title});"
                 + "}catch(e){return JSON.stringify({error:e.message});}})();";
         page.evaluateJavascript(js, value -> {

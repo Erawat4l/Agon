@@ -96,6 +96,31 @@ public final class CrashLog {
         }
     }
 
+    /**
+     * One line "where + what", for a report that has to fit in a chat message.
+     *
+     * The stack trace is for the crash screen; this is what goes in the diagnostics sheet
+     * so a failure in a sign-in step can be named instead of guessed at.
+     */
+    public static String lastLine(Context context) {
+        String text = read(context);
+        if (text.isEmpty()) return "none";
+        String where = "";
+        String what = "";
+        for (String line : text.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("at ai.arena.webapp") && where.isEmpty()) {
+                where = trimmed.substring(3);
+            }
+            if (what.isEmpty() && (trimmed.startsWith("java.") || trimmed.startsWith("android.")
+                    || trimmed.contains("Exception") || trimmed.contains("Error"))) {
+                what = trimmed;
+            }
+        }
+        if (what.isEmpty() && where.isEmpty()) return "unreadable";
+        return (what.isEmpty() ? "?" : what) + (where.isEmpty() ? "" : " @ " + where);
+    }
+
     public static void clear(Context context) {
         try {
             file(context).delete();

@@ -610,8 +610,8 @@ def check_resource_refs(java_paths):
 # invisible to javac and only fails on the phone, which is how a broken "hide the sidebar"
 # script shipped twice. The literals are joined the way Java joins them, then parsed with
 # node when it is available (and with a small bracket checker when it is not).
-JS_CONSTANTS = ("OPEN_DIALOG_JS", "CHOOSE_PROVIDER_JS", "PAGE_SIDEBAR_CSS",
-                "PAGE_HEADER_CSS", "JS_SIDEBAR", "JS_HEADER")
+JS_CONSTANTS = ("JS_PRELUDE", "OPEN_DIALOG_JS", "CHOOSE_PROVIDER_JS",
+                "PAGE_SIDEBAR_CSS", "PAGE_HEADER_CSS", "JS_SIDEBAR", "JS_HEADER")
 
 
 def _java_literals(expr):
@@ -656,6 +656,16 @@ def check_injected_js(java_paths):
                 continue
             end = src.find(";\n", at)
             body = src[at:end]
+            # A double quote inside a comment that sits between the pieces of a JS
+            # constant is not a comment to the literal extractor: it becomes content, and
+            # the extracted script silently gains a stray word (that is how "Log In" in a
+            # comment turned OPEN_DIALOG_JS into invalid JavaScript). Quotes belong in
+            # string literals only.
+            for comment in re.finditer(r"//[^\n]*|/\*.*?\*/", body, re.S):
+                if '"' in comment.group(0):
+                    problems.append(
+                        f"{path}: comment inside {name} contains a double quote - "
+                        f"rewrite it without quotes")
             if "{" in body and name.endswith("_JS"):
                 # a {PROVIDER}-style token is data, not JS structure: replace it first
                 joined = "".join(_java_literals(body))

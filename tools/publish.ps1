@@ -192,8 +192,9 @@ if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
         $releaseDir = Join-Path $desktopDir "release"
         $desktopAssets = @()
         if (Test-Path $releaseDir) {
+            # latest.yml is what the desktop updater reads; builder-debug.yml is internal.
             $desktopAssets = Get-ChildItem $releaseDir -File |
-                Where-Object { $_.Extension -in ".exe", ".blockmap", ".yml" }
+                Where-Object { $_.Extension -in ".exe", ".blockmap" -or $_.Name -eq "latest.yml" }
         }
         $yml = $desktopAssets | Where-Object { $_.Name -eq "latest.yml" }
         if ($null -eq $yml) {

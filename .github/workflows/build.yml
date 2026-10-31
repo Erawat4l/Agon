@@ -161,11 +161,36 @@ jobs:
 
       # No code-signing certificate, so electron-builder must not try to download or unpack
       # its signing tools (that step is what fails on Windows without Developer Mode when
-      # run locally; on a runner it is simply a waste). --publish never: the upload is done
-      # explicitly below, once both files exist.
+      # run locally; on a runner it is simply a waste).
+      # --publish never: the upload is done explicitly below, once every file exists.
+      # No --win/--nsis flags here: naming targets on the command line makes electron-builder
+      # ignore build.win.target's arch list and fall back to the runner's arch (x64), which is
+      # how the 32-bit installers came out missing from the first two-platform release.
       - name: Package
         working-directory: desktop
         run: npm run dist -- --publish never
+
+      # Fail here, not after the upload, if a target silently did not get built: 32-bit
+      # support is a promise in the README, so its absence has to break the build.
+      - name: Check that both architectures were built
+        shell: pwsh
+        run: |
+          $version = '${{ steps.v.outputs.version }}'
+          $expected = @(
+            "Agon-Setup-$version-x64.exe",
+            "Agon-Setup-$version-ia32.exe",
+            "Agon-Portable-$version-x64.exe",
+            "Agon-Portable-$version-ia32.exe"
+          )
+          $missing = @()
+          foreach ($name in $expected) {
+            if (-not (Test-Path (Join-Path 'desktop/release' $name))) { $missing += $name }
+          }
+          Get-ChildItem desktop/release -File | Select-Object Name, Length | Format-Table
+          if ($missing.Count -gt 0) {
+            throw ("electron-builder did not produce: " + ($missing -join ', '))
+          }
+          Write-Host 'All four installers present (x64 + ia32, setup + portable).'
 
       - name: Keep the installers as artifacts
         uses: actions/upload-artifact@v4
@@ -183,8 +208,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = '${{ needs.build.outputs.tag }}'
+          # Only what a user or an updater needs: the installers, the blockmaps and
+          # latest.yml. builder-debug.yml is electron-builder's own log and stays out.
           $files = Get-ChildItem desktop/release -File |
-            Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' } |
+            Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' } |
             ForEach-Object { $_.FullName }
           if (-not $files) { throw 'electron-builder produced no installers.' }
           foreach ($f in $files) {

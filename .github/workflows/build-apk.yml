@@ -8,9 +8,13 @@ name: Build APK
 # Settings -> Actions -> General -> "Allow all actions", or publish from your PC
 # with:  publish.bat
 
+# Pushing to main publishes a release (that is what the app's updater reads). Any other
+# branch only builds and uploads an artifact: a second branch must never be able to become
+# "the latest release" for people who already installed the app.
 on:
   push:
-    branches: [main, 'arena/**']
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -39,14 +43,32 @@ jobs:
         id: v
         run: |
           set -euo pipefail
+          # The version follows app/build.gradle, which is the single source of truth:
+          #   1.4.22 / versionCode 1002033, and exactly +1 on both per build.
+          #
+          # The first version of this file used the commit count alone and produced 1.4.78
+          # with code 1004078 - nowhere near the 1002xxx convention, and far ahead of the
+          # 1.4.22 the app was actually on, so the in-app updater would have called every
+          # CI build a downgrade. Now the count only ever adds to the patch number.
           BASE="$(grep -oE "VERSION_NAME.\) \?: '[0-9.]+'" app/build.gradle | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
-          BASE="${BASE:-1.1.0}"
+          BASE="${BASE:-1.4.22}"
+          CODEBASE="$(grep -oE "VERSION_CODE.\) \?: '[0-9]+'" app/build.gradle | head -1 | grep -oE '[0-9]+')"
+          CODEBASE="${CODEBASE:-1002033}"
           MAJ="$(echo "$BASE" | cut -d. -f1)"
           MIN="$(echo "$BASE" | cut -d. -f2)"
-          # PATCH = commit count, so every push is a newer version than the last one.
-          PATCH="$(git rev-list --count HEAD)"
+          PATCHBASE="$(echo "$BASE" | cut -d. -f3)"
+          # Builds since the last release tag, so the patch number crawls instead of jumping
+          # with every commit ever made. No tag yet (fresh clone, shallow tags) -> 1.
+          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+          if [ -n "$LAST_TAG" ]; then
+            STEP="$(git rev-list --count "$LAST_TAG"..HEAD)"
+          else
+            STEP=1
+          fi
+          if [ "$STEP" -lt 1 ]; then STEP=1; fi
+          PATCH=$((PATCHBASE + STEP))
           NAME="$MAJ.$MIN.$PATCH"
-          CODE=$((MAJ * 1000000 + MIN * 1000 + PATCH))
+          CODE=$((CODEBASE + STEP))
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "Version $NAME (code $CODE)"
@@ -69,6 +91,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish release (this is what the app's updater reads)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.v.outputs.name }}

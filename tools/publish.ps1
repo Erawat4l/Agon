@@ -147,8 +147,12 @@ if ($existing) {
 }
 
 # Replace an asset with the same name, otherwise GitHub answers 422.
+# Re-running for the same version is deliberate and safe: the old APK for that exact tag is
+# replaced, and no other asset is touched. A *different* version is never overwritten - that
+# would move people backwards.
 foreach ($a in @($release.assets)) {
     if ($a.name -eq "Agon-$Version.apk") {
+        Write-Host "      replacing the existing APK for this version"
         Invoke-RestMethod -Uri "$api/releases/assets/$($a.id)" -Headers $headers -Method Delete | Out-Null
     }
 }

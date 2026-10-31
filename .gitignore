@@ -4,7 +4,11 @@
 local.properties
 .idea/
 .DS_Store
-build/
+# Android build output only. NOT "build/": that pattern also matches desktop/build/, which
+# holds the Windows icon files that must be committed (electron-builder said "default
+# Electron icon is used" because they were ignored).
+/app/build/
+/build/
 captures/
 .externalNativeBuild/
 .cxx/

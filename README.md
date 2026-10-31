@@ -28,10 +28,16 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 | `publish.bat 1.2.0` | Publishes that exact version |
 | `publish.bat 1.2.0 beta` | Publishes as a pre-release (visible on the Beta channel in-app) |
 | `publish.bat --token ghp_…` | Remembers a GitHub token in `gh-token.txt` (git-ignored) |
-| `commit.bat "what changed"` | **Commit + push + build + publish a release** in one command |
+| `commit.bat` | **All-in-one:** pull → bump version → build → commit → push → publish release → install on USB phone → open release page |
+| `commit.bat "my changes"` | Same, with your commit message |
+| `commit.bat "msg" 1.3.0` | Same, at a version you choose |
 | `commit.bat "msg" skipbuild` | Commit + push only |
-| `commit.bat "what changed"` | **Commit + push + build + publish a release** in one command |
+| `commit.bat "msg" beta` | Publish as a pre-release |
+| `commit.bat` | **All-in-one:** pull → bump version → build → commit → push → publish release → install on USB phone → open release page |
+| `commit.bat "my changes"` | Same, with your commit message |
+| `commit.bat "msg" 1.3.0` | Same, at a version you choose |
 | `commit.bat "msg" skipbuild` | Commit + push only |
+| `commit.bat "msg" beta` | Publish as a pre-release |
 
 First build downloads Gradle and the Android build tools (~3–5 minutes). Later builds
 take well under a minute, since everything is cached in `%USERPROFILE%\.gradle`.
@@ -219,14 +225,25 @@ Commits everything, pushes this branch, builds, and publishes a new release with
 attached. Installed apps then see it on their next check. Run it after every update you
 make; that is the whole workflow.
 
-### After every change: `commit.bat`
+### After every change: `commit.bat` (the all-in-one command)
 
 ```bat
 commit.bat "fixed the composer overlap"
 ```
 
-Commits everything, pushes this branch, builds, and publishes a new release with the APK
-attached. Installed apps then see it on their next check. That is the whole loop.
+Seven steps in one go:
+
+1. `git pull --rebase --autostash` — picks up anything pushed from elsewhere
+2. bumps the version from the latest `v*` tag (or `version.txt`), e.g. `1.2.0` → `1.2.1`
+3. builds `app-debug.apk` with that version and copies it to `ArenaAI-<version>.apk`
+4. commits + pushes this branch
+5. publishes the GitHub release with the APK attached
+6. runs `adb install -r` if a phone is on USB (skipped silently otherwise)
+7. opens the release page in your browser
+
+`version.txt` in the repo root holds the last published version, so the bump keeps
+counting even before the first tag exists. Installed apps pick the new release up on
+their next check (`Update → Check for updates`).
 
 ### A. From your PC: `publish.bat` (works today)
 

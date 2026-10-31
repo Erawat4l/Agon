@@ -45,7 +45,10 @@ goto :have_version
 REM Latest tag of the form vX.Y.Z, defaulting to the gradle version.
 set "LASTTAG="
 for /f "delims=" %%t in ('git tag --list "v*" --sort=-v:refname') do if not defined LASTTAG set "LASTTAG=%%t"
-if not defined LASTTAG set "LASTTAG=v1.1.0"
+if defined LASTTAG goto :have_tag
+if exist version.txt set /p LASTTAG=<version.txt
+if not defined LASTTAG set "LASTTAG=1.0.0"
+:have_tag
 set "LASTTAG=!LASTTAG:v=!"
 for /f "tokens=1,2,3 delims=." %%a in ("!LASTTAG!") do (
     set "MAJ=%%a"
@@ -91,6 +94,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" ^
 if errorlevel 1 goto :failed
 
 echo.
+> version.txt echo !VERSION!
 echo Local copy: %~dp0ArenaAI-!VERSION!.apk
 echo Apps already installed get it via Update -^> Check for updates.
 exit /b 0

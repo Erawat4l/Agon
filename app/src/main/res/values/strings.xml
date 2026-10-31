@@ -72,6 +72,10 @@
     <string name="update_token_set">Token saved</string>
     <string name="update_token_title">Private repository</string>
     <string name="update_token_help">Arena\'s releases live in a private GitHub repo, so GitHub needs a token to answer. Create a fine-grained token with read-only Contents access on this repository and paste it here. It is stored only on this device.</string>
+    <string name="token_prompt_title">Enable in-app updates</string>
+    <string name="token_prompt_body">Arena\'s builds live in a private GitHub repo, so the app needs a read-only token to check for new versions and download them. Create a fine-grained token with Contents: Read-only on Arena-Ai-App and paste it here. It never leaves this device. You can skip this and add it later from Update → GitHub token.</string>
+    <string name="token_prompt_save">Save &amp; check for updates</string>
+    <string name="token_prompt_skip">Not now</string>
     <string name="update_token_hint">github_pat_… or ghp_…</string>
     <string name="update_token_save">Save &amp; check</string>
     <string name="update_token_skip">Not now</string>

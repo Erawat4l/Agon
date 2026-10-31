@@ -180,6 +180,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         refreshUpdateUi();
         askNotificationPermission();
 
+        // First launch (or after uninstall): explain the one-time GitHub token, since
+        // the release repo is private and the updater cannot check it otherwise.
+        if (!UpdateManager.hasToken(this)) {
+            window.postDelayed(this::promptForTokenFirstRun, 1200);
+        }
+
         // First frames: fade the shell in so the app never appears to "snap" together.
         window.setAlpha(0f);
         window.animate().alpha(1f).setDuration(180).start();
@@ -663,6 +669,87 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         window.animate().alpha(0f).setDuration(120).withEndAction(this::recreate).start();
     }
 
+    // ------------------------------------------------------------------ token
+
+    /**
+     * One-time, friendly token prompt. Shown as an animated sheet; skipping is fine and
+     * the app keeps working (the Update screen offers the same thing later).
+     */
+    void promptForTokenFirstRun() {
+        if (isFinishing() || authSheet != null || UpdateManager.hasToken(this)) return;
+
+        final FrameLayout scrim = AppUi.sheetScrim(this, null);
+        scrim.setOnClickListener(v -> dismissSheet(scrim));
+
+        LinearLayout sheet = new LinearLayout(this);
+        sheet.setOrientation(LinearLayout.VERTICAL);
+        sheet.setPadding(AppUi.dp(this, 22), AppUi.dp(this, 16),
+                AppUi.dp(this, 22), AppUi.dp(this, 20));
+        sheet.setBackground(AppUi.rounded(AppUi.color(this, R.color.surface), 24f, this));
+        sheet.setOnClickListener(v -> {
+        });
+
+        sheet.addView(AppUi.text(this, getString(R.string.token_prompt_title), 19f,
+                R.color.on_bg, true));
+        TextView body = AppUi.text(this, getString(R.string.token_prompt_body), 13f,
+                R.color.on_bg_muted, false);
+        body.setPadding(0, AppUi.dp(this, 8), 0, AppUi.dp(this, 14));
+        sheet.addView(body);
+
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint(R.string.update_token_hint);
+        input.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
+        input.setPadding(AppUi.dp(this, 12), AppUi.dp(this, 11),
+                AppUi.dp(this, 12), AppUi.dp(this, 11));
+        input.setBackground(AppUi.rounded(AppUi.color(this, R.color.surface2), 12f, this));
+        sheet.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView save = AppUi.text(this, getString(R.string.token_prompt_save), 15f,
+                R.color.on_accent, true);
+        save.setGravity(Gravity.CENTER);
+        save.setPadding(0, AppUi.dp(this, 14), 0, AppUi.dp(this, 14));
+        save.setBackground(AppUi.pressable(this, AppUi.color(this, R.color.accent), 14f));
+        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        saveLp.topMargin = AppUi.dp(this, 16);
+        sheet.addView(save, saveLp);
+
+        TextView skip = AppUi.text(this, getString(R.string.token_prompt_skip), 13.5f,
+                R.color.on_bg_muted, false);
+        skip.setGravity(Gravity.CENTER);
+        skip.setPadding(0, AppUi.dp(this, 12), 0, 0);
+        skip.setOnClickListener(v -> dismissSheet(scrim));
+        sheet.addView(skip);
+
+        save.setOnClickListener(v -> {
+            String token = input.getText().toString().trim();
+            UpdateManager.setToken(MainActivity.this, token);
+            AppUi.press(save);
+            dismissSheet(scrim);
+            if (!token.isEmpty()) {
+                UpdateCenter.forceCheck(MainActivity.this, MainActivity.this::onCheckFinished);
+            }
+        });
+
+        FrameLayout.LayoutParams sheetLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sheetLp.gravity = Gravity.BOTTOM;
+        scrim.addView(sheet, sheetLp);
+        window.addView(scrim, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        AppUi.slideUp(sheet);
+    }
+
+    /** Animated dismissal shared by the token sheet and the auth popup. */
+    private void dismissSheet(final View sheet) {
+        if (sheet.getParent() == null) return;
+        sheet.animate().alpha(0f).setDuration(AppUi.ANIM_FAST)
+                .withEndAction(() -> {
+                    if (sheet.getParent() != null) window.removeView(sheet);
+                }).start();
+    }
+
     // ------------------------------------------------------------------ update UI
 
     void onCheckFinished(UpdateManager.Result result) {
@@ -675,6 +762,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     public void onUpdateStateChanged(boolean available) {
         refreshUpdateUi();
+    }
+
+    /** Called by the Update sheet when it needs a token. */
+    public void requestToken() {
+        promptForTokenFirstRun();
     }
 
     private void refreshUpdateUi() {

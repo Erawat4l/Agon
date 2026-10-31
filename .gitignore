@@ -20,5 +20,6 @@ release/
 
 # Signing secrets — never commit these
 keystore.properties
+gh-token.txt
 *.jks
 *.keystore

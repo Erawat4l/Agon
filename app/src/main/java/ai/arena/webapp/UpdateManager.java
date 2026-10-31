@@ -149,6 +149,18 @@ public final class UpdateManager {
         return prefs(c).getString(K_LAST_ERROR, null);
     }
 
+    /** True when the last check failed because the private repo had no token. */
+    public static boolean tokenMissing(Context c) {
+        String error = lastError(c);
+        return error != null && error.contains("token");
+    }
+
+    /** Name + size of the newest release APK, for the "Update available" prompt. */
+    public static String latestApkLabel(Context c) {
+        long size = latestApkSize(c);
+        return size > 0 ? UpdateSheet.humanSize(size) : "";
+    }
+
     /** True when the most recent check found a release newer than this install. */
     public static boolean isUpdateAvailable(Context c) {
         int latest = latestVersionCode(c);

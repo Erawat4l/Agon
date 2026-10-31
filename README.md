@@ -24,6 +24,10 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 | `build.bat release` | Builds `ArenaAI-release.apk` (signed if you ran `make-keystore.bat` first) |
 | `build.bat clean` | Wipes build output |
 | `make-keystore.bat` | Creates `arena-release.jks` + `keystore.properties` for a signed release build |
+| `publish.bat` | Builds **and publishes a downloadable APK release** to GitHub (auto-bumps the patch version) |
+| `publish.bat 1.2.0` | Publishes that exact version |
+| `publish.bat 1.2.0 beta` | Publishes as a pre-release (visible on the Beta channel in-app) |
+| `publish.bat --token ghp_…` | Remembers a GitHub token in `gh-token.txt` (git-ignored) |
 
 First build downloads Gradle and the Android build tools (~3–5 minutes). Later builds
 take well under a minute, since everything is cached in `%USERPROFILE%\.gradle`.
@@ -166,19 +170,43 @@ else keeps working.
 
 **Publishing a release (this is what makes the update appear)**
 
+Two ways — use whichever is available to you.
+
+### A. From your PC: `publish.bat` (works today)
+
 ```bat
-git tag v1.0.1 && git push origin v1.0.1
+publish.bat
 ```
 
-Pushing a `v*` tag triggers `.github/workflows/build-apk.yml`, which builds with that
-version (`v1.0.1` → `versionCode 1000001`), attaches `ArenaAI-1.0.1.apk` to a GitHub
-Release, and every installed copy of the app sees it on its next check. Pushes to a
-branch also build a `0.0.<run>` APK artifact (not a release) with a tiny version
-code, so a tagged release always outranks it and the updater stays quiet until you tag.
+That builds the APK with an auto-bumped version (`1.1.0` → `1.1.1`), creates the GitHub
+release **v1.1.1**, uploads `ArenaAI-1.1.1.apk`, and leaves a copy in this folder.
+Every installed app then sees it: pull down to refresh or open **Update → Check for
+updates**, download, tap Install, approve Android's prompt.
+
+First run asks for a GitHub token once (stored in `gh-token.txt`, git-ignored):
+
+1. <https://github.com/settings/personal-access-tokens/new>
+2. Repository access → *Only select repositories* → `Arena-Ai-App`
+3. Permissions → **Contents: Read and write**
+4. Generate, then `publish.bat --token github_pat_…`
+
+Use **Read-only** Contents for the token you paste into the app; the write token is only
+for publishing from your PC.
+
+### B. GitHub Actions: automatic on every push
+
+`.github/workflows/build-apk.yml` builds *and publishes* a release on every push to this
+branch (version = current minor + commit count, e.g. `1.1.12`), with the APK attached.
+No tagging, no manual step — the app picks it up on its next check.
+
+> If a run fails in ~2 seconds with **no steps and `runner_id: 0`**, Actions is not
+> permitted to run for this repository (billing/runner restriction). Enable it in
+> *Settings → Actions → General → Allow all actions*, or just use `publish.bat`.
 
 **Rules of thumb**
 
-- Bump the tag every release: `v1.0.1`, `v1.0.2`, … (version code = `major*1,000,000 + minor*1,000 + patch`).
+- Version code = `major*1,000,000 + minor*1,000 + patch`, derived from the tag, so a
+  higher tag is always seen as newer.
 - The release must contain an `.apk` asset; the app picks the first one.
 - Debug and release builds are separate installs (`ai.arena.webapp.debug` vs
   `ai.arena.webapp`) — each updates itself from the same release.
@@ -242,7 +270,9 @@ installer requires) — everything else is platform APIs, so the APK stays small
 | `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | You had a build with a different signature — uninstall the old app first |
 | Play Protect blocks the install | Normal for sideloaded APKs — choose *"Install anyway"* |
 | Blank page after sign-in | Clear the app's data (More → Clear app data), or check that your network allows Google/Apple auth |
-| Update check says *private repo* | Add the GitHub token in the Update sheet |
+| Update check says *private repo* | Add the GitHub token — the app asks on first launch, or use Update → GitHub token |
+| `publish.bat` says 401/403 | Token needs **Contents: read and write** on this exact repo |
+| Actions run fails instantly, 0 steps | Actions is blocked for the repo — use `publish.bat` |
 | *App not installed* when updating | Old APK was signed with a different key — uninstall once, then install |
 | No update notification | Allow notifications for Arena (Android 13+ asks on first launch) |
 | `build.bat install` can't see the phone | Enable Developer options → USB debugging, accept the RSA prompt |

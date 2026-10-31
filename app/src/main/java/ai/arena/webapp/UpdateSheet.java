@@ -251,7 +251,13 @@ public final class UpdateSheet {
                 activity.getString(R.string.update_setting_token),
                 activity.getString(UpdateManager.hasToken(activity)
                         ? R.string.update_token_change : R.string.update_token_add),
-                v -> promptForToken()));
+                v -> {
+                    if (activity instanceof MainActivity) {
+                        ((MainActivity) activity).requestToken();
+                    } else {
+                        promptForToken();
+                    }
+                }));
 
         if (downloadedApk != null && downloadedApk.exists()) {
             statusLine.setText(activity.getString(R.string.update_ready_to_install));

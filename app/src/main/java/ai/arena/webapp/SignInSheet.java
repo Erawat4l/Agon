@@ -81,6 +81,8 @@ public final class SignInSheet {
     private boolean dialogAnswered;
     /** True once the provider button has been pressed, so it is never pressed twice. */
     private boolean providerChosen;
+    /** How many times the provider press has been attempted for this sign-in. */
+    private int providerTries;
 
     public SignInSheet(Activity activity, ViewGroup parent, Host host) {
         this.activity = activity;
@@ -575,6 +577,7 @@ public final class SignInSheet {
         dialogRounds = 0;
         dialogAnswered = false;
         providerChosen = false;
+        providerTries = 0;
         // Save the choice locally *before* the provider page runs: if the page is slow or
         // the user leaves, the next attempt already knows which account this is.
         LocalProfile.remember(activity, pendingEmail, hostFilter);
@@ -949,13 +952,44 @@ public final class SignInSheet {
     private void chooseProvider() {
         if (providerChosen) return;
         providerChosen = true;
+        providerTries = 0;
+        // A press that is still being retried must not be cancelled by the collector.
+        dialogAnswered = true;
         setProgress(activity.getString(R.string.signin_step_provider, pendingProvider));
+        pressProvider();
+    }
+
+    /**
+     * Presses the provider button, and keeps trying while the dialog is still settling.
+     *
+     * The old version gave up after five tries 900 ms apart and left the header asking the
+     * user to press the button by hand - so a dialog that rendered slowly looked exactly
+     * like "Continue with Google did nothing". Now the press is repeated on a schedule long
+     * enough for a slow page, and only a page that answers "none" six times is handed over
+     * to the user.
+     */
+    private void pressProvider() {
+        if (web == null || !providerChosen) return;
+        if (providerTries >= 6) {
+            setProgress(activity.getString(R.string.signin_step_manual, pendingProvider));
+            return;
+        }
+        providerTries++;
         SignInDriver.step(RUNNER, SignInDriver.chooseProviderScript(pendingProvider),
-                5, 900, ui, second -> {
-                    if (SignInDriver.NOTHING.equals(second) || second.startsWith("error")) {
+                1, 0, ui, second -> {
+                    if (SignInDriver.CLICKED.equals(second) || SignInDriver.ALREADY.equals(second)) {
+                        // The press landed (or Google's page is already up): the round trip
+                        // is what finishes this, not another press.
+                        return;
+                    }
+                    if (second.startsWith("error")) {
                         setProgress(activity.getString(R.string.signin_step_manual,
                                 pendingProvider));
+                        return;
                     }
+                    setProgress(activity.getString(R.string.signin_step_provider_wait,
+                            pendingProvider));
+                    ui.postDelayed(this::pressProvider, 1200);
                 });
     }
 

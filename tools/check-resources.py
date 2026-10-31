@@ -784,8 +784,13 @@ def check_resource_refs(java_paths):
 # script shipped twice. The literals are joined the way Java joins them, then parsed with
 # node when it is available (and with a small bracket checker when it is not).
 JS_CONSTANTS = ("JS_PRELUDE", "OPEN_DIALOG_JS", "CHOOSE_PROVIDER_JS",
-                "SIGNED_OUT_JS",
+                "SIGNED_OUT_JS", "WATCH_DIALOG_JS",
                 "PAGE_SIDEBAR_CSS", "PAGE_HEADER_CSS", "JS_SIDEBAR", "JS_HEADER")
+
+# Constants that are only ever spliced into another script: they are fragments, so on their
+# own they are not valid JavaScript - but each one must still be free of the two mistakes
+# that silently corrupt a whole script.
+JS_FRAGMENTS = ("OPEN_DIALOG_BODY",)
 
 
 def _java_literals(expr):
@@ -816,6 +821,41 @@ def _java_literals(expr):
     return out
 
 
+def _fragment_text(body):
+    """The concatenated string pieces of a fragment constant, with quotes decoded."""
+    return "".join(_java_literals(body))
+
+
+def _splice_fragments(path, src, body):
+    """The script a constant builds, with its fragment constants pasted in place.
+
+    A fragment is declared once and used inside a wrapper, so extracting the wrapper alone
+    leaves `+ OPEN_DIALOG_BODY` in the text and the parse either fails for the wrong reason
+    or - worse - a broken fragment goes unnoticed. The fragment's own `return`s are already
+    inside the wrapper's function, so it is pasted verbatim.
+    """
+    for frag in JS_FRAGMENTS:
+        marker = "+ " + frag
+        if marker not in body:
+            continue
+        text = _fragment_text(_fragment_source(src, frag))
+        if not text:
+            problems.append(f"{path}: {frag} is used but not declared")
+            continue
+        # Escape only what a Java literal would escape, then keep it one string piece.
+        pasted = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+        body = body.replace(marker, '+ "' + pasted + '"')
+    return "".join(_java_literals(body))
+
+
+def _fragment_source(src, name):
+    """The declaration text of a fragment constant, or "" when it is not declared."""
+    at = src.find("String " + name)
+    if at < 0:
+        return ""
+    return src[at:src.find(";\n", at)]
+
+
 def check_injected_js(java_paths):
     """Extracts the JS constants and parses them with node (or a bracket check)."""
     import shutil
@@ -840,12 +880,10 @@ def check_injected_js(java_paths):
                     problems.append(
                         f"{path}: comment inside {name} contains a double quote - "
                         f"rewrite it without quotes")
-            if "{" in body and name.endswith("_JS"):
+            joined = _splice_fragments(path, src, body)
+            if "{" in joined:
                 # a {PROVIDER}-style token is data, not JS structure: replace it first
-                joined = "".join(_java_literals(body))
                 joined = re.sub(r"\{[A-Z_]+\}", "google", joined)
-            else:
-                joined = " ".join(_java_literals(body))
             scripts.append((path, name, joined))
         # Inline scripts written as `String js = "(function(){..."`, as in the diagnostics
         # and chat-history sheets: same failure mode, so they get the same parse.

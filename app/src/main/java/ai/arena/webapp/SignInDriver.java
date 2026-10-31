@@ -119,9 +119,15 @@ final class SignInDriver {
             + "var asksArena=/continue to arena|choose an account|sign in with google/i"
             + ".test(((document.body&&document.body.innerText)||'').slice(0,4000));"
             + "if(hasMail||asksArena)return 'provider';}"
-            // The provider buttons are on screen already: the dialog is open.
+            // A provider button is on screen: press it here and now.
+            // This used to answer 'open' and rely on the caller to press it a round later,
+            // which is a race - if the follow-up look landed before the page had navigated
+            // it answered 'open' again, nothing was ever clicked, and pressing Continue
+            // with Google by hand did nothing at all. Clicking in the same pass means the
+            // press happens exactly once, on the frame the button exists.
             + "for(var i=0;i<C.length;i++){var t=L(C[i]);"
-            + "if(__A.seen(C[i])&&(t.indexOf('google')>=0||t.indexOf('github')>=0))return 'open';}"
+            + "if(__A.seen(C[i])&&(t.indexOf('google')>=0||t.indexOf('github')>=0)){"
+            + "if(__A.click(C[i]))return 'clicked';return 'open';}}"
             + "var exact=/^(log ?in|login|sign ?in|log ?in or sign ?up)$/i;"
             + "var loose=/(log ?in|sign ?in|login)/i;"
             + "function want(list,test,needsVisible,answer){"
@@ -250,6 +256,10 @@ final class SignInDriver {
     static final String CHOOSE_PROVIDER_JS = JS_PRELUDE
             + "(function(){try{"
             + "var name='{PROVIDER}';"
+            // The page may have turned into the provider's own sign-in between the two
+            // steps: say so instead of hunting for a button that is no longer anywhere.
+            + "var g=/google/.test(name)&&(location.hostname||'').toLowerCase().indexOf('google')>=0;"
+            + "if(g&&__A.all('input[type=email],input[name=identifier]').length>0)return 'open';"
             + "var h=(location.hostname||'').toLowerCase();"
             + "if(h.indexOf(name)>=0)return 'open';"
             + "var c=__A.all('button,a,[role=\"button\"],[role=\"menuitem\"],[aria-label],"

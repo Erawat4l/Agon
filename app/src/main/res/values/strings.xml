@@ -156,6 +156,7 @@
     <string name="history_refresh">Refresh list</string>
     <string name="signin_step_dialog">Opening Arena\'s sign-in…</string>
     <string name="signin_step_provider">Connecting to %1$s…</string>
+    <string name="signin_step_provider_wait">Pressing Arena\'s %1$s button…</string>
     <string name="signin_step_manual">Tap Arena\'s own Log in button, then %1$s</string>
     <string name="signin_step_wait">Waiting for the page to show its sign-in entry…</string>
     <string name="signin_step_moving">Arena\'s Log in entry is on the next page - opening it…</string>

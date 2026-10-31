@@ -177,38 +177,52 @@ public final class AccountPicker {
     }
 
     /**
-     * Google accounts known to Android.
+     * Google accounts known to Android, if any.
      *
-     * getAccountsByType("com.google") stopped returning anything on recent Android
-     * versions, and it also throws when the app has no GET_ACCOUNTS grant - which is why
-     * the picker used to say "No Google account found". The Authenticator description is
-     * the supported lookup (it only needs the account metadata, never a password), and
-     * the plain type lookup is kept as a fallback. Any failure returns an empty list and
-     * the picker falls back to "Continue with Google", which is not a dead end.
+     * Every lookup here can throw when the app has no GET_ACCOUNTS grant on a recent
+     * Android version, so each one is guarded and the answer is simply "the accounts we
+     * could see". Finding none is not an error: the picker then offers "Continue with
+     * Google", which is why signing in no longer depends on a Google account being set
+     * up on the phone.
      */
     private String[] accountsOnDevice() {
         java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+
+        AccountManager am = null;
         try {
-            AccountManager am = AccountManager.get(activity);
-            for (android.accounts.AuthenticatorDescription d : am.getAuthenticators()) {
-                if ("com.google".equals(d.type)) {
-                    for (Account a : am.getAccountsByType(d.type)) {
-                        if (a.name != null && a.name.contains("@")) names.add(a.name);
+            am = AccountManager.get(activity);
+        } catch (Exception ignored) {
+            // no account service at all: the empty list below is a valid answer
+        }
+        if (am != null) {
+            // 1. The supported lookup for Google accounts.
+            try {
+                for (Account a : am.getAccountsByType("com.google")) {
+                    addName(names, a);
+                }
+            } catch (Exception ignored) {
+                // no permission: try the broader lookup next
+            }
+            // 2. Anything else whose type mentions Google (some ROMs use a variant type).
+            try {
+                for (Account a : am.getAccounts()) {
+                    if (a.type != null && a.type.toLowerCase(java.util.Locale.ROOT)
+                            .contains("google")) {
+                        addName(names, a);
                     }
                 }
+            } catch (Exception ignored) {
+                // same as above: keep whatever the first lookup found
             }
-        } catch (Exception ignored) {
-            // fall through to the plain lookup
-        }
-        try {
-            AccountManager am = AccountManager.get(activity);
-            for (Account a : am.getAccountsByType("com.google")) {
-                if (a.name != null && a.name.contains("@")) names.add(a.name);
-            }
-        } catch (Exception ignored) {
-            // no permission / no accounts: an empty list is a valid answer
         }
         return names.toArray(new String[0]);
+    }
+
+    /** Keeps only entries that look like an e-mail address (a Google account name does). */
+    private static void addName(java.util.Set<String> names, Account account) {
+        if (account == null || account.name == null) return;
+        String name = account.name.trim();
+        if (name.contains("@")) names.add(name);
     }
 
     private static String initials(String email) {

@@ -388,6 +388,77 @@ def check_batch(path):
             problems.append(f"{path}:{i}: unbalanced ')' ")
 
 
+# ---------------------------------------------------------------- Android API stubs
+# Without a JDK or the SDK in this sandbox the only way to catch "method does not
+# exist" on an Android class is to know the API surface myself. This is a stub of the
+# framework types the app touches, listing what really exists on them (checked against
+# the SDK 34 docs). AccountManager.getAuthenticators() once slipped through and cost a
+# full Gradle round trip, so unknown members are now reported instead of compiled.
+ANDROID_MEMBERS = {
+    "AccountManager": {
+        "get", "getAccounts", "getAccountsByType", "getAccountsByTypeAndFeatures",
+        "addAccount", "addAccountExplicitly", "removeAccount", "blockingGetAuthToken",
+        "getAuthToken", "getAuthTokenByFeatures", "invalidateAuthToken", "getPassword",
+        "peekAuthToken", "setPassword", "clearPassword", "getUserData", "setUserData",
+        "setAuthToken", "newChooseAccountIntent", "hasFeatures", "getAuthenticatorTypes",
+        "KEY_ACCOUNT_NAME", "KEY_ACCOUNT_TYPE", "KEY_AUTHTOKEN", "KEY_INTENT",
+        "KEY_PASSWORD", "KEY_ACCOUNT_AUTHENTICATOR_RESPONSE",
+    },
+    "AuthenticatorDescription": {"describeContents", "writeToParcel", "CREATOR", "type",
+                                 "packageName", "labelId", "iconId", "accountLayoutId",
+                                 "accountPreferencesId", "customTokens", "smallIconId"},
+    "CookieManager": {"getInstance", "setAcceptCookie", "acceptCookie", "setCookie",
+                      "getCookie", "removeAllCookies", "removeSessionCookies", "flush",
+                      "setAcceptThirdPartyCookies", "acceptThirdPartyCookies",
+                      "getCookieManager"},
+    "WebSettings": {"getDefaultUserAgent", "getUserAgentString", "setUserAgentString",
+                    "setJavaScriptEnabled", "setDomStorageEnabled", "setUseWideViewPort",
+                    "setLoadWithOverviewMode", "setTextZoom", "setSupportZoom",
+                    "setBuiltInZoomControls", "setDisplayZoomControls",
+                    "setJavaScriptCanOpenWindowsAutomatically", "setMediaPlaybackRequiresUserGesture",
+                    "setMixedContentMode", "setCacheMode", "setSupportMultipleWindows",
+                    "setDatabaseEnabled", "setAllowFileAccess", "setAllowContentAccess",
+                    "setLoadsImagesAutomatically", "setDefaultTextEncodingName",
+                    "setGeolocationEnabled", "getCacheMode", "setMinimumFontSize"},
+    "Build": {"MODEL", "MANUFACTURER", "BRAND", "DEVICE", "VERSION", "SDK_INT"},
+    "Build.VERSION": {"RELEASE", "SDK_INT", "CODENAME", "PREVIEW_SDK_INT"},
+}
+# Calls that belong to java.lang.Object, not to the Android class.
+JAVA_METHODS = {"getClass", "hashCode", "equals", "toString", "notify", "notifyAll",
+                "wait", "clone", "finalize"}
+
+
+def check_android_api(paths):
+    """Reports member calls on Android-typed variables that are not real members.
+
+    A file may reuse a name for different types (UpdateSheet has a local "settings" that
+    is a LinearLayout while "s" is the WebSettings), so a variable is only checked when
+    *every* declaration of that name in the file is one of the stubbed Android types.
+    Static calls such as WebSettings.getDefaultUserAgent() are checked on the class name.
+    """
+    decl = re.compile(r"\b([A-Z]\w*)(?:<[^>]*>)?\s+(\w+)\s*[=;,):]")
+    for path in paths:
+        src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+        declared = {}
+        for m in decl.finditer(src):
+            declared.setdefault(m.group(2), set()).add(m.group(1))
+        for m in re.finditer(r"\b(\w+)\.(\w+)\s*\(", src):
+            recv, member = m.group(1), m.group(2)
+            if member in JAVA_METHODS:
+                continue
+            if recv in ANDROID_MEMBERS:
+                types = {recv}
+            else:
+                types = declared.get(recv)
+                if not types or not all(t in ANDROID_MEMBERS for t in types):
+                    continue
+            if any(member in ANDROID_MEMBERS[t] for t in types):
+                continue
+            problems.append(f"{path}:{src[:m.start()].count(chr(10)) + 1}: "
+                            f"{'/'.join(sorted(types))}.{member}() is not an Android API "
+                            f"member")
+
+
 def main():
     for path in glob.glob("*.bat"):
         check_batch(path)
@@ -395,6 +466,7 @@ def main():
     java_paths = glob.glob("app/src/main/java/**/*.java", recursive=True)
     check_tab_api(java_paths)
     check_java_cross_class(java_paths)
+    check_android_api(java_paths)
     for path in java_paths:
         check_java_self_calls(path)
         check_java_shadowing(path)

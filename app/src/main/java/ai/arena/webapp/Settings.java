@@ -76,8 +76,18 @@ public final class Settings {
      * drawn when the app opens, and nothing is ever opened on the user's behalf for it.
      * Kept switchable (Settings -> For developers) for anyone who prefers Arena's panel.
      */
+    /**
+     * Hiding arena's own side panel is OFF by default now.
+     *
+     * It used to be on, and the rule behind it hid far more than the panel: on the landing
+     * screen it removed containers that hold the page's own content, which is what made the
+     * page look mashed together. The rule is much narrower today (text-matched at runtime,
+     * see TabWebViews.JS_SIDEBAR), but a page that fits is worth more than a hidden duplicate
+     * menu, so the safe default is "leave arena's page alone" and the switch still exists in
+     * Settings -> For developers for anyone who wants it.
+     */
     public static boolean hideWebSidebar(Context c) {
-        return get(c, K_HIDE_WEB_SIDEBAR, true);
+        return get(c, K_HIDE_WEB_SIDEBAR, false);
     }
 
     /** True when the app may draw the page's own panel again (only if asked for). */

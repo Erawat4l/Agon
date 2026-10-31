@@ -59,6 +59,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private TabWebViews tabs;
     private AppUi.Nav nav;
     private View navArea;
+    /** Real system navigation-bar / gesture inset, read from the window, never assumed. */
+    private int systemNavInset = 0;
+    /** The bar the page must stay clear of: the app's own bar plus the system gesture area. */
+    private int chromeBottom = 0;
     private View errorView;
     private UpdateSheet updateSheet;
     private View menuSheet;
@@ -208,6 +212,32 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
         setContentView(window);
         navArea.setVisibility(Settings.showNav(this) ? View.VISIBLE : View.GONE);
+
+        // The app's bar is an overlay drawn at the bottom of the window. Where the system
+        // navigation bar / gesture pill is *also* there (3-button navigation, most Android
+        // 9-13 phones), the two overlapped and the icons sat on top of the system buttons -
+        // visible in the screenshots as the app's bar merged into the gesture area.
+        //
+        // Android only reports that inset to a view that asks for it, so ask, then pad the
+        // bar by exactly that much and reserve the same amount inside the page.
+        window.setOnApplyWindowInsetsListener((v, insets) -> {
+            // `nav` is a field (the bottom bar view); this is only a measurement.
+            int systemInset = 0;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                android.graphics.Insets bars = insets.getInsets(
+                        android.view.WindowInsets.Type.navigationBars());
+                systemInset = bars.bottom;
+            } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
+                systemInset = insets.getSystemWindowInsetBottom();
+            }
+            if (systemInset != systemNavInset) {
+                systemNavInset = systemInset;
+                if (navArea != null) navArea.setPadding(0, 0, 0, systemInset);
+                applyChromeInsets();
+            }
+            return insets;
+        });
+        window.requestApplyInsets();
 
         tabs.show(AppUi.TAB_CHAT);
         if (savedInstanceState != null && tabs.current() != null) {
@@ -396,11 +426,14 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // Settings -> "Show the bottom bar": with it off the page gets the whole frame
         // and is not padded at the bottom either.
         final boolean navOn = Settings.showNav(this);
+        final int barHeight = AppUi.collapsedHeight(this) + Math.max(1, AppUi.dp(this, 1));
+        // The system gesture area is part of the bar's footprint now: the bar is padded by
+        // it, so its measured height already includes it, but the first layout pass (and
+        // every pass where the bar is hidden) needs the number computed rather than measured.
         final int bottom = !navOn
                 ? 0
-                : (navArea != null && navArea.getHeight() > 0
-                ? navArea.getHeight()
-                : AppUi.collapsedHeight(this) + AppUi.dp(this, 1));
+                : Math.max(navArea != null ? navArea.getHeight() : 0, barHeight + systemNavInset);
+        chromeBottom = bottom;
         tabs.applyInsetsToAll(top, bottom);
     }
 

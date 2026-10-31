@@ -81,6 +81,8 @@ public final class SignInSheet {
     private boolean dialogAnswered;
     /** True once the provider button has been pressed, so it is never pressed twice. */
     private boolean providerChosen;
+    /** True when this attempt is Arena's email sign-in rather than the Google one. */
+    private boolean emailRoute;
     /** How many times the provider press has been attempted for this sign-in. */
     private int providerTries;
 
@@ -480,6 +482,17 @@ public final class SignInSheet {
         // was simply wrong. The account this device already used stays listed above.
         chooser.addView(providerRow(R.drawable.ic_google, R.string.signin_google,
                 "Google", ARENA_SIGN_IN, R.string.signin_google_hint));
+        // Arena's own email sign-in, as a second row rather than a footnote. It exists
+        // because Google's route needs an account the user can actually finish on this
+        // device - a second factor they no longer carry makes Google's page a dead end,
+        // and Arena accepts an email and a verification link perfectly well.
+        LinearLayout emailRow = providerRow(R.drawable.ic_mail, R.string.signin_email,
+                "email", ARENA_SIGN_IN, R.string.signin_email_hint);
+        emailRow.setOnClickListener(v -> {
+            AppUi.press(v);
+            openEmailSignIn();
+        });
+        chooser.addView(emailRow);
         sheet.addView(chooser);
 
         // The browser route, labelled honestly. Two things are true about it: Chrome usually
@@ -578,6 +591,7 @@ public final class SignInSheet {
         dialogAnswered = false;
         providerChosen = false;
         providerTries = 0;
+        emailRoute = false;
         // Save the choice locally *before* the provider page runs: if the page is slow or
         // the user leaves, the next attempt already knows which account this is.
         LocalProfile.remember(activity, pendingEmail, hostFilter);
@@ -737,6 +751,20 @@ public final class SignInSheet {
      *
      * A phone with no browser is told so, never left with a silent tap.
      */
+    /**
+     * Arena's own email sign-in, in the same in-app page.
+     *
+     * Arena accepts an email + verification link as well as Google, and for anyone whose
+     * Google account has second-factor devices they no longer carry, it is the route that
+     * actually works. There is no separate form to build: the app opens Arena's page and
+     * presses the email entry in its dialog - the address and password (or the link) are
+     * typed into Arena's own fields, never into anything this app owns.
+     */
+    void openEmailSignIn() {
+        emailRoute = true;
+        openProvider("Google", ARENA_SIGN_IN);
+    }
+
     void openBrowserChooser(String url) {
         try {
             android.content.Intent view = new android.content.Intent(
@@ -911,6 +939,13 @@ public final class SignInSheet {
             return;
         }
         if (SignInDriver.ON_PROVIDER.equals(answer)) {
+            if (emailRoute) {
+                // The email route landed on Google, which is not what was asked for. Say
+                // so and stay on Arena's page in the layer underneath, where the email
+                // entry lives, instead of leaving the user on a Google form.
+                goBackToArena();
+                return;
+            }
             // Google's own page is on screen: Arena's dialog is not on this host, so
             // searching it again only ever ended in the fallback, which is what left
             // the phone on "accounts.google.com is opening its own sign-in page".
@@ -936,6 +971,25 @@ public final class SignInSheet {
     }
 
     /**
+     * Leaves a provider page and puts Arena's own page back on screen.
+     *
+     * Used by the email route when Google's form turns up anyway: the layer underneath is
+     * still Arena's page (it is what opened the window), so going back one step is enough -
+     * and it never reloads anything, so nothing is lost.
+     */
+    private void goBackToArena() {
+        providerPageShown = false;
+        started = false;
+        setProgress(activity.getString(R.string.signin_step_email));
+        WebView target = web;
+        if (target != null && target.canGoBack()) {
+            target.goBack();
+            return;
+        }
+        if (target != null) target.loadUrl(ARENA_SIGN_IN);
+    }
+
+    /**
      * Sends Google the address this device signed in with, so its page skips the form.
      *
      * {@code login_hint} is a documented Google parameter: given an address, its page goes
@@ -958,6 +1012,11 @@ public final class SignInSheet {
     /** Presses the provider button the user chose. */
     private void chooseProvider() {
         if (providerChosen) return;
+        if (emailRoute) {
+            // Nothing to press first: Arena's dialog is already the email form.
+            setProgress(activity.getString(R.string.signin_step_email));
+            return;
+        }
         providerChosen = true;
         providerTries = 0;
         // A press that is still being retried must not be cancelled by the collector.
@@ -1151,6 +1210,15 @@ public final class SignInSheet {
     static boolean hasSessionCookie(String cookies) {
         if (cookies == null || cookies.isEmpty()) return false;
         String all = cookies.toLowerCase(java.util.Locale.ROOT);
+        // Arena's own session cookie, seen on a real device: arena-auth-prod-v1, chunked by
+        // the browser into arena-auth-prod-v1.0 / .1. "session cookie: absent" was reported
+        // on a device whose jar held exactly these, which is what this line fixes.
+        //
+        // The PKCE verifier is not a session: arena writes arena-auth-prod-v1-code-verifier
+        // when it *starts* an OAuth round trip, and a jar that has only that one is still
+        // signed out. So it is removed before the test rather than counted by it.
+        String withoutVerifier = all.replace("arena-auth-prod-v1-code-verifier", "");
+        if (withoutVerifier.contains("arena-auth-prod")) return true;
         String[] markers = {"sb-", "-auth-token", "authjs.session-token",
                 "next-auth.session-token", "__session", "session", "sessionid",
                 "auth_token", "access_token", "connect.sid"};

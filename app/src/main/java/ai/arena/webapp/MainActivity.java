@@ -67,6 +67,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private SettingsSheet settingsSheet;
     private ChatHistorySheet historySheet;
 
+    /** A load that has not finished after this long is treated as stuck. */
+    private static final long STALL_MS = 9000L;
+    /** When each tab's current load started (elapsedRealtime), for the stall bar. */
+    private final java.util.HashMap<Integer, Long> stalledAt = new java.util.HashMap<>();
+    /** The last progress each tab reported, so a stalled load can be judged later. */
+    private final java.util.HashMap<Integer, Integer> stalledProgress = new java.util.HashMap<>();
+    /** The one-and-only "this page is stuck" bar, built on first use. */
+    private View stalledBar;
+
     private boolean navExpanded = false;
     private int currentTab = AppUi.TAB_CHAT;
     private int tabBeforeUpdate = AppUi.TAB_CHAT;
@@ -591,12 +600,95 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         };
     }
 
+    /**
+     * Notices a page that stopped loading without finishing, and offers a retry.
+     *
+     * "I click a chat and it is stuck, it never loads" has two common causes that look
+     * identical to a user: a request that quietly died (a dead connection, a blocked
+     * subresource) and a page whose JavaScript threw. Neither ends in onPageFinished, so
+     * nothing in the app reacted. This watches progress instead: a load that stops short of
+     * 100 for {{WAIT}} seconds raises a small, dismissible bar with one button.
+     */
+    private void watchStalledLoad(WebView view, int progress) {
+        final int tab = tabs == null ? -1 : tabs.tabOf(view);
+        if (tab < 0) return;
+        stalledProgress.put(tab, progress);
+        if (progress >= 100) {
+            stalledAt.remove(tab);
+            hideStalledBar();
+            return;
+        }
+        if (stalledAt.containsKey(tab)) return;
+        stalledAt.put(tab, android.os.SystemClock.elapsedRealtime());
+        view.postDelayed(() -> {
+            Long began = stalledAt.get(tab);
+            if (began == null) return;
+            if (android.os.SystemClock.elapsedRealtime() - began < STALL_MS) return;
+            stalledAt.remove(tab);
+            Integer last = stalledProgress.get(tab);
+            if (last != null && last >= 100) return;
+            showStalledBar(view);
+        }, STALL_MS + 500L);
+    }
+
+    /** One small bar: the page is stuck, tap once to load it again. */
+    private void showStalledBar(final WebView stuck) {
+        if (stalledBar == null) {
+            LinearLayout bar = new LinearLayout(this);
+            bar.setOrientation(LinearLayout.HORIZONTAL);
+            bar.setGravity(Gravity.CENTER_VERTICAL);
+            bar.setBackgroundColor(AppUi.color(this, R.color.surface));
+            bar.setPadding(AppUi.dp(this, 14), AppUi.dp(this, 10),
+                    AppUi.dp(this, 8), AppUi.dp(this, 10));
+            TextView label = AppUi.text(this, getString(R.string.load_stalled), 12.5f,
+                    R.color.on_bg, false);
+            bar.addView(label, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView retry = AppUi.text(this, getString(R.string.load_stalled_retry), 12.5f,
+                    R.color.on_bg, true);
+            retry.setPadding(AppUi.dp(this, 12), AppUi.dp(this, 6),
+                    AppUi.dp(this, 12), AppUi.dp(this, 6));
+            retry.setOnClickListener(v -> {
+                AppUi.press(v);
+                hideStalledBar();
+                if (stuck != null) stuck.reload();
+            });
+            bar.addView(retry);
+            TextView close = AppUi.text(this, "✕", 15f, R.color.on_bg_muted, false);
+            close.setPadding(AppUi.dp(this, 10), AppUi.dp(this, 4),
+                    AppUi.dp(this, 10), AppUi.dp(this, 4));
+            close.setOnClickListener(v -> hideStalledBar());
+            bar.addView(close);
+            stalledBar = bar;
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.gravity = Gravity.TOP;
+            lp.topMargin = AppUi.dp(this, 56);
+            window.addView(stalledBar, lp);
+        }
+        stalledBar.setVisibility(View.VISIBLE);
+        stalledBar.bringToFront();
+    }
+
+    /** Called by the tab layer when a page finishes, so a stale bar never lingers. */
+    void clearStalledLoad() {
+        stalledAt.clear();
+        hideStalledBar();
+    }
+
+    private void hideStalledBar() {
+        if (stalledBar != null) stalledBar.setVisibility(View.GONE);
+    }
+
     WebChromeClient newTabChrome() {
         return new AppChrome.Base(this) {
 
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
-                // no progress bar: the page paints itself
+                // no progress bar: the page paints itself - but a page that goes quiet
+                // half-loaded is the "stuck, never loads" report, so say so on screen and
+                // offer the one thing that unsticks it.
+                watchStalledLoad(view, newProgress);
             }
 
             /**

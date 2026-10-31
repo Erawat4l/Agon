@@ -94,7 +94,8 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Tapping Rankings / Search | flips `View.VISIBILITY` on an already-painted WebView — no reload, no white flash, ~1 frame |
 | First visit to a tab | the tab's WebView is pre-built in the background at launch (`TabWebViews.preload()`), so even the first tap skips the cold start |
 | Returning to a tab | keeps DOM, scroll position and session; a silent `focus` event asks the page for fresh data |
-| Caching | `LOAD_CACHE_ELSE_NETWORK` — repeat visits paint from disk cache, then refresh in place |
+| Caching | `LOAD_DEFAULT` — the network answers, the cache answers only what is still fresh. `LOAD_CACHE_ELSE_NETWORK` painted stale Arena documents and made pages look permanently stuck |
+| Stalled page | a load that has not finished after 9 s raises one small bar: *This page stopped loading — Load again* |
 | Scroll | scrolling only scrolls; nothing about scrolling triggers a reload |
 | Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
@@ -106,7 +107,10 @@ page. Success is decided by the page, not by a redirect: a bare redirect is neve
 as a login. When Google refuses the embedded page, the browser is a labelled second route -
 and the link it comes back with is what finishes the sign-in **in the app**.
 
-1. **Google** — *More → Sign in to Arena → Continue with Google* opens Arena's own sign-in
+1. **Google, or Arena's own email sign-in** — two rows in the sheet. *Continue with email*
+   stays on Arena's page and types the address there (Arena sends a verification link), which
+   is the route that works when a Google account's second-factor devices are not to hand.
+   *Continue with Google* opens Arena's own sign-in
    page **inside the app**, full-screen, in `SignInSheet`: same cookie jar as the tabs, so
    the session lands in Arena directly. Google is the only provider listed, because it is
    the only one Arena accepts for an account — the GitHub account is what connects Agent
@@ -132,7 +136,9 @@ and the link it comes back with is what finishes the sign-in **in the app**.
    form entirely.
 5. Success is decided by the page: cookies cannot be read when they are HttpOnly, so a
    rendered arena page that offers no sign-in control **is** the signed-in state. A page
-   that still offers one keeps the sheet open and says so.
+   that still offers one keeps the sheet open and says so. Arena's own session cookie
+   (`arena-auth-prod-v1`, chunked into `.0`/`.1`) counts as proof too — it was in the jar
+   on a device that still reported "session cookie: absent", which was a name-matching bug.
 6. **The browser row is a fallback with a caveat.** Chrome usually does show Google's real
    picker, because Chrome has a Google session — but a session created there belongs to
    Chrome. Bringing it into the app needs a link Arena itself publishes

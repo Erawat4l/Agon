@@ -74,6 +74,15 @@ public final class TabWebViews {
         return views.get(tab);
     }
 
+    /** The tab a WebView belongs to, or -1 when it is not one of ours (a popup). */
+    public int tabOf(WebView view) {
+        if (view == null) return -1;
+        for (java.util.Map.Entry<Integer, WebView> entry : views.entrySet()) {
+            if (entry.getValue() == view) return entry.getKey();
+        }
+        return -1;
+    }
+
     /** Every warm WebView, current tab included. */
     public java.util.Collection<WebView> all() {
         return new java.util.ArrayList<>(views.values());
@@ -397,9 +406,15 @@ public final class TabWebViews {
         s.setDisplayZoomControls(false);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        // Speed: paint the last known copy from disk immediately instead of going to the
-        // network for every asset on every launch, then let the page revalidate itself.
-        s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
+        // Cache policy: ask the network, let the cache answer what it legitimately can.
+        //
+        // This used to be LOAD_CACHE_ELSE_NETWORK, which is not "fast": it answers from the
+        // disk cache *even when the entry has expired*, so a stale Arena document was
+        // painted and the app's requests for the current one could be satisfied from that
+        // same stale copy - which is what "pages are stuck and never load" looks like once
+        // the cache holds an old build of the site. Arena is a live app (a chat, a
+        // leaderboard); a cached copy of it is worth very little and a stale one is a bug.
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
         // Settings -> "Chrome user agent": the clean string is what stops arena's
         // bot check from showing "Verify you are human".
         s.setUserAgentString(Settings.chromeUserAgent(activity)
@@ -441,6 +456,8 @@ public final class TabWebViews {
                 delegate.onPageFinished(view, url);
                 loaded.add(tab);
                 applyChromeInsets(view, lastTopInset, lastBottomInset);
+                // The page made it: if the "stuck" bar is up for this tab, drop it.
+                if (activity instanceof MainActivity) ((MainActivity) activity).clearStalledLoad();
             }
 
             @Override

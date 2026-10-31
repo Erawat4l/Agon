@@ -16,6 +16,9 @@
     <string name="signin_choose_sub_returning">Signing in as %1$s - picking the account is the whole sign-in</string>
     <string name="signin_google">Continue with Google</string>
     <string name="signin_google_hint">Google\'s own page, inside the app</string>
+    <string name="signin_email">Continue with email</string>
+    <string name="signin_email_hint">Arena\'s own email sign-in - no Google account needed</string>
+    <string name="signin_step_email">Arena\'s email sign-in is on this page - enter the address there</string>
     <string name="signin_in_progress">Signing in</string>
     <string name="signin_still_out">Still signed out - finish the sign-in on this page</string>
     <string name="signin_success">Signed in</string>
@@ -168,6 +171,8 @@
     <string name="diag_copy">Copy report</string>
     <string name="diag_copied">Report copied</string>
     <string name="diag_close">Close</string>
+    <string name="load_stalled">This page stopped loading</string>
+    <string name="load_stalled_retry">Load again</string>
     <string name="diag_clear_trace">Clear the sign-in trace</string>
     <string name="diag_trace_cleared">Trace cleared - run the sign-in once to record it</string>
     <string name="signin_browser_row">A browser instead - it stays signed in there, not here</string>

@@ -31,7 +31,7 @@ public final class UpdateManager {
 
     /** Repo that hosts the releases. Set in one place so forks can reuse this. */
     public static final String REPO_OWNER = "Erawat4l";
-    public static final String REPO_NAME = "Arena-Ai-App";   // tools/set-repo.py changes this
+    public static final String REPO_NAME = "Agon";   // tools/set-repo.py changes this
 
     /** Which release channel to follow. */
     public enum Channel {

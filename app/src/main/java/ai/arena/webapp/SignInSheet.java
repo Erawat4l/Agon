@@ -31,6 +31,9 @@ public final class SignInSheet {
         void onSignedIn();
 
         void onDismissed();
+
+        /** The user asked for the native Google account picker. */
+        void onPickAccount();
     }
 
     private final Activity activity;
@@ -39,6 +42,7 @@ public final class SignInSheet {
     private FrameLayout root;
     private WebView web;
     private LinearLayout chooser;
+    private String pendingEmail;
 
     public SignInSheet(Activity activity, ViewGroup parent, Host host) {
         this.activity = activity;
@@ -109,6 +113,17 @@ public final class SignInSheet {
     }
 
     public void show() {
+        showForEmail(null);
+    }
+
+    /**
+     * Opens the provider page for a chosen account.
+     *
+     * @param email Google account picked in the native chooser, or null to start a
+     *              fresh provider session ("Use another account")
+     */
+    public void showForEmail(String email) {
+        pendingEmail = email;
         if (isShowing()) return;
 
         root = AppUi.sheetScrim(activity, v -> dismiss());
@@ -146,10 +161,11 @@ public final class SignInSheet {
 
         chooser = new LinearLayout(activity);
         chooser.setOrientation(LinearLayout.VERTICAL);
+        // Google: the native account picker comes first (MainActivity.startSignIn).
         chooser.addView(providerRow(R.drawable.ic_google, R.string.signin_google,
-                "accounts.google.com", "https://arena.ai/"));
+                "accounts.google.com", "https://arena.ai/", true));
         chooser.addView(providerRow(R.drawable.ic_github, R.string.signin_github,
-                "github.com", "https://arena.ai/"));
+                "github.com", "https://arena.ai/", false));
         sheet.addView(chooser);
 
         TextView note = AppUi.text(activity, activity.getString(R.string.signin_note), 11.5f,
@@ -170,7 +186,7 @@ public final class SignInSheet {
     }
 
     private View providerRow(int iconRes, int labelRes, final String hostFilter,
-                             final String startUrl) {
+                             final String startUrl, final boolean nativePicker) {
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -209,7 +225,13 @@ public final class SignInSheet {
 
         row.setOnClickListener(v -> {
             AppUi.press(v);
-            openProvider(hostFilter, startUrl);
+            if (nativePicker && host != null) {
+                // Hand control to the activity's native chooser; it calls back into
+                // showForEmail() once the user has picked an account.
+                host.onPickAccount();
+            } else {
+                openProvider(hostFilter, startUrl);
+            }
         });
         return row;
     }
@@ -279,6 +301,13 @@ public final class SignInSheet {
         column.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
         chooser.setVisibility(View.GONE);
         web.loadUrl(startUrl);
+        if (pendingEmail != null) {
+            // Pre-select the account the user tapped in the native chooser, so Google
+            // shows "Continue as ..." instead of the full account list again.
+            web.postDelayed(() -> web.evaluateJavascript(
+                    "try{localStorage.setItem('arena-account','" + pendingEmail + "');}"
+                            + "catch(e){}", null), 400);
+        }
     }
 
     /**

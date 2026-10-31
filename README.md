@@ -95,16 +95,27 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Returning to a tab | keeps DOM, scroll position and session; a silent `focus` event asks the page for fresh data |
 | Caching | `LOAD_CACHE_ELSE_NETWORK` — repeat visits paint from disk cache, then refresh in place |
 | Scroll | scrolling only scrolls; nothing about scrolling triggers a reload |
-| Pull-to-refresh | still available, but only on an explicit pull, and it refreshes the *current* tab |
+| Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
 
 ### Sign-in stays inside the app
 
-Google/Apple/GitHub sign-in uses `window.open` / `target=_blank`. Instead of bouncing to
-Chrome, `onCreateWindow` opens an **in-app popup WebView** ("Sign in to Arena") that
-shares the same cookie jar, so the login completes in the app and lands you back on the
-signed-in Arena screen. The popup closes itself once the redirect returns to arena.ai,
-and Back dismisses it.
+Sign-in never leaves the app and never shows a browser frame around a login page.
+
+1. **Google** — *More → Sign in to Arena → Continue with Google* opens `AccountPicker`,
+   a native Android screen drawn like Google's own chooser: the provider mark,
+   *Choose an account*, one row per Google account already on the phone, and
+   *Use another account*. No WebView is involved in picking.
+2. Picking an account (or *Use another account*) opens the provider's own sign-in page
+   **inside the app**, full-screen, in `SignInSheet` — same cookie jar as the tabs, so
+   the session lands in Arena directly.
+3. `window.open` / `target=_blank` from the page is captured by `onCreateWindow` and
+   hosted in the same in-app sheet instead of being dropped or pushed to Chrome.
+4. The sheet closes itself when the redirect returns to arena.ai, and Back dismisses it.
+
+`AppChrome.openExternally()` no longer hands http(s) links to another app at all: only
+non-web schemes (`mailto:`, `market:`, `intent:`) leave Arena, everything else opens in
+an in-app WebView sheet. That is what used to drop you into Chrome.
 
 ### Appearance follows the app *and* the web content
 
@@ -161,10 +172,12 @@ themselves are routed into the same sheet.
 | More sheet | **Update**, reload, **sign in**, **appearance**, clear data, plus the exact build number — no share / open-in-browser |
 | WebBridge / Downloads | page-generated files (`blob:`, `data:`) land in `Downloads/` |
 | No browser chrome | No URL bar, no tabs, no "powered by Chrome"; app-styled sheets, dialogs and toasts |
-| Pull-to-refresh, offline screen, dark mode | All native, not web fallbacks |
+| Offline screen, dark mode, account picker | All native, not web fallbacks |
 
-The web content is only the middle of the screen — navigation, update flow and menus
-are real Android views, so it reads as an app.
+The web content fills the screen edge to edge; the top bar and the bottom nav **float
+over it** as real Android views, and the page is told their heights as CSS insets so
+arena's own composer and fixed menus stay inside the app frame instead of being
+clipped or pushed out of it. Nothing about the shell reloads the page.
 
 ---
 
@@ -184,11 +197,12 @@ notification with its own chime — and it can never install anything silently.
 
 **How it flows**
 
-1. On launch, on resume, on pull-to-refresh and every 6 hours the app queries
+1. On launch, on resume and every 6 hours the app queries
    `api.github.com/repos/Erawat4l/Arena-Ai-App/releases/latest` (or all releases when
    the Beta channel is selected).
 2. If the release's version is newer than the installed `versionCode`, the app:
-   - tints the **Update** entry inside the More sheet and shows a dot on the More icon,
+   - tints the **Update** tab in the bottom bar (or the More icon when no Update tab is
+     shown) and reveals the pill,
    - reveals a `v1.2.3` pill in the top bar,
    - posts a high-priority notification (*"Arena update available"*) that plays
      `res/raw/update_chime.wav` — a short two-note chime, not the system blip.
@@ -261,8 +275,9 @@ publish.bat
 
 That builds the APK with an auto-bumped version (`1.1.0` → `1.1.1`), creates the GitHub
 release **v1.1.1**, uploads `ArenaAI-1.1.1.apk`, and leaves a copy in this folder.
-Every installed app then sees it: pull down to refresh or open **Update → Check for
-updates**, download, tap Install, approve Android's prompt.
+Every installed app then sees it: tap **Update → Check for updates**, download, tap
+Install, approve Android's prompt. The release page link opens **inside the app** —
+the app never sends you to Chrome.
 
 First run asks for a GitHub token once (stored in `gh-token.txt`, git-ignored):
 
@@ -320,7 +335,8 @@ app/build.gradle              module config (app id, version, signing)
 app/src/main/AndroidManifest.xml
 app/src/main/java/ai/arena/webapp/
     MainActivity.java         WebView shell: navigation, uploads, downloads, permissions
-    PullToRefreshLayout.java  dependency-free pull-to-refresh container
+    AccountPicker.java        native Google-style account chooser
+    CrashLog.java             last-crash recorder shown on screen
 app/src/main/res/             icons (adaptive + legacy), theme, colors, strings
 .github/workflows/build-apk.yml
 ```

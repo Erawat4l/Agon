@@ -133,6 +133,11 @@ public final class UpdateManager {
         return prefs(c).getString(K_LATEST_NOTES, "");
     }
 
+    /** Releases page for this repo, shown inside the app (never in a browser). */
+    public static String latestReleasePath(Context c) {
+        return "https://github.com/" + REPO_OWNER + "/" + REPO_NAME + "/releases";
+    }
+
     public static String latestReleaseUrl(Context c) {
         return prefs(c).getString(K_LATEST_URL, "");
     }
@@ -319,8 +324,17 @@ public final class UpdateManager {
         String body = stream == null ? "" : readAll(stream);
         conn.disconnect();
         if (status == 404) {
+            // A private repo answers 404 when the token is missing, but it also answers
+            // 404 when the token is fine and no release has been published yet, so both
+            // possibilities are named instead of blaming the token.
             throw new IllegalStateException(hasToken(context)
-                    ? "404 from GitHub API - check the token's repo access"
+                    ? "no release found yet - publish one with publish.bat, then check again"
+                    : "private repo: add a GitHub token");
+        }
+        if (status == 403) {
+            // A fine-grained token without "Contents: read" on this repo answers 403.
+            throw new IllegalStateException(hasToken(context)
+                    ? "GitHub refused the token - it needs Contents: read on " + REPO_NAME
                     : "private repo: add a GitHub token");
         }
         if (status != 200) {

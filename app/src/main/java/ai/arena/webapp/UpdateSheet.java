@@ -379,16 +379,90 @@ public final class UpdateSheet {
         });
     }
 
+    /**
+     * Opens the release page INSIDE the app.
+     *
+     * This used to fire an ACTION_VIEW intent, which is exactly how the user ended up
+     * in Chrome. The app never hands an http(s) link to another app now: the page is
+     * shown in an in-app WebView sheet, with the app's own bar and a close button.
+     */
     private void openReleasePage() {
-        String url = UpdateManager.latestReleaseUrl(activity);
-        if (url.isEmpty()) {
-            url = "https://github.com/" + UpdateManager.REPO_OWNER + "/"
-                    + UpdateManager.REPO_NAME + "/releases";
-        }
-        try {
-            activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-        } catch (ActivityNotFoundException ignored) {
-        }
+        String url = UpdateManager.latestReleasePath(activity);
+        showInAppPage(activity, url);
+    }
+
+    /** Minimal in-app browser sheet: one WebView, app chrome, no external app. */
+    static void showInAppPage(final Activity activity, String url) {
+        final android.widget.FrameLayout root =
+                (android.widget.FrameLayout) activity.findViewById(android.R.id.content);
+        if (root == null) return;
+
+        final android.widget.FrameLayout pageOverlay = AppUi.sheetScrim(activity, null);
+        android.webkit.WebView page = new android.webkit.WebView(activity);
+        page.setBackgroundColor(AppUi.color(activity, R.color.bg));
+        android.webkit.WebSettings settings = page.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setUserAgentString(AppChrome.userAgent(activity,
+                settings.getUserAgentString()));
+        page.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(android.webkit.WebView view,
+                                                    android.webkit.WebResourceRequest request) {
+                // Stay inside: GitHub links open in the same in-app page.
+                return false;
+            }
+
+            @Override
+            public void onReceivedError(android.webkit.WebView view, android.webkit.WebResourceRequest request,
+                                        android.webkit.WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    android.widget.Toast.makeText(activity,
+                            R.string.update_release_unreachable,
+                            android.widget.Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+
+        android.widget.LinearLayout column = new android.widget.LinearLayout(activity);
+        column.setOrientation(android.widget.LinearLayout.VERTICAL);
+        column.setBackgroundColor(AppUi.color(activity, R.color.bg));
+
+        android.widget.LinearLayout bar = new android.widget.LinearLayout(activity);
+        bar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(AppUi.color(activity, R.color.surface));
+        bar.setPadding(AppUi.dp(activity, 14), AppUi.dp(activity, 10),
+                AppUi.dp(activity, 10), AppUi.dp(activity, 10));
+        bar.addView(AppUi.text(activity, activity.getString(R.string.update_release_page_title),
+                15f, R.color.on_bg, true), new android.widget.LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        android.widget.TextView close = AppUi.text(activity, "\u2715", 18f,
+                R.color.on_bg_muted, false);
+        close.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 6),
+                AppUi.dp(activity, 12), AppUi.dp(activity, 6));
+        close.setOnClickListener(v -> {
+            page.stopLoading();
+            page.destroy();
+            AppUi.slideDownAndRemove(pageOverlay, root);
+        });
+        bar.addView(close);
+        column.addView(bar, new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        column.addView(page, new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        android.widget.FrameLayout.LayoutParams lp =
+                new android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT);
+        lp.gravity = android.view.Gravity.BOTTOM;
+        pageOverlay.addView(column, lp);
+        root.addView(pageOverlay, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        pageOverlay.setAlpha(0f);
+        pageOverlay.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
+        page.loadUrl(url);
     }
 
     /** Asks for a GitHub token (only needed for private repos) and checks again. */

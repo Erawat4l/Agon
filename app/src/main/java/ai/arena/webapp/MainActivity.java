@@ -58,20 +58,22 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private FrameLayout window;
     private FrameLayout contentFrame;
     private TabWebViews tabs;
-    private PullToRefreshLayout refresh;
     private AppUi.Nav nav;
     private LinearLayout expander;
     private ImageView expanderIcon;
     private View topBar;
+    private View navArea;
     private TextView updateChip;
     private View errorView;
     private UpdateSheet updateSheet;
     private View menuSheet;
     private View tokenSheet;
     private SignInSheet signInSheet;
+    private AccountPicker accountPicker;
 
     private boolean navExpanded = true;
     private int currentTab = AppUi.TAB_CHAT;
+    private int tabBeforeUpdate = AppUi.TAB_CHAT;
     private long lastBackPressMs;
     private File pendingInstallApk;
 
@@ -115,25 +117,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         window.addView(column, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        column.addView(buildTopBar(), new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, AppUi.dp(this, 48)));
-
+        // No pull-to-refresh: dragging the page reloaded it, which the user explicitly
+        // does not want. A reload is one tap away in More -> Reload.
         contentFrame = new FrameLayout(this);
-        refresh = new PullToRefreshLayout(this);
-        refresh.setRefreshTarget(tabsScrollable());
-        refresh.addView(contentFrame, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        refresh.setOnRefreshListener(new PullToRefreshLayout.OnRefreshListener() {
-            @Override
-            public void onRefresh() {
-                hideError();
-                if (tabs != null) tabs.reloadCurrent();
-                UpdateCenter.maybeAutoCheck(MainActivity.this, MainActivity.this::onCheckFinished);
-            }
-        });
 
         FrameLayout contentHost = new FrameLayout(this);
-        contentHost.addView(refresh, new FrameLayout.LayoutParams(
+        contentHost.addView(contentFrame, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         errorView = buildErrorView();
         errorView.setVisibility(View.GONE);
@@ -162,31 +151,45 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                refresh.setRefreshing(false);
+                // The document exists now: reserve the app chrome inside the page so
+                // nothing is clipped behind the top bar or the nav.
+                if (tabs != null) tabs.markLoaded(tabs.tabOf(view), view);
+                applyChromeInsets();
             }
 
             @Override
             public void onMainFrameError(WebView view) {
-                refresh.setRefreshing(false);
                 showError();
             }
 
             @Override
             public void onLoadProgress(WebView view, int progress) {
-                if (progress >= 100) refresh.setRefreshing(false);
+                // progress is drawn by the page itself
             }
         });
 
+        // Both bars are overlays over the page, so the page itself gets the whole
+        // screen: arena centres its composer with vertical padding, and any strip taken
+        // from the page height pushed its content out of frame. The page reserves the
+        // bar heights itself through CSS (applyChromeInsets), and the bars are
+        // translucent + translucent-until-touched so nothing is hidden behind them.
+        topBar = buildTopBar();
+        FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        topLp.gravity = Gravity.TOP;
+        window.addView(topBar, topLp);
+
         // Collapsible navigation: icons always visible, labels slide in/out.
-        View navArea = buildNavArea();
-        column.addView(navArea, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        navArea = buildNavArea();
+        FrameLayout.LayoutParams navLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        navLp.gravity = Gravity.BOTTOM;
+        window.addView(navArea, navLp);
 
         setContentView(window);
 
         tabs.show(AppUi.TAB_CHAT);
         TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
-        refresh.setRefreshTarget(tabs.current());
         tabs.preload();
         if (savedInstanceState != null && tabs.current() != null) {
             tabs.current().restoreState(savedInstanceState);
@@ -317,11 +320,16 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     // ------------------------------------------------------------------ chrome
 
+    /**
+     * Compact 40dp overlay bar: brand on the left, update pill + More on the right.
+     * It floats over the page (the page reserves its height in CSS), so it does not
+     * steal a strip from arena's own layout.
+     */
     private View buildTopBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(AppUi.color(this, R.color.surface));
+        bar.setBackground(AppUi.chromeBg(this));
         int pad = AppUi.dp(this, 14);
         bar.setPadding(pad, 0, AppUi.dp(this, 8), 0);
 
@@ -354,10 +362,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         bar.addView(more, new LinearLayout.LayoutParams(
                 AppUi.dp(this, 40), AppUi.dp(this, 40)));
 
+        bar.setMinimumHeight(AppUi.dp(this, 40));
+        View line = AppUi.divider(this);
         FrameLayout wrap = new FrameLayout(this);
         wrap.addView(bar, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        View line = AppUi.divider(this);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams lineLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, AppUi.dp(this, 0.6f)));
         lineLp.gravity = Gravity.BOTTOM;
@@ -370,7 +379,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private View buildNavArea() {
         LinearLayout area = new LinearLayout(this);
         area.setOrientation(LinearLayout.VERTICAL);
-        area.setBackgroundColor(AppUi.color(this, R.color.surface));
+        area.setBackground(AppUi.chromeBg(this));
 
         View topLine = AppUi.divider(this);
         area.addView(topLine, new LinearLayout.LayoutParams(
@@ -392,13 +401,27 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         return area;
     }
 
-    /** Tells the page how much space the app's own chrome takes. */
+    /**
+     * Tells the page how much space the app's own chrome takes.
+     *
+     * The nav is drawn over the page (an overlay, not a row), so both the top bar and
+     * the nav have to be reserved inside the page as padding: otherwise arena's
+     * bottom-anchored composer and its fixed menus slide under the app's chrome -
+     * the "page spread out of the UI / options are hidden" symptom.
+     */
     void applyChromeInsets() {
-        if (tabs == null || tabs.current() == null || nav == null) return;
-        // The page is already laid out below the top bar and above the nav bar, so only
-        // the nav height needs to be reserved inside the page for its fixed elements.
-        int bottom = nav.bar.getHeight() + AppUi.dp(this, 18);
-        TabWebViews.applyChromeInsets(tabs.current(), 0, bottom);
+        if (tabs == null) return;
+        window.post(() -> {
+            int top = topBar != null && topBar.getHeight() > 0
+                    ? topBar.getHeight() : AppUi.dp(this, 40);
+            // Nav height: measured when laid out, otherwise the known collapsed or
+            // expanded height plus the 18dp expander strip.
+            int barHeight = nav != null && nav.bar.getHeight() > 0
+                    ? nav.bar.getHeight()
+                    : (navExpanded ? AppUi.expandedHeight(this) : AppUi.collapsedHeight(this));
+            int bottom = barHeight + AppUi.dp(this, 18 + 6);
+            tabs.applyInsetsToAll(top, bottom);
+        });
     }
 
     private void toggleNav() {
@@ -422,8 +445,17 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     // ------------------------------------------------------------------ tabs
 
     private void selectTab(int tab) {
-        if (tab == AppUi.TAB_MORE || tab == AppUi.TAB_UPDATE) {
-            // Update lives inside the More sheet; both entries open it.
+        if (tab == AppUi.TAB_UPDATE) {
+            // The tab highlights while its sheet is open; closing returns to the page
+            // that was on screen, so the nav never lies about what is showing.
+            tabBeforeUpdate = currentTab;
+            currentTab = AppUi.TAB_UPDATE;
+            AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
+                    navExpanded, true);
+            openUpdateSheet();
+            return;
+        }
+        if (tab == AppUi.TAB_MORE) {
             showMenuSheet();
             return;
         }
@@ -433,8 +465,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         tabs.show(tab);
         TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
         applyChromeInsets();
-        resetRefreshState();
-        refresh.setRefreshTarget(tabs.current());
         AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
                 navExpanded, true);
         if (!firstVisit) {
@@ -470,7 +500,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (activity.refresh != null) activity.refresh.setRefreshing(false);
                 TabWebViews.applyTheme(view, AppUi.isDark(activity));
                 activity.applyChromeInsets();
             }
@@ -480,7 +509,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                                         WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (request.isForMainFrame()) {
-                    if (activity.refresh != null) activity.refresh.setRefreshing(false);
                     activity.showError();
                 }
             }
@@ -490,7 +518,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onReceivedError(WebView view, int errorCode, String description,
                                         String failingUrl) {
                 super.onReceivedError(view, errorCode, description, failingUrl);
-                if (activity.refresh != null) activity.refresh.setRefreshing(false);
                 activity.showError();
             }
 
@@ -513,8 +540,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
-                MainActivity a = MainActivity.this;
-                if (newProgress >= 100 && a.refresh != null) a.refresh.setRefreshing(false);
+                // no progress bar: the page paints itself
             }
 
             /**
@@ -539,7 +565,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * navigation) are routed into the same in-app sign-in flow.
      */
     private void showAuthPopup(WebView parent, android.os.Message resultMsg) {
-        if (signInSheet == null) startSignIn();
+        if (signInSheet == null) startProviderSignIn(null);
         // The page expects a transport: give it a real WebView so the login keeps
         // working, then host that WebView inside the sign-in sheet.
         WebView popup = new WebView(this);
@@ -630,6 +656,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         final View v = updateSheet.view();
         updateSheet = null;
         AppUi.slideDownAndRemove(v, window);
+        if (currentTab == AppUi.TAB_UPDATE) currentTab = tabBeforeUpdate;
         AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
                 navExpanded, true);
     }
@@ -664,6 +691,30 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * then the provider's own login page inside the app. Never a browser.
      */
     void startSignIn() {
+        if (accountPicker == null) accountPicker = new AccountPicker(this, window,
+                new AccountPicker.Host() {
+                    @Override
+                    public void onAccountChosen(String email, String displayName) {
+                        // The phone already holds this Google account. Hand it to the
+                        // provider page inside the app - never to a browser.
+                        startProviderSignIn(email);
+                    }
+
+                    @Override
+                    public void onUseAnotherAccount() {
+                        startProviderSignIn(null);
+                    }
+
+                    @Override
+                    public void onCancelled() {
+                        // keep the instance; it is cheap and reusable
+                    }
+                });
+        accountPicker.show(true);
+    }
+
+    /** Opens the provider's own login page inside the app, for the chosen account. */
+    private void startProviderSignIn(String email) {
         if (signInSheet == null) signInSheet = new SignInSheet(this, window, new SignInSheet.Host() {
             @Override
             public void onSignedIn() {
@@ -684,8 +735,14 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onDismissed() {
                 // keep the instance; it is cheap and reusable
             }
+
+            @Override
+            public void onPickAccount() {
+                if (signInSheet != null) signInSheet.dismiss();
+                startSignIn();
+            }
         });
-        signInSheet.show();
+        signInSheet.showForEmail(email);
     }
 
     private void showMenuSheet() {
@@ -923,13 +980,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (errorView != null) errorView.setVisibility(View.GONE);
     }
 
-    /** Called when switching tabs: a half-finished pull must not carry over. */
-    private void resetRefreshState() {
-        if (refresh == null) return;
-        refresh.setRefreshing(false);
-        refresh.cancelRefreshIfUnfinished();
-    }
-
     private boolean isOnline() {
         try {
             ConnectivityManager cm = (ConnectivityManager)
@@ -961,6 +1011,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         }
         if (updateSheet != null) {
             closeUpdateSheet();
+            return;
+        }
+        if (accountPicker != null && accountPicker.isShowing()) {
+            accountPicker.dismiss();
             return;
         }
         if (menuSheet != null) {

@@ -54,7 +54,10 @@ public final class TabWebViews {
     private final FrameLayout container;
     private final Map<Integer, WebView> views = new LinkedHashMap<>();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final java.util.Set<Integer> loaded = new java.util.HashSet<>();
     private int currentTab = -1;
+    private int lastTopInset = 0;
+    private int lastBottomInset = 0;
 
     public TabWebViews(Activity activity, FrameLayout container, Host host) {
         this.activity = activity;
@@ -69,6 +72,19 @@ public final class TabWebViews {
 
     public WebView get(int tab) {
         return views.get(tab);
+    }
+
+    /** Which tab a WebView belongs to, or -1 when it is not a warm tab. */
+    public int tabOf(WebView view) {
+        for (java.util.Map.Entry<Integer, WebView> e : views.entrySet()) {
+            if (e.getValue() == view) return e.getKey();
+        }
+        return -1;
+    }
+
+    /** Every warm WebView, current tab included. */
+    public java.util.Collection<WebView> all() {
+        return new java.util.ArrayList<>(views.values());
     }
 
     public static String urlFor(int tab) {
@@ -144,8 +160,11 @@ public final class TabWebViews {
      */
     public static void applyChromeInsets(WebView web, int topPx, int bottomPx) {
         if (web == null) return;
-        int cssTop = Math.max(0, topPx) / 2;      // WebView CSS px are density scaled
-        int cssBottom = Math.max(0, bottomPx) / 2;
+        // WebView CSS px are density scaled, so convert the pixel insets with the real
+        // density rather than assuming 2x.
+        float density = web.getResources().getDisplayMetrics().density;
+        int cssTop = Math.round(Math.max(0, topPx) / density);
+        int cssBottom = Math.round(Math.max(0, bottomPx) / density);
         String js = "(function(){"
                 + "var id='arena-app-insets';var old=document.getElementById(id);"
                 + "if(old) old.remove();"
@@ -153,12 +172,43 @@ public final class TabWebViews {
                 + "s.textContent="
                 + "':root{--arena-top-inset:" + cssTop + "px;"
                 + "--arena-bottom-inset:" + cssBottom + "px;}'"
-                + "+'body{scroll-padding-top:" + cssTop + "px;"
-                + "scroll-padding-bottom:" + cssBottom + "px;}';"
-                + "(document.head||document.documentElement).appendChild(s);"
+                + "+'body{padding-top:" + cssTop + "px !important;"
+                + "padding-bottom:" + cssBottom + "px !important;"
+                + "box-sizing:border-box !important;}'"
+                // Keep the page from growing past the viewport: arena sizes some
+                // wrappers with 100vh, which would overflow by the insets.
+                + "+'html,body{min-height:100% !important;"
+                + "overflow-y:auto !important;}'"
+                + "+(document.documentElement.style.setProperty('--arena-top-inset',"
+                + "'" + cssTop + "px'),"
+                + "document.documentElement.style.setProperty('--arena-bottom-inset',"
+                + "'" + cssBottom + "px'));"
                 + "window.dispatchEvent(new Event('arena-insets'));"
                 + "})();";
         web.evaluateJavascript(js, null);
+    }
+
+    /** Applies the current chrome insets to every warm tab. */
+    public void applyInsetsToAll(final int topPx, final int bottomPx) {
+        for (int tab : views.keySet()) {
+            final WebView w = views.get(tab);
+            if (w == null) continue;
+            // A tab created before its first load finishes needs the style applied after
+            // the document exists, so also queue it for the next load.
+            if (loaded.contains(tab)) {
+                applyChromeInsets(w, topPx, bottomPx);
+            }
+        }
+        lastTopInset = topPx;
+        lastBottomInset = bottomPx;
+    }
+
+    /** Records that a tab's document exists, and re-applies the pending insets. */
+    void markLoaded(int tab, WebView web) {
+        loaded.add(tab);
+        if (lastTopInset > 0 || lastBottomInset > 0) {
+            applyChromeInsets(web, lastTopInset, lastBottomInset);
+        }
     }
 
     private WebView ensure(int tab) {
@@ -237,6 +287,7 @@ public final class TabWebViews {
 
     /** Removes a dead WebView (renderer crash) so the next visit recreates it. */
     public void drop(WebView view) {
+        loaded.clear();
         Integer key = null;
         for (java.util.Map.Entry<Integer, WebView> e : views.entrySet()) {
             if (e.getValue() == view) {
@@ -244,7 +295,10 @@ public final class TabWebViews {
                 break;
             }
         }
-        if (key != null) views.remove(key);
+        if (key != null) {
+            views.remove(key);
+            loaded.remove(key);
+        }
         if (view.getParent() != null) container.removeView(view);
         view.destroy();
     }

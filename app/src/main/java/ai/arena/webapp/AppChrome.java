@@ -56,8 +56,20 @@ public final class AppChrome {
         }
     }
 
-    /** Opens a link outside the app when no in-app handler applies. */
+    /**
+     * Last resort for links the app cannot render itself.
+     *
+     * http(s) links are NEVER handed to another app any more (that is how the app used
+     * to land the user in Chrome); they are shown in an in-app WebView by the caller.
+     * Only non-web schemes (mailto:, market:, intent:) leave the app.
+     */
     static void openExternally(Activity activity, Uri uri) {
+        String scheme = uri == null || uri.getScheme() == null
+                ? "" : uri.getScheme().toLowerCase();
+        if (scheme.startsWith("http")) {
+            UpdateSheet.showInAppPage(activity, uri.toString());
+            return;
+        }
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, uri);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

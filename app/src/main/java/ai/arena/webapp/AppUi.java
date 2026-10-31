@@ -190,6 +190,7 @@ public final class AppUi {
         switch (tab) {
             case TAB_LEADERBOARD: return R.string.nav_leaderboard;
             case TAB_SEARCH: return R.string.nav_search;
+            case TAB_UPDATE: return R.string.nav_update;
             case TAB_MORE: return R.string.nav_more;
             default: return R.string.nav_chat;
         }
@@ -214,7 +215,9 @@ public final class AppUi {
         bar.setPadding(p, p, p, p);
 
         Nav nav = new Nav(bar);
-        int[] tabs = {TAB_CHAT, TAB_LEADERBOARD, TAB_SEARCH, TAB_MORE};
+        // Update is a real tab again: the user wants it in the bottom bar, and the
+        // More sheet keeps a shortcut to the same sheet.
+        int[] tabs = {TAB_CHAT, TAB_LEADERBOARD, TAB_SEARCH, TAB_UPDATE, TAB_MORE};
         for (int tab : tabs) {
             nav.items.add(addNavItem(c, bar, nav, tab, NavIcons.forTab(tab), vertical, click));
         }
@@ -282,8 +285,14 @@ public final class AppUi {
                                 boolean labelsVisible, boolean animateLabels) {
         for (NavItem item : nav.items) {
             boolean active = item.tab == activeTab;
-            // The More entry carries the update signal now.
-            boolean flagged = item.tab == TAB_MORE && updateAvailable;
+            // The Update entry carries the update signal; More mirrors it when Update
+            // is not part of the bar (tablet/compact layouts).
+            boolean flagged = (item.tab == TAB_UPDATE || item.tab == TAB_MORE) && updateAvailable;
+            boolean hasUpdateItem = false;
+            for (NavItem other : nav.items) {
+                if (other.tab == TAB_UPDATE) hasUpdateItem = true;
+            }
+            if (hasUpdateItem && item.tab == TAB_MORE) flagged = false;
             int tint = color(c, (active || flagged) ? R.color.accent : R.color.on_bg_muted);
 
             item.iconView.setColorFilter(tint);
@@ -293,7 +302,7 @@ public final class AppUi {
             item.labelView.setTextColor(tint);
             item.labelView.setTypeface(Typeface.create(
                     (active || flagged) ? "sans-serif-medium" : "sans-serif", Typeface.NORMAL));
-            item.labelView.setText(flagged
+            item.labelView.setText(flagged && item.tab != TAB_UPDATE
                     ? c.getString(R.string.nav_more_update) : item.label);
 
             int target = labelsVisible ? View.VISIBLE : View.GONE;
@@ -345,6 +354,17 @@ public final class AppUi {
         chip.setPadding(dp(c, 10), dp(c, 6), dp(c, 10), dp(c, 6));
         chip.setBackground(pressable(c, color(c, R.color.accent), 14f));
         return chip;
+    }
+
+    /**
+     * Background for the floating bars: the bar tint at 96% so a sliver of page shows
+     * through and the content never looks clamped, while text on the bar stays legible.
+     */
+    public static Drawable chromeBg(Context c) {
+        int base = color(c, R.color.surface);
+        GradientDrawable d = new GradientDrawable();
+        d.setColor((base & 0x00FFFFFF) | 0xF5000000);
+        return d;
     }
 
     public static View divider(Context c) {

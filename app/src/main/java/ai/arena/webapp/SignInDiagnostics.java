@@ -27,6 +27,23 @@ final class SignInDiagnostics {
     private SignInDiagnostics() {
     }
 
+    /** "name=1.2k" for every cookie in the jar (values are never printed or sent). */
+    private static String cookieNames(String cookies) {
+        if (cookies == null || cookies.isEmpty()) return "none";
+        StringBuilder out = new StringBuilder();
+        for (String pair : cookies.split(";")) {
+            String name = pair.trim().split("=")[0];
+            if (name.isEmpty()) continue;
+            if (out.length() > 0) out.append(", ");
+            out.append(name);
+            if (out.length() > 400) {
+                out.append(", ...");
+                break;
+            }
+        }
+        return out.length() == 0 ? "none" : out.toString();
+    }
+
     /** Builds and shows the report as a sheet over the activity window. */
     static void show(final Activity activity, final ViewGroup parent, final WebView page) {
         final FrameLayout scrim = AppUi.sheetScrim(activity, null);
@@ -120,10 +137,10 @@ final class SignInDiagnostics {
                 .append(SignInSheet.hasSessionCookie(cookies) ? "present" : "absent")
                 .append('\n');
         facts.append("last crash: ").append(CrashLog.lastLine(activity)).append('\n');
-        facts.append("accounts permission: ")
-                .append(activity.checkSelfPermission("android.permission.GET_ACCOUNTS")
-                        == android.content.pm.PackageManager.PERMISSION_GRANTED
-                        ? "granted" : "not granted").append('\n');
+        // The whole cookie jar, names only: "session cookie: absent" on a jar with 3094
+        // chars was the clue that a readable cookie is not the only kind of session there
+        // is. Seeing the names is what makes that distinguishable from "no cookies at all".
+        facts.append("cookie names: ").append(cookieNames(cookies)).append('\n');
         body.setText(facts.toString());
 
         if (page == null) return;

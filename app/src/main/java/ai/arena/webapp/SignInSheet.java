@@ -30,9 +30,6 @@ public final class SignInSheet {
         void onSignedIn();
 
         void onDismissed();
-
-        /** The user asked for the native account picker for this provider. */
-        void onPickAccount(boolean google);
     }
 
     /**
@@ -176,7 +173,7 @@ public final class SignInSheet {
 
         // If the provider window stays blank, the honest next step is one tap away.
         TextView viaBrowser = AppUi.text(activity,
-                activity.getString(R.string.signin_via_browser), 12.5f, R.color.on_bg_muted,
+                activity.getString(R.string.signin_browser_row), 12.5f, R.color.on_bg_muted,
                 false);
         viaBrowser.setGravity(Gravity.CENTER);
         viaBrowser.setPadding(0, AppUi.dp(activity, 10), 0, AppUi.dp(activity, 10));
@@ -271,15 +268,18 @@ public final class SignInSheet {
                     started = false;
                     driveSignIn();
                 }
-                if (view == accountView && pendingEmail != null && url != null
-                        && url.contains("accounts.google")) {
-                    // Pre-fill the account chooser with the account the user just picked,
-                    // so the provider page does not ask a second time.
-                    view.evaluateJavascript("(function(){try{"
-                            + "var i=document.querySelector('input[type=email]');"
-                            + "if(i&&!i.value){i.value=\''" + jsEscape(pendingEmail) + "\';"
-                            + "i.dispatchEvent(new Event('input',{bubbles:true}));}}catch(e){}})();",
-                            null);
+                // The round-trip is back on Arena: ask this page whether it is signed in.
+                // Only once the signing-in has started - a plain page load is not a
+                // sign-in and must never be reported as one.
+                if ((view == web || view == accountView) && started
+                        && url != null && url.contains("arena.ai")) {
+                    ui.postDelayed(this::verifySession, 1200);
+                }
+                // A page that positively offers a sign-in means there is no session, even
+                // once signing in has finished: clearing the local "signed in" mark here is
+                // what stops the menu claiming an account the page says is signed out.
+                if (!started && (view == web || view == accountView)) {
+                    ui.postDelayed(this::clearLocalMarkIfSignedOut, 1500);
                 }
             }
         };
@@ -396,21 +396,19 @@ public final class SignInSheet {
 
         chooser = new LinearLayout(activity);
         chooser.setOrientation(LinearLayout.VERTICAL);
-        // Google: the native account picker comes first (MainActivity.startSignIn).
-        // providerRow(icon, label, host, url, nativePicker). "false" = no native step:
-        // GitHub has no account list on the device, so its own page opens directly.
+        // One provider, because Arena only offers one: Google. GitHub is not an Arena
+        // sign-in here - it is the account that connects the Agent Mode connectors and
+        // authorises app updates - so offering it as a second way into Arena's session
+        // was simply wrong. The account this device already used stays listed above.
         chooser.addView(providerRow(R.drawable.ic_google, R.string.signin_google,
-                "Google", ARENA_SIGN_IN, true));
-        // GitHub has no account list on the device, so its login page opens directly.
-        chooser.addView(providerRow(R.drawable.ic_github, R.string.signin_github,
-                "GitHub", ARENA_SIGN_IN, false));
+                "Google", ARENA_SIGN_IN, R.string.signin_google_hint));
         sheet.addView(chooser);
 
         // Google's OAuth policy can stop sign-in from completing inside an embedded WebView
-        // (403: disallowed_useragent). The provider rows above still start in-app, because
-        // GitHub's flow works there and Google's chooser works on many builds - this row is
-        // the labelled fallback for when it does not. The label says where the session
-        // ends up, because that is the whole difference.
+        // (403: disallowed_useragent). The row above still starts in-app, because Google's
+        // chooser works on many builds - this row is the labelled fallback for when it does
+        // not, and the app then finishes the sign-in from the ticket the browser brings
+        // back (takeBrowserHandoff), so the session still ends up in the app.
         TextView viaBrowser = AppUi.text(activity,
                 activity.getString(R.string.signin_browser_row), 13f,
                 R.color.on_bg, true);
@@ -442,7 +440,7 @@ public final class SignInSheet {
     }
 
     private View providerRow(int iconRes, int labelRes, final String hostFilter,
-                             final String startUrl, final boolean nativePicker) {
+                             final String startUrl, int hintRes) {
         LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -471,7 +469,7 @@ public final class SignInSheet {
 
         texts.addView(AppUi.text(activity, activity.getString(labelRes), 15f,
                 R.color.on_bg, true));
-        TextView hint = AppUi.text(activity, activity.getString(R.string.signin_tap_account),
+        TextView hint = AppUi.text(activity, activity.getString(hintRes),
                 12f, R.color.on_bg_muted, false);
         hint.setPadding(0, AppUi.dp(activity, 2), 0, 0);
         texts.addView(hint);
@@ -481,37 +479,13 @@ public final class SignInSheet {
 
         row.setOnClickListener(v -> {
             AppUi.press(v);
-            if (nativePicker && host != null) {
-                // Hand control to the activity's native chooser; it calls back into
-                // showForEmail() once the user has picked an account.
-                host.onPickAccount("Google".equals(hostFilter));
-            } else {
-                openProvider(hostFilter, startUrl);
-            }
+            // Straight into the provider page: Arena's own dialog lists the account, so
+            // there is no second chooser in front of it.
+            openProvider(hostFilter, startUrl);
         });
         return row;
     }
 
-    /** Escapes a string for the inside of a single-quoted JS literal (no quotes added). */
-    private static String jsEscape(String value) {
-        StringBuilder out = new StringBuilder();
-        for (char ch : value.toCharArray()) {
-            switch (ch) {
-                case '\\': out.append("\\\\"); break;
-                case '\'': out.append("\\'"); break;
-                case '\n': out.append("\\n"); break;
-                case '\r': out.append("\\r"); break;
-                default: out.append(ch);
-            }
-        }
-        return out.toString();
-    }
-
-    /** Remembers the account once the provider page has completed a session. */
-    public void rememberSignIn(String email, String provider) {
-        LocalProfile.remember(activity, email, provider);
-        LocalProfile.markSignedIn(activity);
-    }
 
     /** Opens the provider's real login page inside the app, full-screen. */
     private void openProvider(String hostFilter, String startUrl) {
@@ -588,7 +562,7 @@ public final class SignInSheet {
                 if (webUrl == null || !webUrl.contains("arena.ai")) return;
                 if (started) return;
                 // Arena's own page is up: open its sign-in dialog, then press the
-                // provider the user chose. Without this, tapping GitHub only loaded the
+                // provider the user chose. Without this the sheet only ever loaded the
                 // home page, because there is no "?signin=1" endpoint to link to.
                 driveSignIn();
             }
@@ -624,13 +598,23 @@ public final class SignInSheet {
     }
 
     /**
-     * Explicit "open it in a browser" route, for the cases Google will simply not serve
-     * to an embedded view.
+     * Sends the sign-in to Arena's site in a real browser, and handles the ticket that
+     * comes back.
      *
-     * Two engines, so no phone is left without one: a Custom Tab when a browser supports
-     * them, otherwise a plain VIEW intent with the AppChooser. Anything else (no browser
-     * at all) is reported, never silently swallowed - and this is only ever reached from
-     * a row that says what it does, never from an ordinary link.
+     * Why this is the reliable route: Google refuses an embedded WebView
+     * (disallowed_useragent), and a session created in Chrome belongs to Chrome - the app
+     * cannot read Chrome's cookies. So "signed in in Chrome, still signed out in Agon" is
+     * exactly what a browser-first sign-in leaves behind, however the user got there.
+     *
+     * What actually closes that gap is Arena's handoff, the same one its own "open in the
+     * app" links use: signing in is supposed to send the browser back to
+     * /auth/handoff?ticket=..., and Agon treats a link that returns with a ticket as
+     * something only this app can finish - it opens the ticket in its own WebView, which
+     * turns it into an ordinary session cookie inside Agon. So the browser is opened on
+     * that path with the ticket passed through, and when the user comes back the ticket
+     * arrives here via {@link #handleProviderUrl}.
+     *
+     * A phone with no browser is told so, never left with a silent tap.
      */
     void openBrowserChooser(String url) {
         try {
@@ -638,7 +622,11 @@ public final class SignInSheet {
                     android.content.Intent.ACTION_VIEW, Uri.parse(url));
             view.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             activity.startActivity(view);
-            dismiss();
+            // The sheet stays: the user comes back to it with the ticket, and it is what
+            // finishes the sign-in.
+            if (progressText != null) {
+                progressText.setText(activity.getString(R.string.signin_browser_open));
+            }
         } catch (Exception noBrowser) {
             try {
                 openInBrowser(url);
@@ -650,12 +638,10 @@ public final class SignInSheet {
     }
 
     /**
-     * The one route that can finish Google's OAuth: a Custom Tab.
+     * The same route through a Custom Tab, when no plain browser handles the intent.
      *
-     * Chrome is a real browser, so Google allows the flow there - but the session cookie
-     * then belongs to Chrome, not to this app's WebView, and there is no public API to
-     * copy it across. So this is offered as a deliberate exception (the user is told what
-     * it does), not as the default, and the app never silently hands off an ordinary link.
+     * Keeps the app's colours so it does not look like a foreign app, and keeps the sheet
+     * underneath for the returning ticket.
      */
     void openInBrowser(String url) {
         try {
@@ -677,12 +663,49 @@ public final class SignInSheet {
             builder.setColorScheme(
                     androidx.browser.customtabs.CustomTabsIntent.COLOR_SCHEME_SYSTEM);
             builder.build().launchUrl(activity, android.net.Uri.parse(url));
-            dismiss();
+            if (progressText != null) {
+                progressText.setText(activity.getString(R.string.signin_browser_open));
+            }
         } catch (Exception error) {
             // No Custom Tabs provider on the device: say so instead of doing nothing.
             android.widget.Toast.makeText(activity, R.string.signin_no_browser,
                     android.widget.Toast.LENGTH_LONG).show();
         }
+    }
+
+    /**
+     * Finishes a sign-in that started in a browser.
+     *
+     * A ticket from Arena's handoff is proof of a sign-in that already happened: loading
+     * it in the provider WebView makes Arena set its own session cookie here, and the
+     * normal "@link #verifySession} then confirms it. Without a ticket (an older build, or
+     * a deep link with only a code) the URL is simply loaded and the page is checked.
+     */
+    public void takeBrowserHandoff(Uri uri) {
+        finishBrowserHandoff(uri);
+    }
+
+    private void finishBrowserHandoff(Uri uri) {
+        if (uri == null) return;
+        if (!isShowing()) {
+            // The sheet is gone (the activity was recreated while the browser was on top):
+            // open the provider layer so there is somewhere for the session to land.
+            show();
+            if (!isShowing()) {
+                // The chooser is up instead of a page: open the provider page directly.
+                openProvider(pendingProvider, ARENA_SIGN_IN);
+            }
+        }
+        if (web == null) {
+            openProvider(pendingProvider, ARENA_SIGN_IN);
+            return;
+        }
+        if (progressText != null) {
+            progressText.setText(activity.getString(R.string.signin_browser_returned));
+        }
+        web.loadUrl(uri.toString());
+        // The page sets the cookie while it renders; verify once it has had a moment.
+        ui.postDelayed(this::verifySession, 2500);
     }
 
     /**
@@ -777,8 +800,8 @@ public final class SignInSheet {
     }
 
     /**
-     * Keeps the login pages inside this sheet, and closes it as soon as Google/GitHub
-     * hands control back to arena.ai - that means the session cookie is set.
+     * Keeps the login pages inside this sheet, and closes it as soon as Google hands
+     * control back to arena.ai - that means the session cookie is set.
      */
     private boolean handleProviderUrl(Uri uri) {
         if (uri == null) return false;
@@ -794,156 +817,60 @@ public final class SignInSheet {
             // the sign-in page stays right where the user can see it.
             return true;
         }
-        // Any navigation back to Arena is checked by asking the page directly: a URL can
-        // return to arena.ai while still signed out (that is why "Signed in" used to pop
-        // up with the Log in button still on screen). The session cookie is the evidence.
+        // Back on Arena's own host: this is where the round-trip ends, and where it is
+        // decided. Two cases must not be confused -
+        //  - the arena page the user is *looking at* is never blocked (returning true here
+        //    used to cancel the load and leave a blank window, which is what a sign-in that
+        //    "did nothing" looked like);
+        //  - the check runs from onPageFinished instead, against the page that actually
+        //    rendered, so the verdict is based on real markup.
         if (urlHost.endsWith("arena.ai") || urlHost.endsWith("lmarena.ai")) {
             CookieManager.getInstance().flush();
-            verifySession();
-            return true;
+            return false;
         }
         return false; // provider pages, captchas, consent screens: stay inside
     }
 
     /**
-     * After a redirect back to Arena, check that a session actually exists before
-     * declaring success.
+     * Asks the page whether this WebView is signed in, instead of guessing from cookies.
      *
-     * The cookie is the evidence when it can be read. When it cannot (arena's session may
-     * live in a cookie that this app's cookie jar does not expose - storage partitioning
-     * and third-party rules changed across Android versions), the same-origin proof is
-     * used instead: ask arena itself whether this client is signed in and read the answer.
+     * CookieManager cannot read HttpOnly cookies, and every modern session cookie is
+     * HttpOnly: the jar reported 3094 chars on a phone that had just signed in through
+     * Chrome and still said "session cookie: absent". So the cookie is a bonus check, and
+     * the real evidence is one of two things the page itself states:
+     *
+     *  1. a session cookie that *is* readable (older builds, and non-HttpOnly cookies);
+     *  2. the page offers no way to sign in - every surface has a "Log in" control while
+     *     signed out, so its absence, plus a document that actually rendered, is a
+     *     signed-in page.
+     *
+     * A page that positively still offers a sign-in stays open and says so, and a page
+     * that says nothing either way is not called a success.
      */
     private void verifySession() {
         final String cookies = CookieManager.getInstance().getCookie("https://arena.ai");
-        boolean hasCookie = hasSessionCookie(cookies);
-        if (hasCookie) {
+        if (hasSessionCookie(cookies)) {
             finishSuccessfully();
             return;
         }
-        probeSession();
+        finishWithPageCheck();
     }
 
     /**
-     * Asks arena's own endpoints whether the current client holds a session.
+     * The page is the evidence.
      *
-     * Only an endpoint that answers "here is your user" counts; a 404 means the product
-     * does not have that route, which is a next-candidate answer, not a failure. The
-     * request runs off the main thread - a WebView callback is on the UI thread, and a
-     * network call there throws NetworkOnMainThreadException instead of answering - and
-     * the verdict is handed back to the UI thread.
-     */
-    private void probeSession() {
-        final String[] candidates = {
-                "https://arena.ai/api/auth/session",
-                "https://arena.ai/api/auth/user"
-        };
-        Thread worker = new Thread(() -> {
-            final String verdict = probeBlocking(candidates);
-            ui.post(() -> {
-                if ("in".equals(verdict)) {
-                    finishSuccessfully();
-                } else {
-                    finishWithPageCheck();
-                }
-            });
-        }, "arena-session-probe");
-        worker.setDaemon(true);
-        worker.start();
-    }
-
-    /** Blocking part of the probe: "in" when an endpoint describes a user, else "no". */
-    private static String probeBlocking(String[] candidates) {
-        for (String url : candidates) {
-            try {
-                java.net.HttpURLConnection connection =
-                        (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(4000);
-                connection.setReadTimeout(4000);
-                connection.setInstanceFollowRedirects(true);
-                int code = connection.getResponseCode();
-                java.io.InputStream stream = code >= 400
-                        ? connection.getErrorStream() : connection.getInputStream();
-                String body = stream == null ? "" : readAll(stream);
-                connection.disconnect();
-                String lower = body == null ? "" : body.toLowerCase(java.util.Locale.ROOT);
-                boolean userShape = lower.contains("\"user\"") || lower.contains("\"email\"")
-                        || lower.contains("\"session\"") || lower.contains("\"id\":");
-                boolean emptyShape = lower.isEmpty() || lower.equals("{}") || lower.equals("null")
-                        || lower.contains("\"user\":null");
-                if (code < 400 && userShape && !emptyShape) return "in";
-            } catch (Exception ignored) {
-                // No such route / no network: the next candidate, then the page.
-            }
-        }
-        return "no";
-    }
-
-    private static String readAll(java.io.InputStream stream) {
-        try {
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            byte[] buffer = new byte[2048];
-            int read;
-            while ((read = stream.read(buffer)) > 0) {
-                out.write(buffer, 0, read);
-                if (out.size() > 8192) break;
-            }
-            stream.close();
-            return new String(out.toByteArray(), "UTF-8");
-        } catch (Exception error) {
-            return "";
-        }
-    }
-
-    /**
-     * Last evidence available: does the page still offer a sign-in control?
-     *
-     * "No visible sign-in control" is the signed-in state of every arena surface that has
-     * one, and the sheet is only here because a provider round-trip just came back to
-     * arena. A page that positively still offers a sign-in stays open with that stated (no
-     * false success), and a window with nothing to read ends the sign-in instead of
-     * leaving an empty one on screen forever.
+     * Runs on whichever WebView finished the round-trip (the provider page or the account
+     * window the page opened), and reports the document it read in the header so the
+     * answer is visible rather than implied.
      */
     private void finishWithPageCheck() {
-        if (web == null || web.getUrl() == null) {
+        final WebView target = web;
+        if (target == null || target.getUrl() == null) {
             finishSuccessfully();
             return;
         }
-        web.evaluateJavascript("(function(){try{"
-                + "function seen(el){if(!el)return false;"
-                + "try{if(el.closest&&el.closest('[hidden],[aria-hidden=true],"
-                + "[style*=\"display: none\"],[style*=\"display:none\"]'))return false;}"
-                + "catch(e){}"
-                + "var r=el.getBoundingClientRect();return r.width>0&&r.height>0;}"
-                + "function roots(){var out=[document];"
-                + "var all=document.querySelectorAll('*');"
-                + "for(var i=0;i<all.length&&i<2000;i++){"
-                + "if(all[i].shadowRoot)out.push(all[i].shadowRoot);}"
-                + "return out;}"
-                + "function find(sel){var r=roots();"
-                + "for(var i=0;i<r.length;i++){var l=r[i].querySelectorAll(sel);"
-                + "for(var j=0;j<l.length;j++){if(seen(l[j]))return l[j];}}"
-                + "return null;}"
-                // An avatar / account button on screen is the signed-in UI.
-                + "var avatar=find('img[alt*=\"avatar\" i],"
-                + "[aria-label*=\"account\" i],[aria-label*=\"profile\" i]');"
-                + "if(avatar)return 'in';"
-                // A visible control that offers a sign-in means signed out.
-                + "var all=document.querySelectorAll('button,a,[role=\"button\"],[aria-label]');"
-                + "for(var i=0;i<all.length;i++){var el=all[i];"
-                + "var t=((el.innerText||el.textContent||'')+' '"
-                + "+(el.getAttribute('aria-label')||'')).toLowerCase();"
-                + "if(t.length<40&&/log ?in|sign ?in/.test(t)&&seen(el))return 'out';}"
-                + "return 'unknown';"
-                + "}catch(e){return 'unknown';}})();", value -> {
-            String result = value == null ? "" : value.replace("\"", "").trim();
-            if ("in".equals(result)) {
-                finishSuccessfully();
-                return;
-            }
-            // Signed out, or the page does not say: keep it on screen and say what is
-            // missing. Closing the sheet here would claim a sign-in that did not happen.
+        target.evaluateJavascript(SignInDriver.SIGNED_OUT_JS, value -> {
+            String result = SignInDriver.clean(value);
             if ("out".equals(result)) {
                 // Positively signed out: say so and keep the page, so one more tap is all
                 // that is missing.
@@ -952,9 +879,27 @@ public final class SignInSheet {
                 }
                 return;
             }
-            // The page shows no sign-in control of its own: the round-trip is done.
+            // "in", or nothing to read on a page that rendered: the round-trip is done.
             finishSuccessfully();
         });
+    }
+
+    /**
+     * Keeps the local profile honest: a page that still offers a sign-in is signed out.
+     *
+     * The local record is what the menu and the sheet show, so it must not outlive the
+     * session it describes. Only an explicit "signed out" clears it - a page that says
+     * nothing is left alone, so a slow page can never erase a real session.
+     */
+    private void clearLocalMarkIfSignedOut() {
+        final WebView target = web;
+        if (target == null || target.getUrl() == null) return;
+        target.evaluateJavascript(SignInDriver.SIGNED_OUT_JS, value ->
+                {
+                    if ("out".equals(SignInDriver.clean(value))) {
+                        LocalProfile.clearSession(activity);
+                    }
+                });
     }
 
     /**

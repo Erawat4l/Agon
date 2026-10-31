@@ -71,19 +71,19 @@ public final class AppChrome {
     /**
      * True for hosts an in-app sign-in legitimately passes through.
      *
-     * Two of these are OAuth providers (Google, GitHub). The rest are not decoration:
-     * Google's identity pages load proof-of-work and script from gstatic, and the
-     * Cloudflare/reCAPTCHA/hCaptcha challenges sit in front of arena itself. A host that
-     * is not here is still never opened - it is simply loaded inside the app like any
-     * other page; this list only decides what a *popup* is allowed to be.
+     * Google is the one provider Arena accepts for an account; GitHub is not a sign-in
+     * here at all (it is the account for Agent Mode connectors and app updates), so it is
+     * not in this list. The remaining hosts are not decoration: Google's identity pages
+     * load proof-of-work and script from gstatic, and the Cloudflare/reCAPTCHA/hCaptcha
+     * challenges sit in front of arena itself. A host that is not here is still never
+     * opened - it is simply loaded inside the app like any other page; this list only
+     * decides what a *popup* is allowed to be.
      */
     public static boolean isSignInHost(String host) {
         if (host == null) return false;
         String h = host.toLowerCase();
         return h.endsWith("google.com") || h.endsWith("gstatic.com")
-                || h.endsWith("googleusercontent.com") || h.endsWith("github.com")
-                || h.endsWith("githubusercontent.com") || h.endsWith("githubassets.com")
-                || h.endsWith("apple.com") || h.endsWith("appleid.apple.com")
+                || h.endsWith("googleusercontent.com")
                 || h.endsWith("cloudflare.com") || h.endsWith("hcaptcha.com")
                 || h.endsWith("recaptcha.net") || h.endsWith("arena.ai")
                 || h.endsWith("lmarena.ai");

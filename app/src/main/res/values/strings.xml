@@ -10,17 +10,11 @@
     <string name="new_chat_started">New chat</string>
     <string name="appearance">Appearance</string>
     <string name="account_signin">Sign in</string>
-    <string name="account_signin_sub">Google or GitHub, inside the app</string>
-    <string name="signin_choose">Choose an account</string>
-    <string name="signin_choose_sub">Use the Google or GitHub account you already have</string>
+    <string name="account_signin_sub">Google, inside the app</string>
+    <string name="signin_choose">Sign in to Arena</string>
+    <string name="signin_choose_sub">Arena accounts use Google. The page opens inside the app.</string>
     <string name="signin_google">Continue with Google</string>
-    <string name="signin_github">Continue with GitHub</string>
-    <string name="signin_tap_account">Uses the Google account already on this phone</string>
-    <string name="signin_add_account">Use another account</string>
-    <string name="signin_device_account">On this device</string>
-    <string name="signin_use_account">Continue as %1$s</string>
-    <string name="signin_no_accounts_soft">Pick the account on Google\'s own page - it opens right here in the app.</string>
-    <string name="signin_native_note">Your account stays on this device. The sign-in page is the provider\'s, shown inside the app.</string>
+    <string name="signin_google_hint">Google\'s own account page, in this app</string>
     <string name="signin_in_progress">Signing in</string>
     <string name="signin_still_out">Still signed out - finish the sign-in on this page</string>
     <string name="signin_success">Signed in</string>
@@ -163,8 +157,6 @@
     <string name="signin_step_wait">Waiting for the page to show its sign-in entry…</string>
     <string name="signin_step_moving">Arena\'s Log in entry is on the next page - opening it…</string>
     <string name="signin_popup_blank">This window stayed empty. Google may refuse embedded sign-in - use the browser row below.</string>
-    <string name="signin_accounts_blocked">Android is not showing this app your account list. Allow contacts/accounts access for Agon, or just continue - Google\'s own page lists your account.</string>
-    <string name="signin_allow_accounts">Show my accounts (allow access)</string>
     <string name="menu_diagnostics">Sign-in diagnostics</string>
     <string name="menu_diagnostics_sub">Copy what this phone and page actually report</string>
     <string name="diag_title">Sign-in diagnostics</string>
@@ -172,8 +164,9 @@
     <string name="diag_copy">Copy report</string>
     <string name="diag_copied">Report copied</string>
     <string name="diag_close">Close</string>
-    <string name="signin_via_browser">Open a browser for Google sign-in</string>
-    <string name="signin_browser_row">Sign in in a browser (session stays there)</string>
+    <string name="signin_browser_row">Sign in in a browser - it comes back to the app</string>
     <string name="signin_no_browser">No browser found that can open sign-in</string>
-    <string name="signin_note">If the provider page stays blank, Agon says so and offers a browser. Google does not always allow sign-in in an embedded page, and a browser session stays in the browser - Agon never pretends otherwise.</string>
+    <string name="signin_browser_open">Finish signing in there, then come back - the app picks it up</string>
+    <string name="signin_browser_returned">Back from the browser - checking the session…</string>
+    <string name="signin_note">Google does not always allow sign-in inside an embedded page. If the page stays blank, the browser row above is the reliable route: finish there, come back, and Agon picks the session up when the link returns.</string>
 </resources>

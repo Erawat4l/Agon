@@ -637,6 +637,7 @@ def check_resource_refs(java_paths):
 # script shipped twice. The literals are joined the way Java joins them, then parsed with
 # node when it is available (and with a small bracket checker when it is not).
 JS_CONSTANTS = ("JS_PRELUDE", "OPEN_DIALOG_JS", "CHOOSE_PROVIDER_JS",
+                "SIGNED_OUT_JS",
                 "PAGE_SIDEBAR_CSS", "PAGE_HEADER_CSS", "JS_SIDEBAR", "JS_HEADER")
 
 

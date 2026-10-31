@@ -9,7 +9,7 @@ import android.content.SharedPreferences;
  * What this can honestly do: remember which account you picked, which provider it came
  * from, and when Arena's own session last confirmed a sign-in, so the picker opens with
  * your account already at the top and the app can show "signed in as ..." without
- * asking again. What it deliberately does not do is store a Google/GitHub password or
+ * asking again. What it deliberately does not do is store a Google password or
  * mint its own session token: the session cookie belongs to arena.ai and is only ever
  * set by arena.ai after the provider page completes. Fabricating one would not log you
  * in - arena would reject it - so the honest flow is: pick the account once, finish the
@@ -35,7 +35,7 @@ public final class LocalProfile {
         return prefs(c).getString(K_EMAIL, "");
     }
 
-    /** "Google" or "GitHub". */
+    /** The provider the account came from ("Google"). */
     public static String provider(Context c) {
         return prefs(c).getString(K_PROVIDER, "");
     }

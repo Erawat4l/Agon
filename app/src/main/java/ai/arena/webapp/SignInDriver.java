@@ -142,6 +142,38 @@ final class SignInDriver {
             + "}catch(e){return 'error:'+e.message;}})();";
 
     /**
+     * "Is this Arena page signed in?" - answered by the page, not by a cookie.
+     *
+     * CookieManager cannot read HttpOnly cookies, so the session cookie is usually
+     * invisible to the app even when it is there. The page is not: every Arena surface
+     * offers a sign-in control while signed out, so a rendered page with none of them, and
+     * an account/avatar control instead, is a signed-in page.
+     *
+     * Answer: "in", "out" or "unknown" (nothing to read).
+     */
+    static final String SIGNED_OUT_JS = JS_PRELUDE
+            + "(function(){try{"
+            + "var els=__A.all('button,a,[role=\"button\"],[aria-label],[title]');"
+            + "var signedOut=false,account=false;"
+            + "for(var i=0;i<els.length;i++){var el=els[i];"
+            + "var t=__A.label(el).toLowerCase();"
+            + "if(t.length<60&&/(log ?in|sign ?in|login)/.test(t)){"
+            + "if(__A.seen(el)){signedOut=true;break;}}}"
+            + "for(var j=0;j<els.length;j++){var a=els[j];"
+            + "var u=((a.getAttribute&&a.getAttribute('aria-label'))||'')+' '"
+            + "+(a.getAttribute&&a.getAttribute('title')||'');"
+            + "var img=a.querySelector&&a.querySelector('img[alt]');"
+            + "if(img&&img.alt)u+=' '+img.alt;"
+            + "if(/account|profile|avatar|signed in/i.test(u)&&__A.seen(a)){"
+            + "account=true;break;}}"
+            + "if(signedOut&&!account)return 'out';"
+            + "if(account)return 'in';"
+            + "var body=(document.body&&document.body.innerText)||'';"
+            + "if(!document.body||body.trim().length<20)return 'unknown';"
+            + "return signedOut?'out':'in';"
+            + "}catch(e){return 'unknown';}})();";
+
+    /**
      * Presses the provider button inside the open dialog. "{PROVIDER}" is replaced by
      * "google" or "github".
      *

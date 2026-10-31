@@ -64,7 +64,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private View menuSheet;
     private View tokenSheet;
     private SignInSheet signInSheet;
-    private AccountPicker accountPicker;
     private SettingsSheet settingsSheet;
     private ChatHistorySheet historySheet;
 
@@ -601,7 +600,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             /**
-             * Sign-in flows (Google, Apple, GitHub) use window.open / target=_blank.
+             * Sign-in flows (Google's does) use window.open / target=_blank.
              * Instead of leaving the app, show them in an in-app popup WebView that
              * shares the same cookie jar, so the login lands back in the main tab.
              */
@@ -621,7 +620,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * A page opened a window (window.open / target=_blank).
      *
      * Provider sign-in does exactly this: "Continue with Google" opens its account
-     * chooser as a popup, and GitHub's flow does the same for its device page. The popup
+     * chooser as a popup. The popup
      * is hosted in a fresh in-app WebView that shares this app's cookie jar, so the
      * session it sets is the session the arena tab uses - nothing ever leaves the app.
      *
@@ -864,9 +863,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * then the provider's own login page inside the app. Never a browser.
      */
     /**
-     * More -> Sign in: the provider sheet (Google / GitHub, plus the account this device
-     * already used). Choosing "Continue with Google" leads to the native account picker,
-     * exactly like a real app: account first, then the provider's own page finishes it.
+     * More -> Sign in: the provider sheet - Google, plus the account this device already
+     * used - and from there straight into the provider's own page.
      */
     void startSignIn() {
         // Any sheet that was open (More, Update, the token prompt) goes away first, so the
@@ -883,40 +881,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             tokenSheet = null;
         }
         startProviderSignIn(null);
-    }
-
-    /** Opens the native account chooser for Google (or the provider page for GitHub). */
-    private void showAccountPicker(final boolean google) {
-        if (updateSheet != null) closeUpdateSheet();
-        if (menuSheet != null) {
-            AppUi.slideDownAndRemove(menuSheet, window);
-            menuSheet = null;
-        }
-        if (tokenSheet != null) {
-            dismissSheet(tokenSheet);
-            tokenSheet = null;
-        }
-        if (accountPicker != null && accountPicker.isShowing()) accountPicker.dismiss();
-        accountPicker = new AccountPicker(this, window, new AccountPicker.Host() {
-            @Override
-            public void onAccountChosen(String email, String displayName) {
-                // The phone already holds this Google account. Hand it to the provider
-                // page inside the app - never to a browser.
-                LocalProfile.remember(MainActivity.this, email, "Google");
-                startProviderSignIn(email);
-            }
-
-            @Override
-            public void onUseAnotherAccount() {
-                startProviderSignIn(null);
-            }
-
-            @Override
-            public void onCancelled() {
-                // keep the instance; it is cheap and reusable
-            }
-        });
-        accountPicker.show(google);
     }
 
     /** Opens the provider's own login page inside the app, for the chosen account. */
@@ -949,12 +913,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         @Override
         public void onDismissed() {
             // keep the instance; it is cheap and reusable
-        }
-
-        @Override
-        public void onPickAccount(boolean google) {
-            if (signInSheet != null) signInSheet.dismiss();
-            showAccountPicker(google);
         }
     };
 
@@ -1356,10 +1314,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             closeUpdateSheet();
             return;
         }
-        if (accountPicker != null && accountPicker.isShowing()) {
-            accountPicker.dismiss();
-            return;
-        }
         if (menuSheet != null) {
             AppUi.slideDownAndRemove(menuSheet, window);
             menuSheet = null;
@@ -1385,12 +1339,37 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             return;
         }
         Uri data = intent.getData();
-        if (data != null && data.getHost() != null) {
-            String host = data.getHost().toLowerCase();
-            if (host.endsWith("arena.ai") || host.endsWith("lmarena.ai")) {
-                tabs.loadInCurrent(data.toString());
-            }
+        if (data == null || data.getHost() == null) return;
+        String host = data.getHost().toLowerCase();
+        if (!host.endsWith("arena.ai") && !host.endsWith("lmarena.ai")) return;
+        // A sign-in that started in a browser comes back as a link with a ticket on it.
+        // That link is not an ordinary link: it has to be opened inside the app's own
+        // WebView so Arena sets the session cookie here, which is the whole point of the
+        // handoff. The sheet owns it, because the sheet is what finishes the sign-in.
+        if (isSignInHandoff(data)) {
+            ensureSignInSheet().takeBrowserHandoff(data);
+            return;
         }
+        if (tabs != null) tabs.loadInCurrent(data.toString());
+    }
+
+    /**
+     * True for a link that finishes a browser sign-in.
+     *
+     * Arena's handoff is a return to its own host carrying a ticket (or, on some builds, an
+     * auth code) instead of an ordinary page path. The path test is first so an ordinary
+     * arena link that merely has a query string is still treated as a link.
+     */
+    private static boolean isSignInHandoff(Uri data) {
+        if (data == null) return false;
+        String path = data.getPath() == null ? "" : data.getPath().toLowerCase();
+        boolean authPath = path.contains("handoff") || path.contains("auth/") 
+                || path.contains("callback") || path.equals("/login")
+                || path.contains("/signin");
+        String query = data.getQuery() == null ? "" : data.getQuery().toLowerCase();
+        boolean ticket = query.contains("ticket=") || query.contains("code=")
+                || query.contains("token=") || query.contains("session=");
+        return authPath || ticket;
     }
 
     @Override
@@ -1472,12 +1451,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 4201) {
-            // The account picker asked for the account list: rebuild it either way, so the
-            // card shows the accounts (or the honest reason it cannot) immediately.
-            if (accountPicker != null) accountPicker.refreshAccounts();
-            return;
-        }
         if (requestCode == REQ_NOTIFICATIONS) return;
         if (requestCode != REQ_PERMISSIONS || pendingPermissionRequest == null) return;
         boolean granted = grantResults.length > 0;

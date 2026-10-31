@@ -4,20 +4,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Lets the account picker list the accounts already on the phone. Only account
-         names are read; no password or token ever touches this app.
-
-         GET_ACCOUNTS alone is not enough on Android 11+: AccountManager answers an
-         empty list unless the app declares the account service in <queries>. That is why
-         the picker showed no accounts even on phones with a Google account signed in. -->
-    <uses-permission
-        android:name="android.permission.GET_ACCOUNTS"
-        android:maxSdkVersion="30" />
-    <queries>
-        <intent>
-            <action android:name="android.accounts.AccountAuthenticator" />
-        </intent>
-    </queries>
     <!-- Reach the GitHub API on older devices without TLS 1.2 negotiation issues -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission

@@ -99,23 +99,32 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
 
-### Sign-in stays inside the app
+### Sign-in: Google, in the app, with a browser handoff
 
-Sign-in never leaves the app and never shows a browser frame around a login page. Success
-is decided by the session itself: after the provider redirects back to arena.ai the app
-checks the session cookie (and the signed-in UI) before reporting "Signed in" - a bare
-redirect is not treated as a login any more.
+Sign-in starts and normally finishes inside the app, with no browser frame around a login
+page. Success is decided by the page, not by a redirect: a bare redirect is never reported
+as a login. When Google refuses the embedded page, the browser is a labelled second route -
+and the link it comes back with is what finishes the sign-in **in the app**.
 
-1. **Google** — *More → Sign in to Arena → Continue with Google* opens `AccountPicker`,
-   a native Android screen drawn like Google's own chooser: the provider mark,
-   *Choose an account*, one row per Google account already on the phone, and
-   *Use another account*. No WebView is involved in picking.
-2. Picking an account (or *Use another account*) opens the provider's own sign-in page
-   **inside the app**, full-screen, in `SignInSheet` — same cookie jar as the tabs, so
-   the session lands in Arena directly.
-3. `window.open` / `target=_blank` from the page is captured by `onCreateWindow` and
-   hosted in the same in-app sheet instead of being dropped or pushed to Chrome.
-4. The sheet closes itself when the redirect returns to arena.ai, and Back dismisses it.
+1. **Google** — *More → Sign in to Arena → Continue with Google* opens Arena's own sign-in
+   page **inside the app**, full-screen, in `SignInSheet`: same cookie jar as the tabs, so
+   the session lands in Arena directly. Google is the only provider listed, because it is
+   the only one Arena accepts for an account — the GitHub account is what connects Agent
+   Mode connectors and authorises app updates, not a way into Arena.
+2. `SignInDriver` taps Arena's own "Log in" control and then "Continue with Google" (the
+   home page has no such control; the driver looks inside shadow roots, behind the menu
+   button, and finally on `/leaderboard`, which does render one).
+3. `window.open` / `target=_blank` from the page is captured by `onCreateWindow` and hosted
+   as a layer of the same in-app sheet instead of being dropped or pushed to Chrome.
+4. Success is decided by the page: cookies cannot be read when they are HttpOnly, so a
+   rendered arena page that offers no sign-in control **is** the signed-in state. A page
+   that still offers one keeps the sheet open and says so.
+5. **If Google refuses the embedded page** (403 `disallowed_useragent`): the labelled
+   *Sign in in a browser* row opens the site in the real browser, and the ticket that
+   returns (`arena.ai/auth/handoff?ticket=…`, or any arena link carrying a ticket/code)
+   comes back to the app, is opened in its own WebView, and becomes a normal in-app
+   session. The browser is a step, not the destination.
+6. Back closes the sheet.
 
 `AppChrome.openExternally()` no longer hands http(s) links to another app at all: only
 non-web schemes (`mailto:`, `market:`, `intent:`) leave Arena, everything else opens in
@@ -128,12 +137,13 @@ arena.ai to switch palette. arena accepts `?__theme=dark|light` and keeps the ch
 `localStorage`, so `TabWebViews.applyTheme()` sets both and re-applies it after every page
 load (and on each tab switch), which keeps the page from flipping back to light.
 
-### Sign-in: native account chooser, no browser
+### Sign-in: Google, in the app, with a browser handoff
 
-**More → Sign in to Arena** opens a bottom sheet with *Continue with Google* /
-*Continue with GitHub*. Choosing one opens the provider's real login page **inside the
-app**, and the sheet closes the moment control returns to arena.ai — that round-trip is
-what sets the session cookie. The main tab reloads already signed in.
+**More → Sign in to Arena** opens a bottom sheet with *Continue with Google* (plus the
+account this device last used, if any). The provider's real login page opens **inside the
+app**; the sheet finishes when the round-trip returns to arena.ai and the page reports a
+session. If Google blocks the embedded page, the browser row is there — and the link the
+browser comes back with is what puts the session inside the app.
 
 ### Appearance follows the app *and* the page
 
@@ -142,13 +152,10 @@ Light/Dark/System does not stop at the native chrome. Arena accepts a
 both — and re-applies it after every page load and on each tab switch, otherwise the page
 flips itself back to light.
 
-### In-app sign-in with an account chooser
+### In-app sign-in
 
-**More → Sign in to Arena** opens a bottom sheet with *Continue with Google* and
-*Continue with GitHub*. Picking one opens the provider's real login page **inside the
-app**; the sheet closes as soon as control returns to arena.ai, which is exactly when the
-session cookie is set. The tab reloads already signed in. Pages that call `window.open`
-themselves are routed into the same sheet.
+**More → Sign in to Arena** opens the sheet above. Pages that call `window.open`
+themselves are routed into the same sheet instead of being dropped or sent to Chrome.
 
 ### Navigation, animation, theme
 
@@ -176,7 +183,7 @@ themselves are routed into the same sheet.
 | More sheet | **Update**, reload, **sign in**, **appearance**, clear data, plus the exact build number — no share / open-in-browser |
 | WebBridge / Downloads | page-generated files (`blob:`, `data:`) land in `Downloads/` |
 | No browser chrome | No URL bar, no tabs, no "powered by Chrome"; app-styled sheets, dialogs and toasts |
-| Offline screen, dark mode, account picker | All native, not web fallbacks |
+| Offline screen, dark mode | Native, not web fallbacks |
 
 The web content fills the screen edge to edge; the top bar and the bottom nav **float
 over it** as real Android views, and the page is told their heights as CSS insets so
@@ -339,7 +346,6 @@ app/build.gradle              module config (app id, version, signing)
 app/src/main/AndroidManifest.xml
 app/src/main/java/ai/arena/webapp/
     MainActivity.java         WebView shell: navigation, uploads, downloads, permissions
-    AccountPicker.java        native Google-style account chooser
     CrashLog.java             last-crash recorder shown on screen
 app/src/main/res/             icons (adaptive + legacy), theme, colors, strings
 .github/workflows/build-apk.yml

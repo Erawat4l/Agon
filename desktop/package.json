@@ -75,7 +75,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Agon",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Agon-Setup-${version}-${arch}.${ext}"
     },
     "publish": [
       {
@@ -84,6 +85,9 @@
         "repo": "Arena-Ai-App",
         "releaseType": "release"
       }
-    ]
+    ],
+    "portable": {
+      "artifactName": "Agon-Portable-${version}-${arch}.${ext}"
+    }
   }
 }

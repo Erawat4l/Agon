@@ -20,6 +20,8 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 | Command | What it does |
 | --- | --- |
 | `build.bat` | Builds `Agon-debug.apk` — signed with the debug key, installs immediately |
+| `build-all.bat` | **Both apps in one command:** the APK *and* the Windows installers (x64 + ia32, setup + portable) |
+| `build-all.bat release` | Same, but a signed release APK |
 | `build.bat install` | Builds, then installs + launches on a USB-connected phone (needs `adb`) |
 | `build.bat release` | Builds `Agon-release.apk` (signed if you ran `make-keystore.bat` first) |
 | `build.bat clean` | Wipes build output |

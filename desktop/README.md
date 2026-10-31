@@ -8,6 +8,17 @@ persistent session, with the app's own menu, downloads and updates. Unofficial â
 
 Needs **Node.js 18+** (nothing else; the Android SDK is not involved).
 
+One command from the repository root builds this **and** the APK:
+
+```bat
+build-all.bat
+```
+
+It copies `Agon-Setup-<version>-{x64,ia32}.exe` and
+`Agon-Portable-<version>-{x64,ia32}.exe` into the repository root, next to the APK.
+
+To work on just the desktop app:
+
 ```bat
 cd desktop
 npm install
@@ -20,9 +31,9 @@ npm run dist      :: build the installers into desktop\release\
 
 | File | What it is |
 | --- | --- |
-| `Agon-Desktop-<version>-x64.exe` | 64-bit installer (per-user, choose the folder) |
-| `Agon-Desktop-<version>-ia32.exe` | **32-bit** installer, for old Windows on old hardware |
-| `Agon-Desktop-<version>-x64.exe` / `-ia32.exe` (portable) | no install, runs from anywhere |
+| `Agon-Setup-<version>-x64.exe` | 64-bit installer (per-user, choose the folder) |
+| `Agon-Setup-<version>-ia32.exe` | **32-bit** installer, for old Windows on old hardware |
+| `Agon-Portable-<version>-x64.exe` / `-ia32.exe` | no install, runs from anywhere |
 | `latest.yml` + `.blockmap` | what the auto-updater reads |
 
 `ia32` is not decoration: it is the build that runs on a 32-bit Windows install, and it is

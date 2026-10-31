@@ -101,7 +101,7 @@ final class SignInDriver {
             // search rounds on accounts.google.com before giving up - which is exactly the
             // screen the phone was left on, with the header claiming Google was opening
             // its sign-in page.
-            + "var __h=(location.hostname||'').toLowerCase();"
+            "var __h=(location.hostname||'').toLowerCase();"
             + "if(__h&&__h.indexOf('arena.ai')<0&&__h.indexOf('lmarena.ai')<0"
             + "&&__h.indexOf('google')<0)return 'none';"
             // Controls, and the plain text nodes that arena also uses as buttons: its

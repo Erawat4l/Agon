@@ -37,6 +37,49 @@ FIELD_RE = re.compile(
 LOCAL_RE = re.compile(r'(?:final\s+)?[\w<>\[\], .?]+?\s+(\w+)\s*=(?!=)')
 
 
+def check_java_unary_plus(path):
+    """A string initialiser may not *start* with `+ "..."`.
+
+    Java has a unary plus, so `String X =\n  // comment\n  + "text"` is not a
+    concatenation - it is `+ "text"`, which javac rejects with "bad operand type String for
+    unary operator +". That is exactly how splitting a JS constant in two broke the 1.4.8
+    build: the body began with a comment, so the first literal became a continuation of
+    nothing. The first piece after `=` has to be a bare literal (or another operand).
+    """
+    src = open(path, encoding="utf-8", errors="replace").read()
+    decl = re.compile(r"\b(?:static\s+|final\s+|private\s+|public\s+)*String\s+\w+\s*=\s*")
+    for m in decl.finditer(src):
+        rest = src[m.end():]
+        # Walk past comments, then look at the first real token.
+        i = 0
+        saw_comment = False
+        while True:
+            while i < len(rest) and rest[i] in " \t\r\n":
+                i += 1
+            if rest.startswith("//", i):
+                nl = rest.find("\n", i)
+                if nl < 0:
+                    break
+                i = nl + 1
+                saw_comment = True
+                continue
+            if rest.startswith("/*", i):
+                end = rest.find("*/", i)
+                if end < 0:
+                    break
+                i = end + 2
+                saw_comment = True
+                continue
+            break
+        if not saw_comment:
+            continue
+        if rest.startswith('+', i):
+            line = src[:m.start()].count("\n") + 1
+            problems.append(f"{path}:{line}: string initialiser starts with `+` after a "
+                            f"comment - Java reads that as a unary plus; drop the first `+` "
+                            f"so the first piece is a bare literal")
+
+
 def check_java_shadowing(path):
     """A local that shadows a field silently changes what a call refers to.
 
@@ -893,6 +936,7 @@ def main():
         check_method_refs([path])
         check_java_self_calls(path)
         check_java_shadowing(path)
+        check_java_unary_plus(path)
         check_java_helper_calls(path)
         check_java_tab_arrays(path)
         check_java_braces(path)

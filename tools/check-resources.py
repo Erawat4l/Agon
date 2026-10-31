@@ -230,6 +230,86 @@ def check_java_braces(path):
                             f"{src[last + 1:].strip()[:40]!r}")
 
 
+# Methods this project's own classes call on "tabs" (the TabWebViews field).
+TABWEBVIEWS_API = {
+    "current", "get", "all", "show", "preload", "applyThemeToAll", "applyInsetsToAll",
+    "drop", "destroyAll", "clearAndReload", "reloadCurrent", "refreshInPlace",
+    "canGoBack", "goBack", "loadInCurrent", "urlFor", "applyTheme", "applyChromeInsets",
+}
+
+
+def _method_names(src):
+    """Every method declared in this file (concrete, abstract or interface)."""
+    clean = _strip_java_noise(src)
+    out = {}
+    pattern = (r"(?:(?:public|private|protected|static|final|synchronized|abstract|"
+               r"native|default)\s+)*[\w\[\]<>,.?]+\s+(\w+)\s*\([^;{]*\)"
+               r"\s*(?:throws [\w., ]+)?(?:\{|;)")
+    for m in re.finditer(pattern, clean):
+        out.setdefault(m.group(1), clean[:m.start()].count("\n") + 1)
+    return out
+
+
+KEYWORDS = {"if", "for", "while", "switch", "catch", "return", "new", "throw",
+            "assert", "synchronized", "super", "this", "do", "else", "try", "finally",
+            "case", "instanceof"}
+
+
+def check_java_self_calls(path):
+    """A call to a method that this class neither declares nor inherits.
+
+    `x.foo()` is javac's problem, but an unqualified `foo()` inside the same class is
+    exactly the shape that broke the build once: a cleanup deleted ensure() and left
+    three calls behind. Only camelCase names are considered, so platform callbacks are
+    not flagged, and string/comment content is stripped first.
+    """
+    raw = open(path, encoding="utf-8", errors="replace").read()
+    declared = _method_names(raw)
+    src = _strip_java_noise(raw)
+    inherited = {
+        "onCreate", "onDestroy", "onPause", "onResume", "onStart", "onStop",
+        "onSaveInstanceState", "onRestoreInstanceState", "onNewIntent", "onBackPressed",
+        "onActivityResult", "onRequestPermissionsResult", "onConfigurationChanged",
+        "attachBaseContext", "setContentView", "findViewById", "getSystemService",
+        "getString", "getApplicationContext", "getPackageName", "getWindow",
+        "getIntent", "setIntent", "runOnUiThread", "requestPermissions",
+        "checkSelfPermission", "startActivity", "startActivityForResult",
+        "isFinishing", "isDestroyed", "recreate", "finish", "hashCode", "equals",
+        "toString", "getClass", "notify", "notifyAll", "post", "postDelayed",
+        "removeCallbacks", "invalidate", "getResources", "getTheme", "onTouchEvent",
+        "onInterceptTouchEvent", "onMeasure", "onLayout", "onDraw", "performClick",
+        "onAttachedToWindow", "onDetachedFromWindow", "wait", "clone",
+    }
+    for m in re.finditer(r"(?<![.\w])([a-z]\w*)\s*\(", src):
+        name = m.group(1)
+        if name in declared or name in inherited or name in KEYWORDS:
+            continue
+        line = src[src.rfind("\n", 0, m.start()) + 1:].split("\n", 1)[0].strip()
+        if re.match(r"^(?:\(|else\s+)?(?:if|for|while|switch|catch|return|new|throw)\b",
+                    line):
+            continue
+        problems.append(f"{path}:{src[:m.start()].count(chr(10)) + 1}: calls {name}() "
+                        f"but this class declares no such method")
+
+
+TABWEBVIEWS_API = {"urlFor", "applyTheme", "applyChromeInsets"}
+
+
+def check_tab_api(paths):
+    """Every `tabs.foo()` call must exist on TabWebViews (static or instance)."""
+    api = set(TABWEBVIEWS_API)
+    for path in paths:
+        if path.endswith("TabWebViews.java"):
+            api |= set(_method_names(open(path, encoding="utf-8",
+                                         errors="replace").read()))
+    for path in paths:
+        src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+        for m in re.finditer(r"\btabs\.(\w+)\s*\(", src):
+            if m.group(1) not in api:
+                problems.append(f"{path}:{src[:m.start()].count(chr(10)) + 1}: "
+                                f"tabs.{m.group(1)}() does not exist on TabWebViews")
+
+
 def check_batch(path):
     """cmd.exe gotchas: duplicate labels, unresolved jumps, unbalanced parens."""
     import collections
@@ -257,7 +337,10 @@ def main():
     for path in glob.glob("*.bat"):
         check_batch(path)
 
-    for path in glob.glob("app/src/main/java/**/*.java", recursive=True):
+    java_paths = glob.glob("app/src/main/java/**/*.java", recursive=True)
+    check_tab_api(java_paths)
+    for path in java_paths:
+        check_java_self_calls(path)
         check_java_shadowing(path)
         check_java_helper_calls(path)
         check_java_tab_arrays(path)

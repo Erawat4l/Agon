@@ -209,6 +209,64 @@ public final class TabWebViews {
         lastBottomInset = bottomPx;
     }
 
+    /** Creates the tab's WebView on first use and returns it. */
+    private WebView ensure(int tab) {
+        WebView existing = views.get(tab);
+        if (existing != null) return existing;
+
+        WebView w = createWebView(tab);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+        container.addView(w, lp);
+        w.setVisibility(android.view.View.GONE);
+        views.put(tab, w);
+
+        // The client must be installed BEFORE the first load, otherwise the first
+        // onPageStarted (and therefore the chrome insets) is missed.
+        w.setWebViewClient(withLoadHook(w, host.clientFactory().create(), tab));
+        // Chat tab loads immediately; others start as soon as they are created so the
+        // network work overlaps with the user reading the current screen.
+        w.loadUrl(urlFor(tab));
+        trim();
+        return w;
+    }
+
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
+    private WebView createWebView(int tab) {
+        WebView w = new WebView(activity);
+        w.setBackgroundColor(AppUi.color(activity, R.color.bg));
+        w.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        w.setLongClickable(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        }
+
+        WebSettings s = w.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
+        s.setSupportMultipleWindows(false);
+        s.setUseWideViewPort(true);
+        s.setLoadWithOverviewMode(true);
+        s.setSupportZoom(false);
+        s.setBuiltInZoomControls(false);
+        s.setDisplayZoomControls(false);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // Cache aggressively: repeat visits paint from disk, then refresh in place.
+        s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
+        s.setUserAgentString(AppChrome.userAgent(activity, s.getUserAgentString()));
+
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(w, true);
+
+        w.addJavascriptInterface(new WebBridge(activity, w), "ArenaNative");
+        w.setWebChromeClient(host.chromeFactory().create());
+        w.setDownloadListener(host.downloadListener());
+        return w;
+    }
+
     /**
      * Wraps the activity's WebViewClient so the chrome insets are injected as soon as a
      * document exists (onPageStarted), and again once it finished loading. Everything

@@ -97,8 +97,8 @@ public final class SettingsSheet {
         LinearLayout header = new LinearLayout(activity);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = AppUi.text(activity, activity.getString(R.string.settings_title),
-                21f, R.color.on_bg, true);
+        TextView title = AppUi.heading(activity,
+                activity.getString(R.string.settings_title), 23f, R.color.on_bg);
         header.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView close = AppUi.text(activity, "\u2715", 18f, R.color.on_bg_muted, false);
@@ -155,6 +155,8 @@ public final class SettingsSheet {
                 R.string.settings_hide_header_sub, true);
         toggle(Settings.K_KEEP_SCROLL, R.string.settings_keep_scroll,
                 R.string.settings_keep_scroll_sub, true);
+        toggle(Settings.K_NO_SELECT, R.string.settings_selectable,
+                R.string.settings_selectable_sub, true);
 
         section(R.string.settings_security);
         toggle(Settings.K_DESKTOP_UA, R.string.settings_ua,

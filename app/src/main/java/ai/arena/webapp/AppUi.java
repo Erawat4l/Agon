@@ -125,6 +125,20 @@ public final class AppUi {
         return tv;
     }
 
+    /**
+     * A heading in the serif face Arena uses for titles.
+     *
+     * "serif" resolves to the platform serif (Noto Serif on Android), which is the
+     * closest match to Arena's editorial look without bundling a font file. Body text
+     * stays sans-serif, exactly like the site.
+     */
+    public static TextView heading(Context c, String value, float sizeSp, int colorRes) {
+        TextView tv = text(c, value, sizeSp, colorRes, false);
+        tv.setTypeface(Typeface.create("serif", Typeface.NORMAL));
+        tv.setLetterSpacing(0.01f);
+        return tv;
+    }
+
     public static ImageView icon(Context c, int res, int colorRes, float sizeDp) {
         ImageView iv = new ImageView(c);
         iv.setImageResource(res);

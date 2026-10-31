@@ -32,6 +32,8 @@ public final class Settings {
     public static final String K_KEEP_SCROLL = "keep_scroll";
     /** Crash guard: show the trace on screen instead of closing. */
     public static final String K_CRASH_SCREEN = "crash_screen";
+    /** The app behaves like an app: no text selection, no long-press copy menu. */
+    public static final String K_NO_SELECT = "no_select";
     /** Version name + build number in the nav bar footer. */
     public static final String K_SHOW_VERSION = "show_version";
 
@@ -91,6 +93,11 @@ public final class Settings {
 
     public static boolean crashScreen(Context c) {
         return get(c, K_CRASH_SCREEN, true);
+    }
+
+    /** True when text should behave like a web page (selection allowed). */
+    public static boolean selectText(Context c) {
+        return !get(c, K_NO_SELECT, true);
     }
 
     public static boolean showVersion(Context c) {

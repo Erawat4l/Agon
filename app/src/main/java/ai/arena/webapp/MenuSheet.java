@@ -53,6 +53,12 @@ public final class MenuSheet {
         handleLp.bottomMargin = AppUi.dp(activity, 14);
         sheet.addView(handle, handleLp);
 
+        TextView title = AppUi.heading(activity, activity.getString(R.string.app_name), 22f,
+                R.color.on_bg);
+        title.setPadding(AppUi.dp(activity, 12), 0, AppUi.dp(activity, 12),
+                AppUi.dp(activity, 6));
+        sheet.addView(title);
+
         boolean updateAvailable = UpdateManager.isUpdateAvailable(activity);
         addRow(activity, sheet, R.string.app_update,
                 updateAvailable
@@ -77,8 +83,11 @@ public final class MenuSheet {
             callback.onReload();
         });
 
+        String accountSub = LocalProfile.hasAccount(activity)
+                ? LocalProfile.summary(activity)
+                : activity.getString(R.string.account_signin_sub);
         addRow(activity, sheet, R.string.account_signin,
-                activity.getString(R.string.account_signin_sub), R.drawable.ic_nav_account,
+                accountSub, R.drawable.ic_nav_account,
                 false, v -> {
                     dismiss(parent, scrim, callback);
                     callback.onSignIn();

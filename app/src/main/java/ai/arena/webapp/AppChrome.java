@@ -96,6 +96,12 @@ public final class AppChrome {
      * a WebView cannot do them. Nothing here can ever open a browser: every http(s)
      * link is rendered inside the app by the caller.
      */
+    /** Schemes that belong to the device (a WebView genuinely cannot send an e-mail). */
+    public static boolean isDeviceScheme(String scheme) {
+        return "mailto".equals(scheme) || "tel".equals(scheme) || "sms".equals(scheme)
+                || "smsto".equals(scheme) || "geo".equals(scheme);
+    }
+
     static void openNonWebScheme(Activity activity, Uri uri) {
         String scheme = uri == null || uri.getScheme() == null
                 ? "" : uri.getScheme().toLowerCase();
@@ -103,10 +109,9 @@ public final class AppChrome {
                 || scheme.equals("sms") || scheme.equals("smsto")
                 || scheme.equals("geo");
         if (!allowed) {
-            // Anything else (market:, custom app schemes, ...) stays inside Arena as a
-            // notice, so tapping a link can never dump the user in another app.
-            android.widget.Toast.makeText(activity, R.string.link_stays_in_app,
-                    android.widget.Toast.LENGTH_SHORT).show();
+            // Anything else (market:, custom app schemes, ...) is simply ignored: the app
+            // never leaves Arena, and it never shows the "this link needs another app"
+            // notice that used to read like an error page.
             return;
         }
         try {

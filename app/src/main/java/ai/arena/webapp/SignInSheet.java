@@ -32,12 +32,14 @@ public final class SignInSheet {
 
         void onDismissed();
 
-        /** The user asked for the native Google account picker. */
-        void onPickAccount();
+        /** The user asked for the native account picker for this provider. */
+        void onPickAccount(boolean google);
     }
 
     /** Arena's own entry point; the page decides which provider to sign in with. */
     private static final String ARENA_SIGN_IN = "https://arena.ai/?signin=1";
+
+    /** href the sheet records so the caller can give the picker a matching state. */
 
     private final Activity activity;
     private final ViewGroup parent;
@@ -90,6 +92,20 @@ public final class SignInSheet {
 
         web = providerView;
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (pendingEmail != null && url != null && url.contains("accounts.google")) {
+                    // Pre-fill the account chooser with the account the user just picked,
+                    // so the provider page does not ask a second time.
+                    view.evaluateJavascript("(function(){try{"
+                            + "var i=document.querySelector('input[type=email]');"
+                            + "if(i&&!i.value){i.value=\'" + jsEscape(pendingEmail) + "\';"
+                            + "i.dispatchEvent(new Event('input',{bubbles:true}));}}catch(e){}})();",
+                            null);
+                }
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return handleProviderUrl(request.getUrl());
@@ -163,6 +179,50 @@ public final class SignInSheet {
         subLp.bottomMargin = AppUi.dp(activity, 18);
         sheet.addView(sub, subLp);
 
+        // The identity saved on this device, so the picker opens knowing who you are
+        // instead of asking again every time. Everything here is local (arena_profile).
+        if (LocalProfile.hasAccount(activity)) {
+            LinearLayout who = new LinearLayout(activity);
+            who.setOrientation(LinearLayout.HORIZONTAL);
+            who.setGravity(Gravity.CENTER_VERTICAL);
+            who.setPadding(AppUi.dp(activity, 14), AppUi.dp(activity, 10),
+                    AppUi.dp(activity, 14), AppUi.dp(activity, 10));
+            who.setBackground(AppUi.rounded(AppUi.color(activity, R.color.surface2), 16f,
+                    activity));
+            LinearLayout.LayoutParams whoLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            whoLp.bottomMargin = AppUi.dp(activity, 12);
+            who.setLayoutParams(whoLp);
+
+            LinearLayout whoTexts = new LinearLayout(activity);
+            whoTexts.setOrientation(LinearLayout.VERTICAL);
+            who.addView(whoTexts, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            whoTexts.addView(AppUi.text(activity, LocalProfile.summary(activity), 13.5f,
+                    R.color.on_bg, true));
+            String stateText = LocalProfile.signedInAt(activity) > 0
+                    ? activity.getString(R.string.profile_session_saved)
+                    : activity.getString(R.string.profile_session_pending);
+            whoTexts.addView(AppUi.text(activity, stateText, 11.5f,
+                    R.color.on_bg_muted, false));
+
+            TextView forget = AppUi.text(activity,
+                    activity.getString(R.string.profile_forget), 12f,
+                    R.color.on_bg_muted, false);
+            forget.setPadding(AppUi.dp(activity, 10), AppUi.dp(activity, 6),
+                    AppUi.dp(activity, 4), AppUi.dp(activity, 6));
+            forget.setOnClickListener(v -> {
+                LocalProfile.clearSession(activity);
+                AppUi.press(v);
+                if (root != null && root.getParent() != null) {
+                    root.getParent().requestLayout();
+                }
+                dismiss();
+            });
+            who.addView(forget);
+            sheet.addView(who);
+        }
+
         chooser = new LinearLayout(activity);
         chooser.setOrientation(LinearLayout.VERTICAL);
         // Google: the native account picker comes first (MainActivity.startSignIn).
@@ -170,8 +230,10 @@ public final class SignInSheet {
         // GitHub has no account list on the device, so its own page opens directly.
         chooser.addView(providerRow(R.drawable.ic_google, R.string.signin_google,
                 "Google", ARENA_SIGN_IN, true));
+        // GitHub has no account list on the phone, so its own page opens directly - but
+        // it IS offered, which is what was missing from the sheet.
         chooser.addView(providerRow(R.drawable.ic_github, R.string.signin_github,
-                "GitHub", ARENA_SIGN_IN, false));
+                "GitHub", ARENA_SIGN_IN + "&provider=github", false));
         sheet.addView(chooser);
 
         TextView note = AppUi.text(activity, activity.getString(R.string.signin_note), 11.5f,
@@ -234,7 +296,7 @@ public final class SignInSheet {
             if (nativePicker && host != null) {
                 // Hand control to the activity's native chooser; it calls back into
                 // showForEmail() once the user has picked an account.
-                host.onPickAccount();
+                host.onPickAccount("Google".equals(hostFilter));
             } else {
                 openProvider(hostFilter, startUrl);
             }
@@ -242,8 +304,40 @@ public final class SignInSheet {
         return row;
     }
 
+    /** Escapes a string for the inside of a single-quoted JS literal (no quotes added). */
+    private static String jsEscape(String value) {
+        StringBuilder out = new StringBuilder();
+        for (char ch : value.toCharArray()) {
+            switch (ch) {
+                case '\\': out.append("\\\\"); break;
+                case '\'': out.append("\\'"); break;
+                case '\n': out.append("\\n"); break;
+                case '\r': out.append("\\r"); break;
+                default: out.append(ch);
+            }
+        }
+        return out.toString();
+    }
+
+    /**
+     * The WebView that hosts the provider page, so a window.open() from the page can be
+     * handed the *same* renderer instead of a second one being created.
+     */
+    public WebView providerWebView() {
+        return web;
+    }
+
+    /** Remembers the account once the provider page has completed a session. */
+    public void rememberSignIn(String email, String provider) {
+        LocalProfile.remember(activity, email, provider);
+        LocalProfile.markSignedIn(activity);
+    }
+
     /** Opens the provider's real login page inside the app, full-screen. */
     private void openProvider(String hostFilter, String startUrl) {
+        // Save the choice locally *before* the provider page runs: if the page is slow or
+        // the user leaves, the next attempt already knows which account this is.
+        LocalProfile.remember(activity, pendingEmail, hostFilter);
         // A real full-screen layer over the window (not a bottom sheet): provider login
         // pages set frame-ancestors restrictions and refuse to render in a cramped,
         // dimmed, click-capturing container, which is why "login just did not finish".
@@ -266,7 +360,9 @@ public final class SignInSheet {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         titles.addView(AppUi.text(activity, activity.getString(R.string.signin_in_progress),
                 15f, R.color.on_bg, true));
-        progressText = AppUi.text(activity, hostFilter, 11.5f, R.color.on_bg_muted, false);
+        progressText = AppUi.text(activity,
+                activity.getString(R.string.signin_progress_for, hostFilter), 11.5f,
+                R.color.on_bg_muted, false);
         titles.addView(progressText);
 
         TextView close = AppUi.text(activity, "✕", 18f, R.color.on_bg_muted, false);

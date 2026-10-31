@@ -56,6 +56,7 @@ public final class UpdateSheet {
         this.progressBar = overlay.findViewWithTag("progress");
         this.badgeRow = overlay.findViewWithTag("badges");
         this.settingsBox = overlay.findViewWithTag("settings");
+        this.sheetSummary = overlay.findViewWithTag("update_summary");
         refresh();
     }
 
@@ -164,18 +165,54 @@ public final class UpdateSheet {
         settingsLp.topMargin = AppUi.dp(activity, 8);
         sheet.addView(settings, settingsLp);
 
-        TextView notesTitle = AppUi.text(activity, activity.getString(R.string.update_whats_new),
-                13f, R.color.on_bg, true);
-        LinearLayout.LayoutParams notesTitleLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        notesTitleLp.topMargin = AppUi.dp(activity, 18);
-        sheet.addView(notesTitle, notesTitleLp);
+        // "Updates" is a drop-down: the row shows the app version and the latest release,
+        // and the details (release notes) only appear once it is tapped. Nothing about
+        // updates takes space on this screen until the user asks for it.
+        LinearLayout updatesRow = new LinearLayout(activity);
+        updatesRow.setOrientation(LinearLayout.HORIZONTAL);
+        updatesRow.setGravity(Gravity.CENTER_VERTICAL);
+        updatesRow.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 11),
+                AppUi.dp(activity, 12), AppUi.dp(activity, 11));
+        updatesRow.setBackground(AppUi.pressable(activity,
+                AppUi.color(activity, R.color.surface2), 14f));
+        LinearLayout.LayoutParams updatesLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        updatesLp.topMargin = AppUi.dp(activity, 18);
+        updatesRow.setLayoutParams(updatesLp);
 
-        TextView notes = AppUi.text(activity, "", 13f, R.color.on_bg_muted, false);
+        LinearLayout updateTexts = new LinearLayout(activity);
+        updateTexts.setOrientation(LinearLayout.VERTICAL);
+        updatesRow.addView(updateTexts, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        updateTexts.addView(AppUi.text(activity,
+                activity.getString(R.string.update_whats_new), 14f, R.color.on_bg, true));
+        final TextView updateSummary = AppUi.text(activity, "", 11.5f,
+                R.color.on_bg_muted, false);
+        updateSummary.setTag("update_summary");
+        updateSummary.setPadding(0, AppUi.dp(activity, 2), 0, 0);
+        updateTexts.addView(updateSummary);
+        final TextView updateChevron = AppUi.text(activity, "\u203a", 20f,
+                R.color.on_bg_muted, false);
+        updatesRow.addView(updateChevron);
+        sheet.addView(updatesRow);
+
+        final LinearLayout notesBox = new LinearLayout(activity);
+        notesBox.setOrientation(LinearLayout.VERTICAL);
+        notesBox.setVisibility(View.GONE);
+        notesBox.setPadding(AppUi.dp(activity, 12), AppUi.dp(activity, 8),
+                AppUi.dp(activity, 12), 0);
+        final TextView notes = AppUi.text(activity, "", 13f, R.color.on_bg_muted, false);
         notes.setTag("notes");
         notes.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        notes.setPadding(0, AppUi.dp(activity, 6), 0, 0);
-        sheet.addView(notes);
+        notesBox.addView(notes);
+        sheet.addView(notesBox);
+
+        updatesRow.setOnClickListener(v -> {
+            AppUi.press(v);
+            boolean open = notesBox.getVisibility() != View.VISIBLE;
+            notesBox.setVisibility(open ? View.VISIBLE : View.GONE);
+            updateChevron.setRotation(open ? 90f : 0f);
+        });
 
         // Buttons
         TextView primary = AppUi.text(activity, "", 15f, R.color.on_accent, true);
@@ -207,6 +244,7 @@ public final class UpdateSheet {
     }
 
     private LinearLayout settingsBox;
+    private TextView sheetSummary;
 
     // ------------------------------------------------------------ state
 
@@ -224,6 +262,13 @@ public final class UpdateSheet {
                         : relativeTime(UpdateManager.lastCheck(activity))));
 
         // badges: channel + auto check + token state
+        // The drop-down summary: which build is installed and what GitHub offers.
+        if (sheetSummary != null) {
+            sheetSummary.setText(activity.getString(R.string.updates_dropdown_installed,
+                    installedName, installed) + "\n"
+                    + activity.getString(R.string.updates_dropdown_latest, latestName));
+        }
+
         badgeRow.removeAllViews();
         badgeRow.addView(chip(activity.getString(
                 UpdateManager.Channel.BETA.name().equals(UpdateManager.channel(activity))

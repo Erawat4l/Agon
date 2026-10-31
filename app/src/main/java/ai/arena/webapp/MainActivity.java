@@ -174,6 +174,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 // onPageStarted/onPageFinished; recalculate when the bar heights change
                 // (expander toggles, pill appearing).
                 applyChromeInsets();
+                // Only now is the network free: warm the other tabs in the background so
+                // the first tap on them is still instant, without competing with the
+                // first paint (which used to make startup feel slow).
+                schedulePreload();
             }
 
             @Override
@@ -199,21 +203,27 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         navArea.setVisibility(Settings.showNav(this) ? View.VISIBLE : View.GONE);
 
         tabs.show(AppUi.TAB_CHAT);
-        TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
-        tabs.preload();
         if (savedInstanceState != null && tabs.current() != null) {
             tabs.current().restoreState(savedInstanceState);
         }
         applyChromeInsets();
         refreshUi();
         handleIntent(getIntent());
-        refreshUpdateUi();
-        askNotificationPermission();
+
+        // Startup order matters for perceived speed: the page is already scrolling, so
+        // anything that is not needed for the first frame waits for it. The update check
+        // and the notification permission prompt used to run inside onCreate, where they
+        // competed with the first render.
+        window.postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            refreshUpdateUi();
+            askNotificationPermission();
+        }, 900);
 
         // First launch (or after uninstall): explain the one-time GitHub token, since
         // the release repo is private and the updater cannot check it otherwise.
         if (!UpdateManager.hasToken(this)) {
-            window.postDelayed(this::promptForTokenFirstRun, 1200);
+            window.postDelayed(this::promptForTokenFirstRun, 1600);
         }
 
         // First frames: fade the shell in so the app never appears to "snap" together.
@@ -586,22 +596,35 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * navigation) are routed into the same in-app sign-in flow.
      */
     private void showAuthPopup(WebView parent, android.os.Message resultMsg) {
+        // Speed and memory: do NOT build a second WebView for the provider window. Hand
+        // the page the WebView the sheet already owns - one renderer instead of two, and
+        // the popup inherits the session cookies of the page that opened it.
         if (signInSheet == null) startProviderSignIn(null);
-        // The page expects a transport: give it a real WebView so the login keeps
-        // working, then host that WebView inside the sign-in sheet.
+        WebView popup = signInSheet.providerWebView();
+        if (popup == null) {
+            // The sheet could not provide one (not opened yet): fall back to a fresh
+            // WebView rather than dropping the page's request on the floor.
+            popup = buildPopupWebView();
+        }
+        WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+        transport.setWebView(popup);
+        resultMsg.sendToTarget();
+        signInSheet.showProviderView(popup);
+    }
+
+    /** Last-resort provider WebView, only used when the sheet has none yet. */
+    private WebView buildPopupWebView() {
         WebView popup = new WebView(this);
         android.webkit.WebSettings s = popup.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setSupportMultipleWindows(false);
-        s.setUserAgentString(AppChrome.userAgent(this, s.getUserAgentString()));
+        s.setUserAgentString(Settings.chromeUserAgent(this)
+                ? AppChrome.userAgent(this, s.getUserAgentString())
+                : AppChrome.defaultUserAgent(this));
         CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
-
-        WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
-        transport.setWebView(popup);
-        resultMsg.sendToTarget();
-        signInSheet.showProviderView(popup);
+        return popup;
     }
 
     // ------------------------------------------------------------------ web glue
@@ -642,7 +665,21 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
             return true;
         }
-        AppChrome.openNonWebScheme(this, uri);
+        // mailto:, tel:, sms:, geo: - Android's own handlers for things a page cannot do.
+        // Anything else is an app-link/OAuth style URL: if it carries an http(s) fallback
+        // it is loaded here, otherwise it is quietly ignored. A toast used to say "this
+        // link needs another app" and the user read that as an error page, so nothing is
+        // shown at all now - the app simply never leaves Arena.
+        if (AppChrome.isDeviceScheme(scheme)) {
+            AppChrome.openNonWebScheme(this, uri);
+            return true;
+        }
+        String fallback = uri.getQueryParameter("url");
+        if (fallback == null) fallback = uri.getQueryParameter("continue");
+        if (fallback == null) fallback = uri.getQueryParameter("redirect_uri");
+        if (fallback != null && fallback.startsWith("http")) {
+            tabs.loadInCurrent(fallback);
+        }
         return true;
     }
 
@@ -738,10 +775,16 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * Google/Apple sign-in the way an app does it: a native-looking account chooser,
      * then the provider's own login page inside the app. Never a browser.
      */
+    /**
+     * More -> Sign in: the provider sheet (Google / GitHub, plus the account this device
+     * already used). Choosing "Continue with Google" leads to the native account picker,
+     * exactly like a real app: account first, then the provider's own page finishes it.
+     */
     void startSignIn() {
         // Any sheet that was open (More, Update, the token prompt) goes away first, so the
-        // picker is never buried under another overlay - that is why a sign-in started
-        // from the Update sheet looked like it did nothing.
+        // next surface is never buried under another overlay - that is why a sign-in
+        // started from the Update sheet looked like it did nothing.
+        closeSettingsNow();
         if (updateSheet != null) closeUpdateSheet();
         if (menuSheet != null) {
             AppUi.slideDownAndRemove(menuSheet, window);
@@ -751,29 +794,41 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             dismissSheet(tokenSheet);
             tokenSheet = null;
         }
-        if (accountPicker == null) accountPicker = new AccountPicker(this, window,
-                new AccountPicker.Host() {
-                    @Override
-                    public void onAccountChosen(String email, String displayName) {
-                        // The phone already holds this Google account. Hand it to the
-                        // provider page inside the app - never to a browser.
-                        startProviderSignIn(email);
-                    }
+        startProviderSignIn(null);
+    }
 
-                    @Override
-                    public void onUseAnotherAccount() {
-                        startProviderSignIn(null);
-                    }
-
-                    @Override
-                    public void onCancelled() {
-                        // keep the instance; it is cheap and reusable
-                    }
-                });
-        if (accountPicker.isShowing()) {
-            accountPicker.dismiss();
+    /** Opens the native account chooser for Google (or the provider page for GitHub). */
+    private void showAccountPicker(final boolean google) {
+        if (updateSheet != null) closeUpdateSheet();
+        if (menuSheet != null) {
+            AppUi.slideDownAndRemove(menuSheet, window);
+            menuSheet = null;
         }
-        accountPicker.show(true);
+        if (tokenSheet != null) {
+            dismissSheet(tokenSheet);
+            tokenSheet = null;
+        }
+        if (accountPicker != null && accountPicker.isShowing()) accountPicker.dismiss();
+        accountPicker = new AccountPicker(this, window, new AccountPicker.Host() {
+            @Override
+            public void onAccountChosen(String email, String displayName) {
+                // The phone already holds this Google account. Hand it to the provider
+                // page inside the app - never to a browser.
+                LocalProfile.remember(MainActivity.this, email, "Google");
+                startProviderSignIn(email);
+            }
+
+            @Override
+            public void onUseAnotherAccount() {
+                startProviderSignIn(null);
+            }
+
+            @Override
+            public void onCancelled() {
+                // keep the instance; it is cheap and reusable
+            }
+        });
+        accountPicker.show(google);
     }
 
     /** Opens the provider's own login page inside the app, for the chosen account. */
@@ -781,15 +836,20 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (signInSheet == null) signInSheet = new SignInSheet(this, window, new SignInSheet.Host() {
             @Override
             public void onSignedIn() {
-                // The provider round-trip set the session cookie: refresh the tabs so
-                // they pick up the signed-in UI immediately.
+                // The provider round-trip set the session cookie: remember it locally and
+                // refresh the tabs so they pick up the signed-in UI immediately.
+                LocalProfile.markSignedIn(MainActivity.this);
                 Toast.makeText(MainActivity.this, R.string.signin_success,
                         Toast.LENGTH_SHORT).show();
                 if (tabs != null) {
+                    // Arena re-renders its own UI when it notices the session, so a
+                    // reload of the whole page is not needed (and a reload here is what
+                    // made the app feel slow right after signing in).
+                    tabs.applyThemeToAll(AppUi.isDark(MainActivity.this));
                     WebView w = tabs.current();
                     if (w != null) {
-                        TabWebViews.applyTheme(w, AppUi.isDark(MainActivity.this));
-                        w.evaluateJavascript("location.reload()", null);
+                        w.evaluateJavascript(
+                                "window.dispatchEvent(new Event('focus'));", null);
                     }
                 }
             }
@@ -800,9 +860,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
-            public void onPickAccount() {
+            public void onPickAccount(boolean google) {
                 if (signInSheet != null) signInSheet.dismiss();
-                startSignIn();
+                showAccountPicker(google);
             }
         });
         signInSheet.showForEmail(email);
@@ -902,6 +962,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     /** Applies one switch immediately, without recreating the activity. */
+    @SuppressWarnings("unused")
     private void applySetting(String key, boolean value) {
         switch (key) {
             case Settings.K_SHOW_NAV:
@@ -921,6 +982,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             case Settings.K_NOTIFY_UPDATES:
                 if (!value) UpdateNotifications.cancelAll(this);
                 break;
+            case Settings.K_NO_SELECT:
+                applyChromeInsets();   // the CSS is replaced in place, no reload needed
+                break;
             case Settings.K_KEEP_SCROLL:
                 break;
             case Settings.K_SHOW_VERSION:
@@ -929,6 +993,18 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             default:
                 break;
         }
+    }
+
+    private boolean preloadScheduled;
+
+    /** Warms the background tabs once, well after the first page is on screen. */
+    private void schedulePreload() {
+        if (preloadScheduled || tabs == null) return;
+        preloadScheduled = true;
+        window.postDelayed(() -> {
+            if (isFinishing() || isDestroyed() || tabs == null) return;
+            tabs.preload();
+        }, 2500);
     }
 
     /** Shows/hides the bottom bar and hands the freed space back to the page. */

@@ -36,7 +36,6 @@
     <string name="exiting">Press back again to exit</string>
     <string name="download_started">Saved to Downloads</string>
     <string name="download_failed">Download failed</string>
-    <string name="link_stays_in_app">This link needs another app — it stays closed inside Arena.</string>
     <string name="no_browser">No app found to open this link</string>
     <string name="upload_failed">Could not open a file picker</string>
     <string name="reload">Reload</string>
@@ -65,7 +64,7 @@
     <string name="update_release_page">Open release page</string>
     <string name="update_release_page_title">Arena releases</string>
     <string name="update_release_unreachable">Couldn\'t open the releases page. Check the connection.</string>
-    <string name="update_whats_new">What\'s new</string>
+    <string name="update_whats_new">Updates</string>
     <string name="update_no_notes">No release notes were provided.</string>
     <string name="update_no_notes_hint">Checks run automatically every few hours. You can also pull down on the page to refresh.</string>
     <string name="update_error">Couldn\'t check: %1$s</string>
@@ -107,7 +106,6 @@
     <string name="crash_copied">Copied. Paste it in the chat.</string>
     <string name="crash_retry">Start again</string>
     <string name="settings_title">Settings</string>
-    <string name="settings_subtitle">Everything the app does, switchable</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_navigation">Navigation</string>
     <string name="settings_page">The Arena page</string>
@@ -144,4 +142,13 @@
     <string name="settings_footer">Arena %1$s (build %2$d)</string>
     <string name="menu_settings">Settings</string>
     <string name="menu_settings_sub">Disable or customise everything</string>
+    <string name="profile_summary">Signed in as %1$s</string>
+    <string name="profile_session_saved">Session saved on this device</string>
+    <string name="profile_session_pending">Finish the provider page once to save the session</string>
+    <string name="profile_forget">Forget</string>
+    <string name="signin_progress_for">%1$s is opening its own sign-in page</string>
+    <string name="updates_dropdown_installed">Installed %1$s · build %2$d</string>
+    <string name="updates_dropdown_latest">Latest on GitHub: %1$s</string>
+    <string name="settings_selectable">App-style text</string>
+    <string name="settings_selectable_sub">No text selection or long-press menu, like a real app</string>
 </resources>

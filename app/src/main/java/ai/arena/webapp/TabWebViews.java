@@ -136,14 +136,19 @@ public final class TabWebViews {
     public static void applyTheme(WebView web, boolean dark) {
         if (web == null) return;
         String mode = dark ? "dark" : "light";
+        // Never navigate here. This used to call location.replace() to add ?__theme=,
+        // which replaced the document every single time a tab was shown: that is the
+        // "app takes forever to load" symptom (and it dropped the injected styles, which
+        // made the page look blank for a moment).
         String js = "(function(){try{localStorage.setItem('theme','" + mode + "');}"
                 + "catch(e){}"
-                + "var u=new URL(location.href);"
-                + "if(u.searchParams.get('__theme')!=='" + mode + "'){"
-                + "u.searchParams.set('__theme','" + mode + "');"
-                + "location.replace(u.toString());}"
-                + "document.documentElement.setAttribute('data-theme','" + mode + "');"
-                + "document.documentElement.style.colorScheme='" + mode + "';})();";
+                + "var d=document.documentElement;"
+                + "if(d.getAttribute('data-theme')!=='" + mode + "'){"
+                + "d.setAttribute('data-theme','" + mode + "');}"
+                + "d.style.colorScheme='" + mode + "';"
+                + "try{document.body&&document.body.classList.toggle('dark','" + mode + "'==='dark');}"
+                + "catch(e){}"
+                + "window.dispatchEvent(new Event('arena-theme'));})();";
         web.evaluateJavascript(js, null);
     }
 
@@ -166,9 +171,12 @@ public final class TabWebViews {
      *  2. the layout is pinned to the viewport (100dvh, no horizontal overflow) so the
      *     page always fits the app frame instead of growing past it.
      */
-    public static void applyChromeInsets(WebView web, int topPx, int bottomPx,
-                                        boolean hideSidebar, boolean hideHeader) {
+    public static void applyChromeInsets(WebView web, int topPx, int bottomPx) {
         if (web == null) return;
+        final boolean hideSidebar = Settings.hideWebSidebar(web.getContext());
+        final boolean hideHeader = Settings.hideWebHeader(web.getContext());
+        final boolean selectable = Settings.selectText(web.getContext());
+
         float density = web.getResources().getDisplayMetrics().density;
         int cssTop = Math.round(Math.max(0, topPx) / density);
         int cssBottom = Math.round(Math.max(0, bottomPx) / density);
@@ -183,54 +191,110 @@ public final class TabWebViews {
                 + "min-height:100dvh !important;"
                 + "max-width:100vw !important;"
                 + "overflow-x:hidden !important;}"
-                // Never wider than the phone: arena's desktop grid would otherwise
-                // overflow and get cropped on the right.
                 + "html{max-width:100vw !important;overflow-x:hidden !important;}"
-                // Arena's own sidebar ("New Chat / Leaderboard / Search" + history) is
-                // hidden: the app navigates with its own bar, so the page's duplicate
-                // navigation is removed instead of being reserved space for. The selectors
-                // cover the shapes the page uses today; the JS below also hides a
-                // matching element it can identify by its text, for layouts we do not know.
-                + (hideSidebar
-                ? "[class*=\"sidebar\" i],[data-testid*=\"sidebar\" i],"
-                + "nav[class*=\"side\" i],aside{display:none !important;}"
-                + "html{--arena-sidebar-hidden:1;}"
-                : "")
-                // Optional: the page's own header (Settings -> "Hide the page header").
-                + (hideHeader
-                ? "header,[class*=\"topbar\" i],[class*=\"top-bar\" i],"
-                + "[data-testid*=\"header\" i]{display:none !important;}"
-                : "");
+                // An app is not a web page: no accidental text selection and no long-press
+                // copy callout. Inputs and editable areas keep normal behaviour.
+                + (selectable ? "" : "*{-webkit-user-select:none !important;"
+                + "user-select:none !important;-webkit-touch-callout:none !important;}"
+                + "input,textarea,[contenteditable=\"" + "true" + "\"]{"
+                + "-webkit-user-select:text !important;user-select:text !important;}")
+                // Arena's own sidebar duplicates the app's bottom bar, so it is hidden.
+                + (hideSidebar ? PAGE_SIDEBAR_CSS : "")
+                // The page's own top header (optional).
+                + (hideHeader ? PAGE_HEADER_CSS : "");
 
         String js = "(function(){"
-                + "var id='arena-app-insets';var old=document.getElementById(id);"
-                + "if(old) old.remove();"
-                + "var s=document.createElement('style');s.id=id;"
-                + "s.textContent=" + quote(css) + ";"
-                + "(document.head||document.documentElement).appendChild(s);"
-                // Keep a stable feature phone viewport: height follows the WebView, so
-                // 100vh elements (composer, panels) sit inside the frame.
+                + "var old=document.getElementById('arena-app-insets');"
+                + "if(old)old.remove();"
+                + "var st=document.createElement('style');st.id='arena-app-insets';"
+                + "st.textContent=" + quote(css) + ";"
+                + "(document.head||document.documentElement).appendChild(st);"
                 + "document.documentElement.style.height='100%';"
                 + "document.body.style.height='auto';"
-                // Fallback: hide the container that holds arena's own navigation links.
-                + "var words=['new chat','leaderboard','search'];"
-                + "function looksLikeSidebar(el){"
-                + "var t=((el.innerText||'')+' '+(el.getAttribute&&el.getAttribute('aria-label')||''))"
-                + ".toLowerCase();"
-                + "var hits=0;for(var i=0;i<words.length;i++){if(t.indexOf(words[i])>=0)hits++;}"
-                + "return hits>=3;}"
-                + (hideSidebar
-                ? "var all=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
-                + "for(var i=0;i<all.length;i++){var el=all[i];"
-                + "if(el.offsetParent===null)continue;"
-                + "var w=el.getBoundingClientRect().width,h=el.getBoundingClientRect().height;"
-                + "if(w>420||h<0.5*w)continue;"
-                + "if(looksLikeSidebar(el)){el.style.setProperty('display','none','important');break;}}"
-                : "")
+                + "var undo=[];"
+                + "function hide(el){undo.push(el);"
+                + "el.style.setProperty('display','none','important');}"
+                + "function shown(el){var r=el.getBoundingClientRect();"
+                + "return r.width>0&&r.height>0;}"
+                + "function empty(el){return !el.querySelector("
+                + "'main,textarea,form,[contenteditable=\"true\"]');}"
+                + "function text(el){return ((el.innerText||'')+' '+"
+                + "(el.getAttribute&&el.getAttribute('aria-label')||'')).toLowerCase();}"
+                + (hideSidebar ? JS_SIDEBAR : "")
+                + (hideHeader ? JS_HEADER : "")
                 + "window.dispatchEvent(new Event('arena-insets'));"
+                // Safety net: hiding something must never leave an empty page. If nothing
+                // sizeable is visible afterwards, put everything back and drop the CSS.
+                + "setTimeout(function(){"
+                + "var kids=document.body?document.body.children:[];var ok=false;"
+                + "for(var i=0;i<kids.length;i++){var r=kids[i].getBoundingClientRect();"
+                + "if(r.height>40&&r.width>0){ok=true;break;}}"
+                + "if(!ok){for(var j=0;j<undo.length;j++){"
+                + "undo[j].style.removeProperty('display');}"
+                + "var s2=document.getElementById('arena-app-insets');"
+                + "if(s2)s2.style.setProperty('--arena-sidebar-hidden','0');"
+                + "if(s2)s2.remove();}},700);"
                 + "})();";
         web.evaluateJavascript(js, null);
     }
+
+    /**
+     * CSS that hides the page's own sidebar.
+     *
+     * Every selector carries a :has() guard: an element that contains a <main>, a
+     * textarea, an editable area or a form is the app shell, never the sidebar, so it can
+     * never match. Extra belt: the whole document body is exempt. If a WebView is too old
+     * for :has(), the browser drops the rule rather than applying it, which fails safe
+     * (nothing hidden) instead of blanking the page - that is what happened before.
+     */
+    private static final String GUARD = ":not(body):not(:has(main))"
+            + ":not(:has(textarea)):not(:has(form)):not(:has([contenteditable=\"true\"]))";
+
+    private static final String PAGE_SIDEBAR_CSS =
+            "[class*=\"sidebar\" i]" + GUARD + ","
+            + "[id*=\"sidebar\" i]" + GUARD + ","
+            + "[data-testid*=\"sidebar\" i]" + GUARD + ","
+            + "[aria-label*=\"sidebar\" i]" + GUARD + ","
+            + "[class*=\"side-panel\" i]" + GUARD + ","
+            + "aside" + GUARD + "{display:none !important;}";
+
+    private static final String PAGE_HEADER_CSS =
+            "header" + GUARD + ","
+            + "[role=\"banner\"]" + GUARD + ","
+            + "[class*=\"topbar\" i]" + GUARD + ","
+            + "[class*=\"top-bar\" i]" + GUARD + ","
+            + "[class*=\"app-header\" i]" + GUARD + ","
+            + "[class*=\"main-header\" i]" + GUARD + ","
+            + "[class*=\"page-header\" i]" + GUARD + ","
+            + "[class*=\"navbar\" i]" + GUARD + ","
+            + "[class*=\"nav-bar\" i]" + GUARD + "{display:none !important;}";
+
+    /** Text-based fallback for a sidebar whose class names say nothing. */
+    private static final String JS_SIDEBAR =
+            "var cands=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
+            + "for(var i=0;i<cands.length;i++){var el=cands[i];"
+            + "if(!shown(el)||!empty(el))continue;"
+            + "var r=el.getBoundingClientRect();"
+            + "if(r.width>420||r.height<0.5*r.width)continue;"
+            + "var t=text(el);if(t.length>600)continue;"
+            + "var words=['new chat','leaderboard','search','sign in'];"
+            + "var hits=0;"
+            + "for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0)hits++;}"
+            + "if(hits<3)continue;"
+            + "if(el.querySelectorAll('a,button').length<3)continue;"
+            + "hide(el);break;}";
+
+    /** Text/size based fallback for the page's own top header. */
+    private static final String JS_HEADER =
+            "var tops=document.body?document.body.querySelectorAll('header,nav,div'):[];"
+            + "for(var i=0;i<tops.length;i++){var el=tops[i];"
+            + "if(!shown(el)||!empty(el))continue;"
+            + "var r=el.getBoundingClientRect();"
+            + "if(r.top>10)continue;"
+            + "if(r.height<24||r.height>110)continue;"
+            + "if(r.width<window.innerWidth*0.6)continue;"
+            + "if(el.querySelectorAll('a,img,button').length<1)continue;"
+            + "hide(el);break;}";
 
     /**
      * Drives arena's own sidebar (conversation history) instead of showing a native bar.
@@ -298,7 +362,7 @@ public final class TabWebViews {
             // A tab created before its first load finishes needs the style applied after
             // the document exists, so also queue it for the next load.
             if (loaded.contains(tab)) {
-                applyInsetsTo(w, topPx, bottomPx);
+                applyChromeInsets(w, topPx, bottomPx);
             }
         }
         lastTopInset = topPx;
@@ -354,7 +418,8 @@ public final class TabWebViews {
         s.setDisplayZoomControls(false);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        // Cache aggressively: repeat visits paint from disk, then refresh in place.
+        // Speed: paint the last known copy from disk immediately instead of going to the
+        // network for every asset on every launch, then let the page revalidate itself.
         s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         // Settings -> "Chrome user agent": the clean string is what stops arena's
         // bot check from showing "Verify you are human".
@@ -389,14 +454,14 @@ public final class TabWebViews {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 delegate.onPageStarted(view, url, favicon);
                 loaded.add(tab);
-                applyInsetsTo(view, lastTopInset, lastBottomInset);
+                applyChromeInsets(view, lastTopInset, lastBottomInset);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 delegate.onPageFinished(view, url);
                 loaded.add(tab);
-                applyInsetsTo(view, lastTopInset, lastBottomInset);
+                applyChromeInsets(view, lastTopInset, lastBottomInset);
             }
 
             @Override
@@ -433,15 +498,9 @@ public final class TabWebViews {
             @Override
             public void onPageCommitVisible(WebView view, String url) {
                 delegate.onPageCommitVisible(view, url);
-                applyInsetsTo(view, lastTopInset, lastBottomInset);
+                applyChromeInsets(view, lastTopInset, lastBottomInset);
             }
         };
-    }
-
-    /** applyChromeInsets() plus the two page switches from Settings. */
-    private void applyInsetsTo(WebView web, int topPx, int bottomPx) {
-        applyChromeInsets(web, topPx, bottomPx,
-                Settings.hideWebSidebar(activity), Settings.hideWebHeader(activity));
     }
 
     /** Keeps at most MAX_WARM WebViews; drops the least recently used background tab. */

@@ -12,11 +12,11 @@
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Version,
-    [Parameter(Mandatory = $true)][string]$Token,
+    [string]$Token = "",
     [string]$Notes = "",
     [string]$Channel = "stable",
     [string]$Owner = "Erawat4l",
-    [string]$Repo = "Arena-Ai-App"
+    [string]$Repo = "Agon"
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +32,36 @@ function Fail($message) {
     Write-Host "[X] $message" -ForegroundColor Red
     exit 1
 }
+
+# ---------------------------------------------------------------- token hygiene
+# A token read from a file or an environment variable can carry a trailing CR, an LF, a
+# BOM or stray spaces. To cmd.exe that still looks like a token, but to GitHub it is an
+# invalid credential, and it answers 401 without saying why. Strip all of it first.
+$Token = ($Token -replace "[\r\n\t ]", "").Trim()
+if ($Token -match "^\uFEFF") { $Token = $Token.Substring(1) }
+if ($Token.StartsWith("Bearer ")) { $Token = $Token.Substring(7) }
+
+# Only complain about the length of a token that was actually supplied.
+if ($Token.Length -gt 0 -and $Token.Length -lt 20) {
+    Fail "The token is only $($Token.Length) characters long, so it was truncated when it was copied. Copy the whole thing from GitHub."
+}
+
+# With no token, borrow the one the GitHub CLI is already signed in with. That is the
+# same credential used to rename the repo, so a machine that can run gh can publish,
+# and there is no second place for a token to go stale.
+if (-not $Token) {
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    if ($null -ne $gh) {
+        try {
+            $fromGh = (& $gh.Source auth token 2>$null | Out-String).Trim()
+            if ($fromGh) {
+                $Token = $fromGh
+                Write-Host "Using the credential the GitHub CLI is signed in with." -ForegroundColor Cyan
+            }
+        } catch { }
+    }
+}
+
 
 # ---------------------------------------------------------------- version
 $Version = $Version.TrimStart("v", "V")
@@ -86,6 +116,10 @@ if ($null -ne $python -and (Test-Path $abiCheck)) {
 }
 Write-Host "      $((Split-Path $asset -Leaf))  ($sizeMb MB)"
 
+if (-not $Token) {
+    Fail "No GitHub token. Either run 'gh auth login' first (publish.bat then reuses it), or store one with: publish.bat --token github_pat_xxx"
+}
+
 # ---------------------------------------------------------------- github api
 $headers = @{
     Authorization          = "Bearer $Token"
@@ -99,7 +133,25 @@ $api = "https://api.github.com/repos/$Owner/$Repo"
 try {
     $me = Invoke-RestMethod -Uri "https://api.github.com/user" -Headers $headers -Method Get
 } catch {
-    Fail "GitHub rejected the token (401). Create one with 'Contents: read and write' on $Owner/$Repo."
+    $detail = ""
+    try { $detail = $_.ErrorDetails.Message } catch { }
+    Write-Host ""
+    Write-Host "GitHub answered 401 Unauthorized for the token itself, so nothing was uploaded." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "That means the credential is not valid any more (or never was). Usual causes, in order:"
+    Write-Host "  1. the token expired or was revoked on GitHub"
+    Write-Host "  2. it is a fine-grained token whose 'Expiration' has passed"
+    Write-Host "  3. an old copy is sitting in gh-token.txt"
+    Write-Host ""
+    Write-Host "Fastest fix, using the GitHub CLI you already have signed in:"
+    Write-Host "     gh auth login" -ForegroundColor Yellow
+    Write-Host "     publish.bat" -ForegroundColor Yellow
+    Write-Host "  (with no gh-token.txt, publish.bat now uses gh's own token)"
+    Write-Host ""
+    Write-Host "Or make a fresh token and store it:"
+    Write-Host "     publish.bat --token github_pat_xxx" -ForegroundColor Yellow
+    if ($detail) { Write-Host ""; Write-Host "GitHub said: $detail" }
+    exit 1
 }
 
 # Fail early with a clear message when the token can read the repo but not write to it.

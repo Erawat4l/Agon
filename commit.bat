@@ -141,7 +141,7 @@ goto :open_release
 REM ---------- 7. release page -------------------------------------------
 :open_release
 echo [7/7] Opening the release page...
-start "" "https://github.com/Erawat4l/Arena-Ai-App/releases/tag/!TAG!"
+start "" "https://github.com/Erawat4l/Agon/releases/tag/!TAG!"
 
 :done
 echo.
@@ -149,7 +149,7 @@ echo =============================================
 echo   Done - Arena !VERSION!
 echo =============================================
 echo   APK:          %~dp0Agon-!VERSION!.apk
-echo   Release:      https://github.com/Erawat4l/Arena-Ai-App/releases/tag/!TAG!
+echo   Release:      https://github.com/Erawat4l/Agon/releases/tag/!TAG!
 echo   In the app:   More -^> Update -^> Check for updates
 echo.
 exit /b 0
@@ -198,7 +198,7 @@ exit /b 1
 
 :no_git
 echo [X] This folder is not a git repository.
-echo     git clone -b arena/0b045796-arena-ai-app https://github.com/Erawat4l/Arena-Ai-App.git
+echo     git clone https://github.com/Erawat4l/Agon.git
 exit /b 1
 
 :build_failed

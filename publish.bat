@@ -67,11 +67,31 @@ if "!CHANNEL!"=="" set "CHANNEL=stable"
 
 REM ---------- token -------------------------------------------------------
 set "TOKEN="
+set "TOKENSRC="
 if exist "gh-token.txt" set /p TOKEN=<gh-token.txt
-if defined GH_TOKEN set "TOKEN=!GH_TOKEN!"
-if defined GITHUB_TOKEN set "TOKEN=!GITHUB_TOKEN!"
+if defined TOKEN set "TOKENSRC=gh-token.txt"
+if defined GH_TOKEN (
+    set "TOKEN=!GH_TOKEN!"
+    set "TOKENSRC=GH_TOKEN"
+)
+if defined GITHUB_TOKEN (
+    set "TOKEN=!GITHUB_TOKEN!"
+    set "TOKENSRC=GITHUB_TOKEN"
+)
+REM Last resort: reuse the credential the GitHub CLI is already signed in with.
+if not defined TOKEN (
+    where gh >nul 2>nul
+    if not errorlevel 1 (
+        for /f "usebackq delims=" %%T in (`gh auth token 2^>nul`) do set "TOKEN=%%T"
+        if defined TOKEN (
+            set "TOKENSRC=gh auth token"
+            echo [3/4] Token: reusing the GitHub CLI login
+        )
+    )
+)
 if not defined TOKEN goto :need_token
-echo [3/4] Token: found
+echo [3/4] Token: from !TOKENSRC!
+if "!TOKENSRC!"=="gh-token.txt" echo       ^(delete gh-token.txt to use the GitHub CLI login instead^)
 goto :publish
 
 :need_token
@@ -80,7 +100,8 @@ echo [3/4] A GitHub token is needed once, to upload the release.
 echo.
 echo     Create one (2 minutes):
 echo       1. Open https://github.com/settings/personal-access-tokens/new
-echo       2. Repository access: Only select repositories . Arena-Ai-App
+echo          ^(or delete gh-token.txt if an old token is stored there^)
+echo       2. Repository access: Only select repositories . Agon
 echo       3. Permissions: Contents ^= Read and write
 echo       4. Generate, copy the token, then run:  publish.bat --token YOUR_TOKEN
 echo.
@@ -113,13 +134,13 @@ exit /b 0
 
 :no_git
 echo [X] This folder is not a git repository.
-echo     Clone it first:  git clone -b arena/0b045796-arena-ai-app https://github.com/Erawat4l/Arena-Ai-App.git
+echo     Clone it first:  git clone https://github.com/Erawat4l/Agon.git
 exit /b 1
 
 :failed
 echo.
 echo [X] Publish failed. Common causes:
-echo       - Token lacks "Contents: read and write" on Erawat4l/Arena-Ai-App
+echo       - Token lacks "Contents: read and write" on Erawat4l/Agon
 echo       - No internet / proxy blocking api.github.com
 echo       - The Gradle build itself failed (scroll up)
 exit /b 1

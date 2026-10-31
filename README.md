@@ -335,6 +335,10 @@ updating:
 3. Permissions → **Contents: Read and write**
 4. Generate, then `publish.bat --token github_pat_…`
 
+The token is optional if the GitHub CLI is already signed in on that machine: with no
+`gh-token.txt`, no `GH_TOKEN` and no `GITHUB_TOKEN` set, `publish.bat` reuses the
+credential `gh auth login` stored, so there is only ever one copy to keep alive.
+
 Use **Read-only** Contents for the token you paste into the app; the write token is only
 for publishing from your PC.
 
@@ -559,7 +563,7 @@ client, keep `NOTICE.md`, and do not put Arena's logo in it.
 | Blank page after sign-in | Clear the app's data (More → Clear app data), or check that your network allows Google sign-in |
 | Update check says *no release found* | The repository has no published release, or it was renamed: check `repos/Erawat4l/Agon/releases/latest` in a browser |
 | Update offered forever, same version | You are on `1.4.26` or older, whose `versionCode` disagreed with its tag. Install `1.4.27`+ once by hand; the loop cannot come back |
-| `publish.bat` says 401/403 | Token needs **Contents: read and write** on this exact repo |
+| `publish.bat` says 401/403 | The token is expired, revoked or scoped to another repo. Run `gh auth login`, delete the stale `gh-token.txt`, then `publish.bat` — it reuses the CLI credential |
 | Actions run fails instantly, 0 steps | Actions is blocked for the repo — use `publish.bat` |
 | *App not installed* when updating | Old APK was signed with a different key — uninstall once, then install |
 | No update notification | Allow notifications for Arena (Android 13+ asks on first launch) |

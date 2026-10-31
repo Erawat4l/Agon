@@ -22,7 +22,7 @@ const fs = require('fs');
 
 const START_URL = 'https://arena.ai/';
 const REPO_OWNER = 'Erawat4l';
-const REPO_NAME = 'Arena-Ai-App';
+const REPO_NAME = 'Agon';
 const ARENA_HOSTS = ['arena.ai', 'lmarena.ai'];
 /** Auth surfaces that have to stay inside the app, or the cookie lands somewhere else. */
 const PROVIDER_HOSTS = ['accounts.google.com', 'accounts.youtube.com', 'google.com'];

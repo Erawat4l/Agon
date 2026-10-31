@@ -13,6 +13,7 @@
     <string name="account_signin_sub">Google, inside the app</string>
     <string name="signin_choose">Sign in to Arena</string>
     <string name="signin_choose_sub">Arena accounts use Google. The page opens inside the app.</string>
+    <string name="signin_choose_sub_returning">Your Google account for this device is already known here - picking it is the whole sign-in</string>
     <string name="signin_google">Continue with Google</string>
     <string name="signin_google_hint">Google\'s own account page, in this app</string>
     <string name="signin_in_progress">Signing in</string>

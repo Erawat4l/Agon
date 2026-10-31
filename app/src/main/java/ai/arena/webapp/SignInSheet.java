@@ -407,8 +407,13 @@ public final class SignInSheet {
         title.setGravity(Gravity.CENTER_HORIZONTAL);
         sheet.addView(title);
 
-        TextView sub = AppUi.text(activity, activity.getString(R.string.signin_choose_sub),
-                13f, R.color.on_bg_muted, false);
+        // Once this device has signed in before, say so: the next attempt shows Google's
+        // account list instead of an address form, and that is the fast path worth knowing
+        // about.
+        final String subText = activity.getString(LocalProfile.signedInAt(activity) > 0
+                ? R.string.signin_choose_sub_returning
+                : R.string.signin_choose_sub);
+        TextView sub = AppUi.text(activity, subText, 13f, R.color.on_bg_muted, false);
         sub.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -688,8 +693,11 @@ public final class SignInSheet {
         column.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
         if (chooser != null) chooser.setVisibility(View.GONE);
         root.bringToFront();
-        // Drop any half-finished provider session so the page starts clean.
-        CookieManager.getInstance().removeSessionCookies(null);
+        // Deliberately *not* wiping the cookie jar here. A half-finished Google page is
+        // rare, and clearing session cookies threw away the one good thing on this
+        // device: a Google session already established for this app. With it intact,
+        // accounts.google.com renders its "choose an account" list and the sign-in is that
+        // one tap; without it, every attempt starts by asking for the address again.
         web.loadUrl(startUrl);
     }
 

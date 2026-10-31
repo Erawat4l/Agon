@@ -16,8 +16,8 @@ android {
         targetSdk 34
         // versionName drives the in-app updater. publish.bat / CI stamp the real
         // version from the release tag, so these are just local defaults.
-        def vCode = (project.findProperty('VERSION_CODE') ?: '1002006').toString()
-        def vName = (project.findProperty('VERSION_NAME') ?: '1.2.6').toString()
+        def vCode = (project.findProperty('VERSION_CODE') ?: '1002007').toString()
+        def vName = (project.findProperty('VERSION_NAME') ?: '1.2.7').toString()
         versionCode vCode.toInteger()
         versionName vName
 

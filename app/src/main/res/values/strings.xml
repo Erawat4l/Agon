@@ -113,7 +113,7 @@
     <string name="settings_chat_taps">Tap gestures on Chat</string>
     <string name="settings_chat_taps_sub">1 tap: current chat · 2 taps: chat history · 3 taps: new chat</string>
     <string name="settings_hide_sidebar">Hide Arena\'s sidebar</string>
-    <string name="settings_hide_sidebar_sub">On by default. Turn it off to get Arena\'s own New Chat / Leaderboard / Search panel back</string>
+    <string name="settings_hide_sidebar_sub">Off by default: the app no longer touches Arena\'s own layout. Turn it on only if you want the page\'s side panel hidden</string>
     <string name="settings_hide_header">Hide the page header</string>
     <string name="settings_hide_header_sub">Keeps the page\'s own top header out of the way</string>
     <string name="settings_keep_scroll">Remember scroll position</string>

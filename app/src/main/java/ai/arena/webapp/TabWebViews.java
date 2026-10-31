@@ -217,6 +217,25 @@ public final class TabWebViews {
                 + "(el.getAttribute&&el.getAttribute('aria-label')||'')).toLowerCase();}"
                 + (hideSidebar ? JS_SIDEBAR : "")
                 + (hideHeader ? JS_HEADER : "")
+                // Arena's composer and floating controls are `position:fixed`, so a margin on
+                // html/body cannot move them: they were pinned to the bottom of the *window*
+                // and the app's bar was drawn over them - the squashed look in the
+                // screenshots. Measure them and lift them by exactly the bar's height, and
+                // shrink anything fixed that would otherwise be cut off at the top.
+                + "function liftFixed(){"
+                + "var els=document.querySelectorAll('body *');"
+                + "for(var i=0;i<els.length;i++){var el=els[i];"
+                + "var cs=getComputedStyle(el);"
+                + "if(cs.position!=='fixed')continue;"
+                + "var r=el.getBoundingClientRect();"
+                + "if(r.width<1||r.height<1)continue;"
+                + "if(r.bottom>=window.innerHeight-" + cssBottom + "-8){"
+                + "el.style.setProperty('transform','translateY(-' + " + cssBottom
+                + " + 'px)','important');"
+                + "el.style.setProperty('max-height','calc(100dvh - " + (cssTop + cssBottom)
+                + "px)','important');"
+                + "}}}"
+                + "liftFixed();"
                 + "window.dispatchEvent(new Event('arena-insets'));"
                 // Safety net: hiding something must never leave an empty page. If nothing
                 // sizeable is visible afterwards, put everything back and drop the CSS.
@@ -229,6 +248,13 @@ public final class TabWebViews {
                 + "var s2=document.getElementById('arena-app-insets');"
                 + "if(s2)s2.style.setProperty('--arena-sidebar-hidden','0');"
                 + "if(s2)s2.remove();}},700);"
+                // Arena re-renders as it navigates; a fixed element that appears later needs
+                // the same lift, so re-run it a few times - cheap, and never more than a
+                // handful of getComputedStyle calls per pass.
+                + "var passes=0;var t=setInterval(function(){"
+                + "if(++passes>12){clearInterval(t);return;}"
+                + "if(document.hidden)return;"
+                + "liftFixed();},600);"
                 + "})();";
         web.evaluateJavascript(js, null);
     }
@@ -276,8 +302,10 @@ public final class TabWebViews {
                 + "user-select:none !important;-webkit-touch-callout:none !important;}"
                 + "input,textarea,[contenteditable=\"" + "true" + "\"]{"
                 + "-webkit-user-select:text !important;user-select:text !important;}")
-                // Arena's own sidebar duplicates the app's bottom bar, so it is hidden.
-                + (hideSidebar ? PAGE_SIDEBAR_CSS : "")
+                // Arena's own panel is NOT hidden with CSS any more: an attribute match on
+                // someone else's markup hid content containers and made the page look
+                // mashed. If the user asks for it, JS_SIDEBAR removes one element that is
+                // provably a nav panel (see there).
                 // The page's own top header (optional).
                 + (hideHeader ? PAGE_HEADER_CSS : "");
     }
@@ -293,14 +321,6 @@ public final class TabWebViews {
      */
     private static final String GUARD = ":not(body):not(:has(main))"
             + ":not(:has(textarea)):not(:has(form)):not(:has([contenteditable=\"true\"]))";
-
-    private static final String PAGE_SIDEBAR_CSS =
-            "[class*=\"sidebar\" i]" + GUARD + ","
-            + "[id*=\"sidebar\" i]" + GUARD + ","
-            + "[data-testid*=\"sidebar\" i]" + GUARD + ","
-            + "[aria-label*=\"sidebar\" i]" + GUARD + ","
-            + "[class*=\"side-panel\" i]" + GUARD + ","
-            + "aside" + GUARD + "{display:none !important;}";
 
     private static final String PAGE_HEADER_CSS =
             "header" + GUARD + ","
@@ -324,8 +344,13 @@ public final class TabWebViews {
             + "var words=['new chat','leaderboard','search','sign in'];"
             + "var hits=0;"
             + "for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0)hits++;}"
-            + "if(hits<3)continue;"
-            + "if(el.querySelectorAll('a,button').length<3)continue;"
+            // Four words, not three: a landing page can easily contain three of them by
+            // coincidence, and hiding a content container is exactly the bug this must not
+            // repeat. A real nav panel has all four.
+            + "if(hits<4)continue;"
+            + "if(el.querySelectorAll('a,button').length<4)continue;"
+            // ...and never hide anything that contains the composer or the main region.
+            + "if(el.querySelector('main,textarea,form,[contenteditable]'))continue;"
             + "hide(el);break;}";
 
     /** Text/size based fallback for the page's own top header. */

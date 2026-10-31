@@ -202,13 +202,20 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
         });
 
-        // No head panel and no top strip: arena's own header is the header. The page is
-        // the whole screen apart from the bottom nav, which is reserved in CSS.
+        // No head panel and no top strip: arena's own header is the header.
+        //
+        // The nav used to be an *overlay* pinned to the bottom of the window, with the page
+        // told to reserve its height in CSS. That never worked: the WebView still filled the
+        // whole column, so arena's own bottom row - the model picker, the attach button, the
+        // send button - sat *behind* the bar, unseeable and untappable, and the only thing
+        // left to tap was the top edge of it ("can't even click on model or add file").
+        //
+        // As the last row of the column it is real estate: the page ends where the bar
+        // begins, nothing is covered, and no CSS has to guess. It is still the last child of
+        // `column`, so sheets and the error view overlay the whole window above it.
         navArea = buildNavArea();
-        FrameLayout.LayoutParams navLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        navLp.gravity = Gravity.BOTTOM;
-        window.addView(navArea, navLp);
+        column.addView(navArea, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         setContentView(window);
         navArea.setVisibility(Settings.showNav(this) ? View.VISIBLE : View.GONE);
@@ -223,10 +230,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         window.setOnApplyWindowInsetsListener((v, insets) -> {
             // `nav` is a field (the bottom bar view); this is only a measurement.
             int systemInset = 0;
+            int imeInset = 0;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 android.graphics.Insets bars = insets.getInsets(
                         android.view.WindowInsets.Type.navigationBars());
                 systemInset = bars.bottom;
+                imeInset = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom;
             } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2) {
                 systemInset = insets.getSystemWindowInsetBottom();
             }
@@ -234,6 +243,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 systemNavInset = systemInset;
                 if (navArea != null) navArea.setPadding(0, 0, 0, systemInset);
                 applyChromeInsets();
+            }
+            // The bar lives in the layout now, so when the keyboard covers its area it can
+            // go away for that moment instead of sitting on top of the keyboard. The page
+            // gets the room back automatically because the row is gone.
+            boolean keyboard = imeInset > systemInset;
+            if (navArea != null) {
+                int want = keyboard ? View.GONE : (Settings.showNav(MainActivity.this)
+                        ? View.VISIBLE : View.GONE);
+                if (navArea.getVisibility() != want) navArea.setVisibility(want);
             }
             return insets;
         });
@@ -425,14 +443,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // underneath the nav and could not be tapped.
         // Settings -> "Show the bottom bar": with it off the page gets the whole frame
         // and is not padded at the bottom either.
-        final boolean navOn = Settings.showNav(this);
-        final int barHeight = AppUi.collapsedHeight(this) + Math.max(1, AppUi.dp(this, 1));
-        // The system gesture area is part of the bar's footprint now: the bar is padded by
-        // it, so its measured height already includes it, but the first layout pass (and
-        // every pass where the bar is hidden) needs the number computed rather than measured.
-        final int bottom = !navOn
-                ? 0
-                : Math.max(navArea != null ? navArea.getHeight() : 0, barHeight + systemNavInset);
+        // Nothing of the app's own is drawn over the page any more: the nav is the last row of
+        // the column, so the WebView physically ends above it and the page needs no reserved
+        // space at the bottom. Reserving it as well double-counted the bar and pushed arena's
+        // composer and its model/attach row up by a whole bar height on their own.
+        final int bottom = 0;
         chromeBottom = bottom;
         tabs.applyInsetsToAll(top, bottom);
     }
@@ -1210,13 +1225,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     /** Rebuilds the bar (used when the version label is switched on/off). */
     private void rebuildNavArea() {
         if (window == null || navArea == null) return;
-        int index = window.indexOfChild(navArea);
-        window.removeView(navArea);
+        ViewGroup parent = (ViewGroup) navArea.getParent();
+        if (parent == null) return;
+        int index = parent.indexOfChild(navArea);
+        parent.removeView(navArea);
         navArea = buildNavArea();
-        FrameLayout.LayoutParams navLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        navLp.gravity = Gravity.BOTTOM;
-        window.addView(navArea, Math.max(0, Math.min(index, window.getChildCount())), navLp);
+        parent.addView(navArea, Math.max(0, Math.min(index, parent.getChildCount())),
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
         navArea.setVisibility(Settings.showNav(this) ? View.VISIBLE : View.GONE);
         AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
                 false, false);

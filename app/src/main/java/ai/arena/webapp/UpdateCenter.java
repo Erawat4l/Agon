@@ -50,7 +50,8 @@ public final class UpdateCenter {
         final UpdateManager.Channel channel = parsed;
         IO.execute(() -> {
             final UpdateManager.Result result = UpdateManager.check(app, channel, manual);
-            if (result.updateAvailable && !UpdateManager.alreadyNotified(app, result.latestCode)) {
+            if (result.updateAvailable && Settings.notifyUpdates(app)
+                    && !UpdateManager.alreadyNotified(app, result.latestCode)) {
                 UpdateManager.markNotified(app, result.latestCode);
                 UpdateNotifications.notifyUpdateFound(app, result.versionName,
                         UpdateManager.currentVersionName(app));
@@ -72,7 +73,9 @@ public final class UpdateCenter {
      */
     public static void maybeAutoCheck(final Context context, final CheckCallback callback) {
         final Context app = context.getApplicationContext();
-        if (!UpdateManager.autoCheck(app)) return;
+        // Settings is the single source of truth for "check automatically"; the older
+        // Update-screen switch writes through to it (see UpdateSheet), so both agree.
+        if (!UpdateManager.autoCheck(app) || !Settings.autoCheck(app)) return;
         long age = System.currentTimeMillis() - UpdateManager.lastCheck(app);
         if (age >= 0 && age < AUTO_INTERVAL_MS) return;
         checkAsync(app, false, callback);

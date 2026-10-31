@@ -95,7 +95,16 @@ public final class TabWebViews {
     /** Creates the tab's WebView if needed and shows it. Cheap after the first visit. */
     public WebView show(int tab) {
         WebView target = ensure(tab);
+        boolean switched = currentTab != -1 && currentTab != tab;
         currentTab = tab;
+        // Settings -> "Remember scroll position": when off, every visit starts at the
+        // top of the page instead of where the tab was left.
+        if (switched && !Settings.keepScroll(activity)) {
+            final WebView scrolled = target;
+            main.post(() -> scrolled.evaluateJavascript(
+                    "window.scrollTo(0,0);var m=document.scrollingElement;if(m)m.scrollTop=0;",
+                    null));
+        }
         if (target.getVisibility() != android.view.View.VISIBLE) {
             target.setVisibility(android.view.View.VISIBLE);
             target.setAlpha(0f);
@@ -157,7 +166,8 @@ public final class TabWebViews {
      *  2. the layout is pinned to the viewport (100dvh, no horizontal overflow) so the
      *     page always fits the app frame instead of growing past it.
      */
-    public static void applyChromeInsets(WebView web, int topPx, int bottomPx) {
+    public static void applyChromeInsets(WebView web, int topPx, int bottomPx,
+                                        boolean hideSidebar, boolean hideHeader) {
         if (web == null) return;
         float density = web.getResources().getDisplayMetrics().density;
         int cssTop = Math.round(Math.max(0, topPx) / density);
@@ -181,9 +191,16 @@ public final class TabWebViews {
                 // navigation is removed instead of being reserved space for. The selectors
                 // cover the shapes the page uses today; the JS below also hides a
                 // matching element it can identify by its text, for layouts we do not know.
-                + "[class*=\"sidebar\" i],[data-testid*=\"sidebar\" i],"
+                + (hideSidebar
+                ? "[class*=\"sidebar\" i],[data-testid*=\"sidebar\" i],"
                 + "nav[class*=\"side\" i],aside{display:none !important;}"
-                + "html{--arena-sidebar-hidden:1;}";
+                + "html{--arena-sidebar-hidden:1;}"
+                : "")
+                // Optional: the page's own header (Settings -> "Hide the page header").
+                + (hideHeader
+                ? "header,[class*=\"topbar\" i],[class*=\"top-bar\" i],"
+                + "[data-testid*=\"header\" i]{display:none !important;}"
+                : "");
 
         String js = "(function(){"
                 + "var id='arena-app-insets';var old=document.getElementById(id);"
@@ -202,12 +219,14 @@ public final class TabWebViews {
                 + ".toLowerCase();"
                 + "var hits=0;for(var i=0;i<words.length;i++){if(t.indexOf(words[i])>=0)hits++;}"
                 + "return hits>=3;}"
-                + "var all=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
+                + (hideSidebar
+                ? "var all=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
                 + "for(var i=0;i<all.length;i++){var el=all[i];"
                 + "if(el.offsetParent===null)continue;"
                 + "var w=el.getBoundingClientRect().width,h=el.getBoundingClientRect().height;"
                 + "if(w>420||h<0.5*w)continue;"
                 + "if(looksLikeSidebar(el)){el.style.setProperty('display','none','important');break;}}"
+                : "")
                 + "window.dispatchEvent(new Event('arena-insets'));"
                 + "})();";
         web.evaluateJavascript(js, null);
@@ -279,7 +298,7 @@ public final class TabWebViews {
             // A tab created before its first load finishes needs the style applied after
             // the document exists, so also queue it for the next load.
             if (loaded.contains(tab)) {
-                applyChromeInsets(w, topPx, bottomPx);
+                applyInsetsTo(w, topPx, bottomPx);
             }
         }
         lastTopInset = topPx;
@@ -337,7 +356,11 @@ public final class TabWebViews {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         // Cache aggressively: repeat visits paint from disk, then refresh in place.
         s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
-        s.setUserAgentString(AppChrome.userAgent(activity, s.getUserAgentString()));
+        // Settings -> "Chrome user agent": the clean string is what stops arena's
+        // bot check from showing "Verify you are human".
+        s.setUserAgentString(Settings.chromeUserAgent(activity)
+                ? AppChrome.userAgent(activity, s.getUserAgentString())
+                : s.getUserAgentString());
         // A WebView is identified to bot-detection scripts by these two too, not just the
         // UA string: without a profile the page can report "in-app browser" and serve a
         // Turnstile challenge. Keep the DOM/storage behaviour, hide the wrapper.
@@ -366,14 +389,14 @@ public final class TabWebViews {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 delegate.onPageStarted(view, url, favicon);
                 loaded.add(tab);
-                applyChromeInsets(view, lastTopInset, lastBottomInset);
+                applyInsetsTo(view, lastTopInset, lastBottomInset);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 delegate.onPageFinished(view, url);
                 loaded.add(tab);
-                applyChromeInsets(view, lastTopInset, lastBottomInset);
+                applyInsetsTo(view, lastTopInset, lastBottomInset);
             }
 
             @Override
@@ -410,9 +433,15 @@ public final class TabWebViews {
             @Override
             public void onPageCommitVisible(WebView view, String url) {
                 delegate.onPageCommitVisible(view, url);
-                applyChromeInsets(view, lastTopInset, lastBottomInset);
+                applyInsetsTo(view, lastTopInset, lastBottomInset);
             }
         };
+    }
+
+    /** applyChromeInsets() plus the two page switches from Settings. */
+    private void applyInsetsTo(WebView web, int topPx, int bottomPx) {
+        applyChromeInsets(web, topPx, bottomPx,
+                Settings.hideWebSidebar(activity), Settings.hideWebHeader(activity));
     }
 
     /** Keeps at most MAX_WARM WebViews; drops the least recently used background tab. */
@@ -472,6 +501,28 @@ public final class TabWebViews {
             w.clearFormData();
         }
         reloadCurrent();
+    }
+
+    /**
+     * Re-applies the user-agent choice to every warm tab.
+     *
+     * A WebView keeps the UA it was created with, so flipping "Chrome user agent" in
+     * Settings has to push the new string into the settings object and reload the page
+     * for arena to see it.
+     */
+    public void applyUserAgentToAll() {
+        for (WebView w : views.values()) {
+            WebSettings s = w.getSettings();
+            s.setUserAgentString(Settings.chromeUserAgent(activity)
+                    ? AppChrome.userAgent(activity, s.getUserAgentString())
+                    : AppChrome.defaultUserAgent(activity));
+            w.reload();
+        }
+    }
+
+    /** Reloads every warm tab (page-hiding rules changed, so a repaint is needed). */
+    public void reloadAll() {
+        for (WebView w : views.values()) w.reload();
     }
 
     public void reloadCurrent() {

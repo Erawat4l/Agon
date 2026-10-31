@@ -23,7 +23,26 @@ public final class AppChrome {
      * suffix that a bot-detection rule could key on.
      */
     public static String userAgent(Activity activity, String defaultUa) {
-        String ua = defaultUa == null ? "" : defaultUa;
+        String ua = clean(defaultUa);
+        if (ua.trim().isEmpty()) ua = defaultUserAgent(activity);
+        return ua.trim();
+    }
+
+    /**
+     * What the WebView reports with the "Chrome user agent" switch turned off: a
+     * vanilla WebView UA, no app token. Arena can still spot it, which is exactly why
+     * the switch defaults to on.
+     */
+    public static String defaultUserAgent(Activity activity) {
+        // Deliberately *not* cleaned: with the switch off the app should report exactly
+        // what the WebView is, which is what some sites insist on (and others punish).
+        String ua = android.webkit.WebSettings.getDefaultUserAgent(activity);
+        return ua == null ? "" : ua;
+    }
+
+    /** Strips the WebView marker, the app token and the stock Chrome version token. */
+    private static String clean(String uaIn) {
+        String ua = uaIn == null ? "" : uaIn;
         ua = ua.replace("; wv)", ")").replace("; wv ", " ").replace("Version/4.0 ", "");
         // Drop any previous app suffix so the string stays byte-stable across updates.
         int marker = ua.indexOf(" ArenaApp/");

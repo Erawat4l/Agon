@@ -57,6 +57,9 @@ public final class UpdateNotifications {
 
     /** "An Arena update is ready" with the chime. Tapping it opens the update sheet. */
     public static void notifyUpdateFound(Context context, String newVersion, String current) {
+        // Settings -> "Update notifications". The update still appears as the dot on
+        // More; this only controls the chime and the notification.
+        if (!Settings.notifyUpdates(context.getApplicationContext())) return;
         ensureChannels(context);
         NotificationManager nm = (NotificationManager)
                 context.getSystemService(Context.NOTIFICATION_SERVICE);

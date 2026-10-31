@@ -34,7 +34,9 @@ public final class CrashLog {
         final Thread.UncaughtExceptionHandler previous =
                 Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
-            write(app, error);
+            // Settings -> "Show crash details": with the switch off the app reports
+            // the crash the normal Android way and nothing is written to disk.
+            if (Settings.crashScreen(app)) write(app, error);
             if (previous != null) previous.uncaughtException(thread, error);
         });
     }

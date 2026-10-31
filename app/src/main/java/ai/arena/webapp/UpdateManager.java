@@ -199,6 +199,8 @@ public final class UpdateManager {
 
     public static void setAutoCheck(Context c, boolean on) {
         prefs(c).edit().putBoolean("auto_check", on).apply();
+        // One switch, two surfaces: the Update screen and Settings must never disagree.
+        Settings.prefs(c).edit().putBoolean(Settings.K_AUTO_CHECK, on).apply();
     }
 
     // ---------------------------------------------------------------- result

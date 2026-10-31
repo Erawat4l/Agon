@@ -65,6 +65,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private View tokenSheet;
     private SignInSheet signInSheet;
     private AccountPicker accountPicker;
+    private SettingsSheet settingsSheet;
 
     private boolean navExpanded = false;
     private int currentTab = AppUi.TAB_CHAT;
@@ -113,7 +114,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             buildShell(savedInstanceState);
         } catch (Throwable error) {
             CrashLog.write(this, error);
-            showCrashScreen(error);
+            if (Settings.crashScreen(this)) {
+                showCrashScreen(error);
+            } else {
+                throw error;
+            }
         }
     }
 
@@ -191,6 +196,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         window.addView(navArea, navLp);
 
         setContentView(window);
+        navArea.setVisibility(Settings.showNav(this) ? View.VISIBLE : View.GONE);
 
         tabs.show(AppUi.TAB_CHAT);
         TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
@@ -344,6 +350,16 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         nav = AppUi.buildNav(this, false, v -> selectTab((Integer) v.getTag()));
         area.addView(nav.bar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, AppUi.collapsedHeight(this)));
+        // Settings -> "Show version in the bar": a small build label under the icons.
+        if (Settings.showVersion(this)) {
+            TextView version = AppUi.text(this, getString(R.string.menu_version,
+                            UpdateManager.currentVersionName(this),
+                            UpdateManager.currentVersionCode(this)),
+                    10f, R.color.on_bg_muted, false);
+            version.setGravity(Gravity.CENTER);
+            area.addView(version, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         // Labels stay hidden: the icon plus its content description is enough, and the
         // names exist inside arena's own sidebar.
         navExpanded = false;
@@ -366,9 +382,14 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // overlay over the page, so its height has to be reserved inside the page -
         // without it the last row of arena's own sidebar (its "Log in" button) sat
         // underneath the nav and could not be tapped.
-        final int bottom = navArea != null && navArea.getHeight() > 0
+        // Settings -> "Show the bottom bar": with it off the page gets the whole frame
+        // and is not padded at the bottom either.
+        final boolean navOn = Settings.showNav(this);
+        final int bottom = !navOn
+                ? 0
+                : (navArea != null && navArea.getHeight() > 0
                 ? navArea.getHeight()
-                : AppUi.collapsedHeight(this) + AppUi.dp(this, 1);
+                : AppUi.collapsedHeight(this) + AppUi.dp(this, 1));
         tabs.applyInsetsToAll(top, bottom);
     }
 
@@ -383,6 +404,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * The taps are counted in a short window so a double tap never also fires once.
      */
     private void onChatTap() {
+        if (!Settings.chatTaps(this)) {
+            // Gestures off: the Chat icon is a plain tab, exactly like the others.
+            tapHandler.removeCallbacks(flushChatTaps);
+            chatTaps = 0;
+            showChat();
+            return;
+        }
         chatTaps++;
         tapHandler.removeCallbacks(flushChatTaps);
         tapHandler.postDelayed(flushChatTaps, CHAT_TAP_WINDOW_MS);
@@ -418,6 +446,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     private void hideChatSheets() {
+        closeSettingsNow();
         if (updateSheet != null) closeUpdateSheet();
         if (menuSheet != null) {
             AppUi.slideDownAndRemove(menuSheet, window);
@@ -432,6 +461,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         }
         // Switching tabs from under an open sheet would leave the sheet floating over a
         // different page. Close it first; the nav then reflects the page really shown.
+        closeSettingsNow();
         if (updateSheet != null) closeUpdateSheet();
         if (menuSheet != null) {
             AppUi.slideDownAndRemove(menuSheet, window);
@@ -798,6 +828,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
+            public void onSettings() {
+                showSettingsSheet();
+            }
+
+            @Override
             public void onClearAppData() {
                 if (tabs != null) tabs.clearAndReload();
             }
@@ -813,6 +848,110 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 menuSheet = null;
             }
         });
+    }
+
+    /**
+     * Opens Settings. It is a sheet over the current page (not a tab), so every switch
+     * can be flipped while looking at the thing it changes.
+     */
+    void showSettingsSheet() {
+        if (settingsSheet != null) return;
+        settingsSheet = new SettingsSheet(this, window, new SettingsSheet.Host() {
+            @Override
+            public void closeSettings() {
+                if (settingsSheet != null) settingsSheet.dismiss();
+                settingsSheet = null;
+            }
+
+            @Override
+            public void setAppearance(int mode) {
+                AppUi.setAppearance(MainActivity.this, mode);
+                recreateWithAnimation();
+            }
+
+            @Override
+            public void onSettingsChanged(String key, boolean value) {
+                applySetting(key, value);
+            }
+
+            @Override
+            public void onSignOut() {
+                closeSettingsNow();
+                if (tabs != null) tabs.clearAndReload();
+            }
+
+            @Override
+            public void onClearData() {
+                closeSettingsNow();
+                if (tabs != null) tabs.clearAndReload();
+            }
+
+            @Override
+            public void onResetSettings() {
+                Settings.reset(MainActivity.this);
+                closeSettingsNow();
+                recreateWithAnimation();
+            }
+        });
+        settingsSheet.show();
+    }
+
+    private void closeSettingsNow() {
+        if (settingsSheet != null) settingsSheet.dismiss();
+        settingsSheet = null;
+    }
+
+    /** Applies one switch immediately, without recreating the activity. */
+    private void applySetting(String key, boolean value) {
+        switch (key) {
+            case Settings.K_SHOW_NAV:
+                applyNavVisibility();
+                break;
+            case Settings.K_HIDE_WEB_SIDEBAR:
+            case Settings.K_HIDE_WEB_HEADER:
+                // The rules are a <style> element that is replaced on every pass, so the
+                // change lands immediately. Turning a hiding rule *off* also needs a
+                // reload, because the JS fallback hid a container with an inline style.
+                applyChromeInsets();
+                if (!value && tabs != null) tabs.reloadAll();
+                break;
+            case Settings.K_DESKTOP_UA:
+                if (tabs != null) tabs.applyUserAgentToAll();
+                break;
+            case Settings.K_NOTIFY_UPDATES:
+                if (!value) UpdateNotifications.cancelAll(this);
+                break;
+            case Settings.K_KEEP_SCROLL:
+                break;
+            case Settings.K_SHOW_VERSION:
+                rebuildNavArea();
+                break;
+            default:
+                break;
+        }
+    }
+
+    /** Shows/hides the bottom bar and hands the freed space back to the page. */
+    private void applyNavVisibility() {
+        if (navArea == null) return;
+        navArea.setVisibility(Settings.showNav(this) ? View.VISIBLE : View.GONE);
+        applyChromeInsets();
+    }
+
+    /** Rebuilds the bar (used when the version label is switched on/off). */
+    private void rebuildNavArea() {
+        if (window == null || navArea == null) return;
+        int index = window.indexOfChild(navArea);
+        window.removeView(navArea);
+        navArea = buildNavArea();
+        FrameLayout.LayoutParams navLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        navLp.gravity = Gravity.BOTTOM;
+        window.addView(navArea, Math.max(0, Math.min(index, window.getChildCount())), navLp);
+        navArea.setVisibility(Settings.showNav(this) ? View.VISIBLE : View.GONE);
+        AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
+                false, false);
+        applyChromeInsets();
     }
 
     private void recreateWithAnimation() {
@@ -1023,6 +1162,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     @Override
     public void onBackPressed() {
+        if (settingsSheet != null) {
+            closeSettingsNow();
+            return;
+        }
         if (signInSheet != null && signInSheet.isShowing()) {
             signInSheet.dismiss();
             return;

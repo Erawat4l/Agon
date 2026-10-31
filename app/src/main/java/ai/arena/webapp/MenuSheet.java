@@ -10,7 +10,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Animated "More" sheet: update, reload, share, browser, theme, clear data. */
+/** Animated "More" sheet: update, settings, reload, account, theme, clear data. */
 public final class MenuSheet {
 
     public interface Callback {
@@ -19,6 +19,8 @@ public final class MenuSheet {
         void onOpenUpdate();
 
         void onSignIn();
+
+        void onSettings();
 
         void onClearAppData();
 
@@ -61,6 +63,13 @@ public final class MenuSheet {
                 R.drawable.ic_nav_update, updateAvailable, v -> {
                     dismiss(parent, scrim, callback);
                     callback.onOpenUpdate();
+                });
+
+        addRow(activity, sheet, R.string.menu_settings,
+                activity.getString(R.string.menu_settings_sub), R.drawable.ic_nav_settings,
+                false, v -> {
+                    dismiss(parent, scrim, callback);
+                    callback.onSettings();
                 });
 
         addRow(activity, sheet, R.string.reload, null, R.drawable.ic_nav_reload, false, v -> {

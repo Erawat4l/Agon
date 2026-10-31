@@ -313,16 +313,63 @@ public final class UpdateManager {
 
     private static JSONObject fetchRelease(Context context, Channel channel) throws Exception {
         boolean beta = channel == Channel.BETA;
-        String body = httpGet(beta ? API_ALL : API_STABLE, context);
-        if (beta) {
-            JSONArray arr = new JSONArray(body);
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject rel = arr.getJSONObject(i);
-                if (!rel.optBoolean("draft", false)) return rel;
+        JSONObject latest = null;
+        if (!beta) {
+            try {
+                latest = new JSONObject(httpGet(API_STABLE, context));
+            } catch (Exception ignored) {
+                // A bad release body falls through to the list below rather than failing.
             }
-            return null;
         }
-        return new JSONObject(body);
+
+        // "Which release is new enough to install" is decided here, from the tag, and not by
+        // which release GitHub happens to call latest. A release published out of order (or
+        // one whose tag sorts lower than an earlier release) used to leave the app comparing
+        // itself against the highest .apk it could see - so a repository that once reached
+        // 1.4.29 and then published 1.0.2 showed every phone "you are up to date" for ever.
+        JSONObject best = higher(latest, fetchBest(beta ? 3 : 1, beta, context));
+        return best;
+    }
+
+    /**
+     * Highest-numbered published release among the first {@code pages} pages of the release
+     * list, by the same versionCode the updater compares. Ignored: drafts and, on the stable
+     * channel, pre-releases. Returns null when nothing qualifies.
+     */
+    private static JSONObject fetchBest(int pages, boolean includePre, Context context) {
+        JSONObject best = null;
+        int bestCode = 0;
+        for (int page = 1; page <= pages; page++) {
+            JSONArray arr;
+            try {
+                arr = new JSONArray(httpGet(API_ALL + "&page=" + page, context));
+            } catch (Exception e) {
+                break;
+            }
+            if (arr.length() == 0) break;
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject rel = arr.optJSONObject(i);
+                if (rel == null || rel.optBoolean("draft", false)) continue;
+                if (rel.optBoolean("prerelease", false) && !includePre) continue;
+                int code = codeOf(rel);
+                if (code > bestCode) { bestCode = code; best = rel; }
+            }
+        }
+        return best;
+    }
+
+    /** Whichever of the two releases carries the higher versionCode (either may be null). */
+    private static JSONObject higher(JSONObject a, JSONObject b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        return codeOf(b) > codeOf(a) ? b : a;
+    }
+
+    /** versionCode of one release, from its tag and then its name; 0 when unreadable. */
+    private static int codeOf(JSONObject release) {
+        int code = parseVersionCode(release.optString("tag_name", ""));
+        if (code <= 0) code = parseVersion(release.optString("name", ""))[0];
+        return code;
     }
 
     private static String httpGet(String spec, Context context) throws Exception {

@@ -42,15 +42,34 @@ echo [2/4] Version: %VERSION%
 goto :have_version
 
 :bump_version
-REM version.txt is the local baseline (git-ignored so pulls never conflict); the newest
-REM tag is only a fallback for a clone that has never published.
+REM The next version must be higher than BOTH the newest git tag and the last version
+REM published from this folder, whichever is higher. version.txt alone is not enough: a
+REM stale copy of it once took a project from 1.4.29 straight back to 1.0.2, and a release
+REM with a LOWER versionCode than the installed app is invisible for ever - releases/latest
+REM only ever offers something newer, so the app stops finding updates entirely.
+set "TAGTAG="
+for /f "delims=" %%t in ('git tag --list "v*" --sort=-v:refname') do if not defined TAGTAG set "TAGTAG=%%t"
+if defined TAGTAG set "TAGTAG=!TAGTAG:v=!"
+
+set "FILETAG="
+if exist version.txt set /p FILETAG=<version.txt
+if defined FILETAG set "FILETAG=!FILETAG:v=!"
+
+REM Highest wins, compared as major*1000000+minor*1000+patch.
 set "LASTTAG="
-if exist version.txt set /p LASTTAG=<version.txt
-if defined LASTTAG goto :have_tag
-for /f "delims=" %%t in ('git tag --list "v*" --sort=-v:refname') do if not defined LASTTAG set "LASTTAG=%%t"
+set "TAGN=0"
+set "FILEN=0"
+if defined TAGTAG call :version_code TAGTAG TAGN
+if defined FILETAG call :version_code FILETAG FILEN
+if !TAGN! GEQ !FILEN! (
+    set "LASTTAG=!TAGTAG!"
+) else (
+    set "LASTTAG=!FILETAG!"
+)
 if not defined LASTTAG set "LASTTAG=1.0.0"
+TAGTAG=
+FILETAG=
 :have_tag
-set "LASTTAG=!LASTTAG:v=!"
 for /f "tokens=1,2,3 delims=." %%a in ("!LASTTAG!") do (
     set "MAJ=%%a"
     set "MIN=%%b"
@@ -83,10 +102,7 @@ if not defined TOKEN (
     where gh >nul 2>nul
     if not errorlevel 1 (
         for /f "usebackq delims=" %%T in (`gh auth token 2^>nul`) do set "TOKEN=%%T"
-        if defined TOKEN (
-            set "TOKENSRC=gh auth token"
-            echo [3/4] Token: reusing the GitHub CLI login
-        )
+        if defined TOKEN set "TOKENSRC=the GitHub CLI login (gh auth token)"
     )
 )
 if not defined TOKEN goto :need_token
@@ -122,6 +138,22 @@ echo Apps already installed get it via Update -^> Check for updates.
 exit /b 0
 
 REM ---------- helpers -----------------------------------------------------
+REM :version_code <version> <out-var>  -> sets <out-var> to a.b.c as major*1e6+minor*1e3+patch
+:version_code
+set "_v=!%~1!"
+set "_a=0"
+set "_b=0"
+set "_c=0"
+for /f "tokens=1,2,3 delims=." %%a in ("!_v!") do (
+    set "_a=%%a"
+    set "_b=%%b"
+    set "_c=%%c"
+)
+if not defined _b set "_b=0"
+if not defined _c set "_c=0"
+set /a "%~2=_a*1000000+_b*1000+_c"
+goto :eof
+
 :save_token
 set "TOKEN=%~2"
 if "%TOKEN%"=="" (

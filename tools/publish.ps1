@@ -164,6 +164,40 @@ if ($repoInfo.permissions -and -not $repoInfo.permissions.push) {
     Fail "The token can read $Owner/$Repo but not write. Set Contents = Read and write."
 }
 
+# ---------------------------------------------------------------- never go backwards
+# releases/latest only ever offers a build whose versionCode is higher than the one already
+# installed, and the in-app updater compares exactly that number. Publishing a LOWER version
+# than one that already exists (a stale version.txt once produced 1.0.2 on a project that was
+# at 1.4.29) does not downgrade anybody - it is simply invisible for ever, and the phone keeps
+# telling the user there is nothing new. Refuse it here instead.
+try {
+    $allReleases = Invoke-RestMethod -Uri "$api/releases?per_page=100" -Headers $headers -Method Get
+} catch {
+    $allReleases = @()
+}
+$highestCode = 0
+$highestTag = ""
+foreach ($rel in @($allReleases)) {
+    $t = ($rel.tag_name -replace "^[vV]", "")
+    if ($t -match '^(\d+)\.(\d+)\.(\d+)$') {
+        $c = [int]$Matches[1] * 1000000 + [int]$Matches[2] * 1000 + [int]$Matches[3]
+        if ($c -gt $highestCode) { $highestCode = $c; $highestTag = $rel.tag_name }
+    }
+}
+if ($code -lt $highestCode) {
+    Write-Host ""
+    Write-Host "This would publish $tag (versionCode $code), but $highestTag (versionCode $highestCode)" -ForegroundColor Red
+    Write-Host "is already published. A lower version is never offered to an installed app, so" -ForegroundColor Red
+    Write-Host "this release would be invisible and the update check would keep saying" -ForegroundColor Red
+    Write-Host "'you are up to date'." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Publish the next version instead:" -ForegroundColor Yellow
+    Write-Host "     publish.bat            (auto-bumps to the next number)" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  A stale version.txt is the usual cause - delete it, or let the auto-bump overwrite it." -ForegroundColor Yellow
+    exit 1
+}
+
 $sha = (& git rev-parse HEAD).Trim()
 if (-not $Notes) {
     $Notes = "Agon $Version`n`nInstall: download the APK below, tap it and approve Android's update prompt. Apps already running this build detect the release automatically."
@@ -185,7 +219,10 @@ $body = @{
     target_commitish = $sha
     name             = "Agon $Version"
     body             = $Notes
-    draft            = $false
+    # Draft until the APK is actually attached. `releases/latest` ignores drafts, and the
+    # in-app updater reads that endpoint - so a release that fails halfway through can no
+    # longer become the "newest" build with no file in it. It is published at the very end.
+    draft            = $true
     prerelease       = ($Channel -eq "beta")
 } | ConvertTo-Json
 
@@ -210,9 +247,37 @@ foreach ($a in @($release.assets)) {
 }
 
 Write-Host "[3/3] Uploading $((Split-Path $asset -Leaf))..."
+
+# The upload host is not api.github.com, and on Windows PowerShell 5.1 a POST of a few
+# megabytes to it fails intermittently with "the underlying connection was closed: an
+# unexpected error occurred on a send". That is a dropped TLS connection mid-upload, not a
+# rejected token - the release and the build are fine. Retry before giving up.
 $upload = "https://uploads.github.com/repos/$Owner/$Repo/releases/$($release.id)/assets?name=Agon-$Version.apk"
-Invoke-RestMethod -Uri $upload -Headers $headers -Method Post `
-    -ContentType "application/vnd.android.package-archive" -InFile $asset | Out-Null
+$attempt = 0
+$uploaded = $false
+while (-not $uploaded -and $attempt -lt 4) {
+    $attempt++
+    try {
+        Invoke-RestMethod -Uri $upload -Headers $headers -Method Post `
+            -ContentType "application/vnd.android.package-archive" -InFile $asset `
+            -TimeoutSec 600 | Out-Null
+        $uploaded = $true
+    } catch {
+        $reason = $_.Exception.Message
+        if ($attempt -ge 4) {
+            Write-Host ""
+            Write-Host "[X] Uploading the APK failed 4 times. The release $tag was left as a DRAFT," -ForegroundColor Red
+            Write-Host "    so installed apps still see the previous version and nothing broke." -ForegroundColor Red
+            Write-Host "    Last error: $reason" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "  Retry, reusing the same draft instead of building again:" -ForegroundColor Yellow
+            Write-Host "     powershell -NoProfile -ExecutionPolicy Bypass -File tools\upload-apk.ps1 $Version" -ForegroundColor Yellow
+            exit 1
+        }
+        Write-Host "      attempt $attempt failed ($reason) - retrying in 3s..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 3
+    }
+}
 
 # ---------------------------------------------------------------- windows build
 # The desktop client is published from the same tag, so both platforms have exactly one
@@ -263,6 +328,18 @@ if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
     }
 } else {
     Write-Host "[3b] Windows client: skipped (Node.js/npm not found, or desktop/ missing)."
+}
+
+# Nothing above this line is visible to an installed app: the release is still a draft and
+# releases/latest ignores drafts. Only now that the APK (and the Windows files, when they
+# built) are attached does it go live.
+Write-Host "[3c] Publishing $tag..."
+try {
+    $release = Invoke-RestMethod -Uri "$api/releases/$($release.id)" -Headers $headers `
+        -Method Patch -ContentType "application/json" `
+        -Body (@{ draft = $false; prerelease = ($Channel -eq "beta") } | ConvertTo-Json)
+} catch {
+    Fail "The APK uploaded but the release could not be published: $($_.Exception.Message). It is still a draft on GitHub - open the Releases page and press Edit -> Publish."
 }
 
 Write-Host ""

@@ -25,7 +25,7 @@
 
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|fontScale|keyboard|navigation"
             android:exported="true"
             android:launchMode="singleTask"
             android:resizeableActivity="true"

@@ -5,8 +5,14 @@
     <string name="nav_leaderboard">Rankings</string>
     <string name="nav_search">Search</string>
     <string name="nav_update">Update</string>
-    <string name="nav_update_badge">Update — a newer version is available</string>
     <string name="nav_more">More</string>
+    <string name="nav_update_new">Update!</string>
+    <string name="nav_expand_hint">Show or hide navigation labels</string>
+    <string name="signin_title">Sign in to Arena</string>
+    <string name="appearance">Appearance</string>
+    <string name="appearance_system">System</string>
+    <string name="appearance_light">Light</string>
+    <string name="appearance_dark">Dark</string>
 
     <string name="error_title">Can\'t reach Arena</string>
     <string name="error_body">Check your internet connection and try again.</string>
@@ -24,7 +30,6 @@
 
     <!-- update -->
     <string name="app_update">Update</string>
-    <string name="more_title">More</string>
     <string name="menu_version">Arena %1$s (build %2$d)</string>
     <string name="update_pill">v%1$s</string>
     <string name="update_available_short">Version %1$s is ready</string>

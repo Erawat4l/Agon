@@ -47,25 +47,28 @@ public final class ApkInstaller {
         }
     }
 
+    /** True when Android still needs the user to allow installs from this app. */
+    public static boolean needsInstallPermission(Activity activity) {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && !activity.getPackageManager().canRequestPackageInstalls();
+    }
+
+    /** Opens the system toggle; the activity retries the install on return. */
+    public static void openInstallPermissionSettings(Activity activity, int requestCode) {
+        Toast.makeText(activity, R.string.update_allow_install, Toast.LENGTH_LONG).show();
+        try {
+            Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + activity.getPackageName()));
+            activity.startActivityForResult(settings, requestCode);
+        } catch (Exception ignored) {
+        }
+    }
+
     public static void launch(Activity activity, File apk) {
         if (apk == null || !apk.exists()) {
             Toast.makeText(activity, R.string.update_no_file, Toast.LENGTH_LONG).show();
             return;
         }
-
-        // Android 8+: the user must allow this app to install unknown packages.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                && !activity.getPackageManager().canRequestPackageInstalls()) {
-            Toast.makeText(activity, R.string.update_allow_install, Toast.LENGTH_LONG).show();
-            try {
-                Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse("package:" + activity.getPackageName()));
-                activity.startActivity(settings);
-            } catch (Exception ignored) {
-            }
-            return;
-        }
-
         try {
             Uri uri = FileProvider.getUriForFile(activity,
                     activity.getPackageName() + ".fileprovider", apk);

@@ -74,13 +74,50 @@ not paused).
 
 ## It looks like an app, not a browser tab
 
+### Speed: warm tabs, not a website reload
+
+Every tab is its own WebView that is created once and **kept alive**:
+
+| Behaviour | Detail |
+| --- | --- |
+| Tapping a nav item | flips `View.VISIBILITY` on an already-painted WebView — no reload, no white flash, ~1 frame |
+| First visit to a tab | the tab's WebView is pre-built in the background at launch (`TabWebViews.preload()`), so even the first tap skips the cold start |
+| Returning to a tab | keeps DOM, scroll position and session; a silent `focus` event asks the page for fresh data |
+| Caching | `LOAD_CACHE_ELSE_NETWORK` — repeat visits paint from disk cache, then refresh in place |
+| Scroll | scrolling only scrolls; nothing about scrolling triggers a reload |
+| Pull-to-refresh | still available, but only on an explicit pull, and it refreshes the *current* tab |
+| Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
+
+### Sign-in stays inside the app
+
+Google/Apple/GitHub sign-in uses `window.open` / `target=_blank`. Instead of bouncing to
+Chrome, `onCreateWindow` opens an **in-app popup WebView** ("Sign in to Arena") that
+shares the same cookie jar, so the login completes in the app and lands you back on the
+signed-in Arena screen. The popup closes itself once the redirect returns to arena.ai,
+and Back dismisses it.
+
+### Navigation, animation, theme
+
+- Bottom nav shows **icons + labels**; a slim chevron handle above it collapses the bar
+  to icons only and back (the old always-visible bar with a refresh button is gone).
+- Top bar is now just the brand plus a contextual **update chip** (only when one exists)
+  and a single overflow button — no permanent reload/three-dot clutter.
+- The **More** sheet slides up with a scrim fade; the Update sheet does the same;
+  nav items scale on press; tab switches cross-fade; the shell fades in on launch.
+- **Appearance: System / Light / Dark** in the More sheet. It is applied through
+  `attachBaseContext`, so every screen, sheet and dialog follows it immediately
+  (the activity recreates with a fade instead of a hard flash).
+
+### Shell details
+
 | Native shell | What you see |
 | --- | --- |
-| Top bar | Arena logo + name, a live **Update** pill, reload, overflow menu |
-| Bottom navigation (phones) / left rail (tablets, landscape) | **Chat · Rankings · Search · Update · More**, with the active tab tinted |
+| Top bar | Brand only, plus an **update chip** that appears when a release is waiting and one overflow button |
+| Bottom nav | **Chat · Rankings · Search · Update · More** with icons + labels; chevron handle collapses it to icons |
 | Update screen | Bottom sheet: installed vs latest version, release notes, download progress, explicit **Install** |
-| More sheet | Update, reload, share, open in browser, clear data — plus the exact build number |
-| No browser chrome | No URL bar, no tabs, no "powered by Chrome"; app-styled dialogs, sheets and toasts |
+| More sheet | Update, reload, share, open in browser, **appearance**, clear data, plus the exact build number |
+| WebBridge / Downloads | page-generated files (`blob:`, `data:`) land in `Downloads/` |
+| No browser chrome | No URL bar, no tabs, no "powered by Chrome"; app-styled sheets, dialogs and toasts |
 | Pull-to-refresh, offline screen, dark mode | All native, not web fallbacks |
 
 The web content is only the middle of the screen — navigation, update flow and menus

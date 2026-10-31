@@ -106,8 +106,8 @@ public final class UpdateCenter {
      * to confirm — this app can never install silently.
      */
     public static void installApk(Activity activity, File apk) {
-        apk = ApkInstaller.copyToShareable(activity, apk);
-        ApkInstaller.launch(activity, apk);
+        File copy = ApkInstaller.copyToShareable(activity, apk);
+        ApkInstaller.launch(activity, copy);
     }
 
     public static void toastOnMain(Context context, String text) {

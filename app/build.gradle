@@ -16,8 +16,8 @@ android {
         targetSdk 34
         // versionName drives the in-app updater: releases must be tagged v1.0.1,
         // v1.0.2, ... so each release is newer than the installed build.
-        def vCode = (project.findProperty('VERSION_CODE') ?: '1000000').toString()
-        def vName = (project.findProperty('VERSION_NAME') ?: '1.0.0').toString()
+        def vCode = (project.findProperty('VERSION_CODE') ?: '1001000').toString()
+        def vName = (project.findProperty('VERSION_NAME') ?: '1.1.0').toString()
         versionCode vCode.toInteger()
         versionName vName
 

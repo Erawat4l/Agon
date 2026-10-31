@@ -66,10 +66,9 @@ public final class UpdateSheet {
     // ------------------------------------------------------------ build
 
     private View build() {
-        android.widget.FrameLayout root = new android.widget.FrameLayout(activity);
+        android.widget.FrameLayout root = AppUi.sheetScrim(activity,
+                v -> host.closeUpdateSheet());
         root.setTag("sheet-root");
-        root.setBackgroundColor(AppUi.color(activity, R.color.scrim));
-        root.setOnClickListener(v -> host.closeUpdateSheet());
 
         LinearLayout sheet = new LinearLayout(activity);
         sheet.setOrientation(LinearLayout.VERTICAL);
@@ -194,6 +193,7 @@ public final class UpdateSheet {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sheetLp.gravity = Gravity.BOTTOM;
         root.addView(sheet, sheetLp);
+        AppUi.slideUp(sheet);
         return root;
     }
 
@@ -202,6 +202,7 @@ public final class UpdateSheet {
     // ------------------------------------------------------------ state
 
     public void refresh() {
+        AppUi.fadeIn(overlay);
         final int installed = UpdateManager.currentVersionCode(activity);
         final int latest = UpdateManager.latestVersionCode(activity);
         boolean available = UpdateManager.isUpdateAvailable(activity);

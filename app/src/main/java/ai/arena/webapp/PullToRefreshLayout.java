@@ -72,11 +72,20 @@ public class PullToRefreshLayout extends FrameLayout {
         indicator.bringToFront();
     }
 
+    /**
+     * Sets the child whose scroll position decides whether a pull is allowed, while
+     * the layout itself wraps whatever container holds the tabs.
+     */
+    public void setRefreshTarget(View scrollableChild) {
+        this.target = scrollableChild;
+    }
+
     public void setOnRefreshListener(OnRefreshListener l) {
         listener = l;
     }
 
     public void setRefreshing(boolean value) {
+        if (refreshing == value) return;
         refreshing = value;
         pull = 0f;
         indicator.setAlpha(1f);

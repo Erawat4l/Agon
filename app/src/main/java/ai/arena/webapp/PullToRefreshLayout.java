@@ -30,6 +30,7 @@ public class PullToRefreshLayout extends FrameLayout {
     private final int marginPx;
 
     private float downY;
+    private float downX;
     private float pull;
     private boolean pulling;
     private boolean refreshing;
@@ -96,8 +97,20 @@ public class PullToRefreshLayout extends FrameLayout {
         return refreshing;
     }
 
+    /** Clears any in-progress pull (e.g. the user switched tabs mid-gesture). */
+    public void cancelRefreshIfUnfinished() {
+        if (refreshing) return;
+        pulling = false;
+        pull = 0f;
+        indicator.setScaleX(1f);
+        indicator.setScaleY(1f);
+        indicator.setAlpha(1f);
+        indicator.setVisibility(GONE);
+    }
+
     private boolean canChildScrollUp() {
-        return target != null && target.canScrollVertically(-1);
+        if (target == null) return false;
+        return target.canScrollVertically(-1);
     }
 
     private int slop() {
@@ -110,11 +123,14 @@ public class PullToRefreshLayout extends FrameLayout {
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downY = ev.getY();
+                downX = ev.getX();
                 pulling = false;
+                cancelRefreshIfUnfinished();
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (!refreshing && !canChildScrollUp() && !pulling
-                        && ev.getY() - downY > slop() * 2f) {
+                        && ev.getY() - downY > slop() * 2f
+                        && Math.abs(ev.getY() - downY) > Math.abs(ev.getX() - downX) * 1.5f) {
                     pulling = true;
                     indicator.setVisibility(VISIBLE);
                     indicator.setAlpha(0f);

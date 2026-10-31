@@ -67,7 +67,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private View errorView;
     private UpdateSheet updateSheet;
     private View menuSheet;
-    private View authSheet;
+    private View tokenSheet;
+    private SignInSheet signInSheet;
 
     private boolean navExpanded = true;
     private int currentTab = AppUi.TAB_CHAT;
@@ -170,11 +171,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         setContentView(window);
 
         tabs.show(AppUi.TAB_CHAT);
+        TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
         refresh.setRefreshTarget(tabs.current());
         tabs.preload();
         if (savedInstanceState != null && tabs.current() != null) {
             tabs.current().restoreState(savedInstanceState);
         }
+        applyChromeInsets();
         refreshUi();
         handleIntent(getIntent());
         refreshUpdateUi();
@@ -301,6 +304,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         return area;
     }
 
+    /** Tells the page how much space the app's own chrome takes. */
+    void applyChromeInsets() {
+        if (tabs == null || tabs.current() == null || nav == null) return;
+        // The page is already laid out below the top bar and above the nav bar, so only
+        // the nav height needs to be reserved inside the page for its fixed elements.
+        int bottom = nav.bar.getHeight() + AppUi.dp(this, 18);
+        TabWebViews.applyChromeInsets(tabs.current(), 0, bottom);
+    }
+
     private void toggleNav() {
         navExpanded = !navExpanded;
         animateNav();
@@ -316,16 +328,14 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 .setDuration(AppUi.ANIM_FAST).start();
         AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
                 navExpanded, true);
+        applyChromeInsets();
     }
 
     // ------------------------------------------------------------------ tabs
 
     private void selectTab(int tab) {
-        if (tab == AppUi.TAB_UPDATE) {
-            openUpdateSheet();
-            return;
-        }
-        if (tab == AppUi.TAB_MORE) {
+        if (tab == AppUi.TAB_MORE || tab == AppUi.TAB_UPDATE) {
+            // Update lives inside the More sheet; both entries open it.
             showMenuSheet();
             return;
         }
@@ -333,6 +343,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         hideError();
         boolean firstVisit = tabs.get(tab) == null;
         tabs.show(tab);
+        TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
+        applyChromeInsets();
         resetRefreshState();
         refresh.setRefreshTarget(tabs.current());
         AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
@@ -371,6 +383,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (activity.refresh != null) activity.refresh.setRefreshing(false);
+                TabWebViews.applyTheme(view, AppUi.isDark(activity));
+                activity.applyChromeInsets();
             }
 
             @Override
@@ -432,37 +446,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     // ------------------------------------------------------------------ in-app auth
 
+    /**
+     * Pages that call window.open (some providers do, bypassing the sheet's own
+     * navigation) are routed into the same in-app sign-in flow.
+     */
     private void showAuthPopup(WebView parent, android.os.Message resultMsg) {
-        final FrameLayout sheet = new FrameLayout(this);
-        sheet.setBackgroundColor(AppUi.color(this, R.color.bg));
-
-        LinearLayout column = new LinearLayout(this);
-        column.setOrientation(LinearLayout.VERTICAL);
-        sheet.addView(column, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(AppUi.dp(this, 14), AppUi.dp(this, 8),
-                AppUi.dp(this, 8), AppUi.dp(this, 8));
-        header.setBackgroundColor(AppUi.color(this, R.color.surface));
-
-        TextView title = AppUi.text(this, getString(R.string.signin_title), 15f,
-                R.color.on_bg, true);
-        header.addView(title, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView close = AppUi.text(this, "✕", 18f, R.color.on_bg_muted, false);
-        close.setPadding(AppUi.dp(this, 12), AppUi.dp(this, 6),
-                AppUi.dp(this, 12), AppUi.dp(this, 6));
-        close.setOnClickListener(v -> dismissAuthPopup(sheet));
-        header.addView(close);
-        column.addView(header, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        final WebView popup = new WebView(this);
-        popup.setBackgroundColor(AppUi.color(this, R.color.bg));
+        if (signInSheet == null) startSignIn();
+        // The page expects a transport: give it a real WebView so the login keeps
+        // working, then host that WebView inside the sign-in sheet.
+        WebView popup = new WebView(this);
         android.webkit.WebSettings s = popup.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -471,50 +463,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         s.setUserAgentString(AppChrome.userAgent(this, s.getUserAgentString()));
         CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
 
-        final WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+        WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
         transport.setWebView(popup);
         resultMsg.sendToTarget();
-
-        popup.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
-                return handleUrl(request.getUrl());
-            }
-
-            @Override
-            public void onPageFinished(WebView v, String url) {
-                super.onPageFinished(v, url);
-                // Google shows a final blank hop after the redirect; close when we are
-                // back on an Arena page so the user lands on the signed-in screen.
-                if (url != null && (url.contains("arena.ai") || url.contains("lmarena.ai"))
-                        && !url.contains("accounts.google.com")) {
-                    v.postDelayed(() -> dismissAuthPopup(sheet), 300);
-                }
-            }
-        });
-        popup.setWebChromeClient(new AppChrome.Base(this) {
-        });
-
-        column.addView(popup, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        authSheet = sheet;
-        window.addView(sheet, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        sheet.setAlpha(0f);
-        sheet.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
-        sheet.setTranslationY(AppUi.dp(this, 40));
-        sheet.animate().translationY(0f).setDuration(AppUi.ANIM_MED).start();
-    }
-
-    private void dismissAuthPopup(View sheet) {
-        if (sheet.getParent() == null) return;
-        sheet.animate().alpha(0f).translationY(AppUi.dp(this, 40))
-                .setDuration(AppUi.ANIM_FAST)
-                .withEndAction(() -> {
-                    if (sheet.getParent() != null) window.removeView(sheet);
-                    if (authSheet == sheet) authSheet = null;
-                }).start();
+        signInSheet.showProviderView(popup);
     }
 
     // ------------------------------------------------------------------ web glue
@@ -617,6 +569,37 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         ApkInstaller.launch(this, pendingInstallApk);
     }
 
+    // ------------------------------------------------------------------ sign in
+
+    /**
+     * Google/Apple sign-in the way an app does it: a native-looking account chooser,
+     * then the provider's own login page inside the app. Never a browser.
+     */
+    void startSignIn() {
+        if (signInSheet == null) signInSheet = new SignInSheet(this, window, new SignInSheet.Host() {
+            @Override
+            public void onSignedIn() {
+                // The provider round-trip set the session cookie: refresh the tabs so
+                // they pick up the signed-in UI immediately.
+                Toast.makeText(MainActivity.this, R.string.signin_success,
+                        Toast.LENGTH_SHORT).show();
+                if (tabs != null) {
+                    WebView w = tabs.current();
+                    if (w != null) {
+                        TabWebViews.applyTheme(w, AppUi.isDark(MainActivity.this));
+                        w.evaluateJavascript("location.reload()", null);
+                    }
+                }
+            }
+
+            @Override
+            public void onDismissed() {
+                // keep the instance; it is cheap and reusable
+            }
+        });
+        signInSheet.show();
+    }
+
     private void showMenuSheet() {
         if (menuSheet != null) return;
         menuSheet = MenuSheet.show(this, window, new MenuSheet.Callback() {
@@ -632,19 +615,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
-            public void onShare() {
-                Intent share = new Intent(Intent.ACTION_SEND);
-                share.setType("text/plain");
-                share.putExtra(Intent.EXTRA_TEXT, "https://arena.ai/");
-                startActivity(Intent.createChooser(share, getString(R.string.share)));
-            }
-
-            @Override
-            public void onOpenInBrowser() {
-                String url = tabs != null && tabs.current() != null
-                        && tabs.current().getUrl() != null
-                        ? tabs.current().getUrl() : "https://arena.ai/";
-                AppChrome.openExternally(MainActivity.this, Uri.parse(url));
+            public void onSignIn() {
+                startSignIn();
             }
 
             @Override
@@ -676,10 +648,14 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * the app keeps working (the Update screen offers the same thing later).
      */
     void promptForTokenFirstRun() {
-        if (isFinishing() || authSheet != null || UpdateManager.hasToken(this)) return;
+        if (isFinishing() || tokenSheet != null || UpdateManager.hasToken(this)) return;
 
         final FrameLayout scrim = AppUi.sheetScrim(this, null);
-        scrim.setOnClickListener(v -> dismissSheet(scrim));
+        tokenSheet = scrim;
+        scrim.setOnClickListener(v -> {
+            dismissSheet(scrim);
+            tokenSheet = null;
+        });
 
         LinearLayout sheet = new LinearLayout(this);
         sheet.setOrientation(LinearLayout.VERTICAL);
@@ -719,7 +695,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 R.color.on_bg_muted, false);
         skip.setGravity(Gravity.CENTER);
         skip.setPadding(0, AppUi.dp(this, 12), 0, 0);
-        skip.setOnClickListener(v -> dismissSheet(scrim));
+        skip.setOnClickListener(v -> {
+            dismissSheet(scrim);
+            tokenSheet = null;
+        });
         sheet.addView(skip);
 
         save.setOnClickListener(v -> {
@@ -727,6 +706,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             UpdateManager.setToken(MainActivity.this, token);
             AppUi.press(save);
             dismissSheet(scrim);
+            tokenSheet = null;
             if (!token.isEmpty()) {
                 UpdateCenter.forceCheck(MainActivity.this, MainActivity.this::onCheckFinished);
             }
@@ -836,6 +816,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
         });
         box.addView(retry);
+
+        TextView hint = AppUi.text(this, getString(R.string.error_hint), 12.5f,
+                R.color.on_bg_muted, false);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, AppUi.dp(this, 14), 0, 0);
+        box.addView(hint);
         return box;
     }
 
@@ -851,7 +837,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     /** Called when switching tabs: a half-finished pull must not carry over. */
     private void resetRefreshState() {
-        if (refresh != null) refresh.setRefreshing(false);
+        if (refresh == null) return;
+        refresh.setRefreshing(false);
+        refresh.cancelRefreshIfUnfinished();
     }
 
     private boolean isOnline() {
@@ -874,8 +862,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     @Override
     public void onBackPressed() {
-        if (authSheet != null) {
-            dismissAuthPopup(authSheet);
+        if (signInSheet != null && signInSheet.isShowing()) {
+            signInSheet.dismiss();
+            return;
+        }
+        if (tokenSheet != null) {
+            dismissSheet(tokenSheet);
+            tokenSheet = null;
             return;
         }
         if (updateSheet != null) {

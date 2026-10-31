@@ -48,17 +48,16 @@ public final class AppUi {
                 .getInt(K_APPEARANCE, APPEARANCE_SYSTEM);
     }
 
-    /** Night mode in effect, taking the user's override into account. */
+    /**
+     * Night mode currently in effect. When the user picked Light/Dark, MainActivity has
+     * already forced that into the resources via attachBaseContext(), so reading the
+     * configuration is always correct - including inside WebViews.
+     */
     public static boolean isDark(Context c) {
         return (c.getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
     }
 
-    /**
-     * Colors come from values/ or values-night/ already: MainActivity overrides the
-     * configuration in attachBaseContext() for the forced light/dark setting, so the
-     * normal resource lookup is correct and there is no per-view overhead.
-     */
     public static int color(Context c, int res) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             return c.getResources().getColor(res, c.getTheme());
@@ -182,16 +181,16 @@ public final class AppUi {
         }
     }
 
+    /** Update deliberately has no tab: it lives inside the More sheet. */
     private static final int[] TAB_ICONS = {
             R.drawable.ic_nav_chat, R.drawable.ic_nav_leaderboard, R.drawable.ic_nav_search,
-            R.drawable.ic_nav_update, R.drawable.ic_nav_more
+            R.drawable.ic_nav_more
     };
 
     private static int tabLabel(int tab) {
         switch (tab) {
             case TAB_LEADERBOARD: return R.string.nav_leaderboard;
             case TAB_SEARCH: return R.string.nav_search;
-            case TAB_UPDATE: return R.string.nav_update;
             case TAB_MORE: return R.string.nav_more;
             default: return R.string.nav_chat;
         }
@@ -216,7 +215,7 @@ public final class AppUi {
         bar.setPadding(p, p, p, p);
 
         Nav nav = new Nav(bar);
-        int[] tabs = {TAB_CHAT, TAB_LEADERBOARD, TAB_SEARCH, TAB_UPDATE, TAB_MORE};
+        int[] tabs = {TAB_CHAT, TAB_LEADERBOARD, TAB_SEARCH, TAB_MORE};
         for (int tab : tabs) {
             nav.items.add(addNavItem(c, bar, nav, tab, TAB_ICONS[tab], vertical, click));
         }
@@ -284,7 +283,8 @@ public final class AppUi {
                                 boolean labelsVisible, boolean animateLabels) {
         for (NavItem item : nav.items) {
             boolean active = item.tab == activeTab;
-            boolean flagged = item.tab == TAB_UPDATE && updateAvailable;
+            // The More entry carries the update signal now.
+            boolean flagged = item.tab == TAB_MORE && updateAvailable;
             int tint = color(c, (active || flagged) ? R.color.accent : R.color.on_bg_muted);
 
             item.iconView.setColorFilter(tint);
@@ -295,7 +295,7 @@ public final class AppUi {
             item.labelView.setTypeface(Typeface.create(
                     (active || flagged) ? "sans-serif-medium" : "sans-serif", Typeface.NORMAL));
             item.labelView.setText(flagged
-                    ? c.getString(R.string.nav_update_new) : item.label);
+                    ? c.getString(R.string.nav_more_update) : item.label);
 
             int target = labelsVisible ? View.VISIBLE : View.GONE;
             if (item.labelView.getVisibility() != target) {

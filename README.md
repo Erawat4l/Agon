@@ -28,6 +28,10 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 | `publish.bat 1.2.0` | Publishes that exact version |
 | `publish.bat 1.2.0 beta` | Publishes as a pre-release (visible on the Beta channel in-app) |
 | `publish.bat --token ghp_…` | Remembers a GitHub token in `gh-token.txt` (git-ignored) |
+| `commit.bat "what changed"` | **Commit + push + build + publish a release** in one command |
+| `commit.bat "msg" skipbuild` | Commit + push only |
+| `commit.bat "what changed"` | **Commit + push + build + publish a release** in one command |
+| `commit.bat "msg" skipbuild` | Commit + push only |
 
 First build downloads Gradle and the Android build tools (~3–5 minutes). Later builds
 take well under a minute, since everything is cached in `%USERPROFILE%\.gradle`.
@@ -59,7 +63,7 @@ Android Studio install; if it finds nothing it prints the same steps.
 | Full Arena experience | `arena.ai` in a WebView with JavaScript, DOM storage, cookies, third-party cookies (needed for Google/Apple sign-in) |
 | Persistent login | Cookies are kept between launches, so you stay signed in |
 | Real Chrome user agent | WebView's default UA (`wv` + `Version/4.0`) makes some identity providers refuse to render; it is rewritten to a Chrome-style UA |
-| Pull to refresh | Drag down at the top of the page |
+| Pull to refresh | Drag down at the very top of the page (never hijacks ordinary scrolling) |
 | File upload | Image/document pickers work, including multi-select |
 | Downloads | Handles `http(s)`, `data:` and `blob:` downloads into `Downloads/` (generated images, exports) |
 | Mic / camera | Agents that ask for microphone or camera permission get a real Android permission prompt |
@@ -100,10 +104,43 @@ shares the same cookie jar, so the login completes in the app and lands you back
 signed-in Arena screen. The popup closes itself once the redirect returns to arena.ai,
 and Back dismisses it.
 
+### Appearance follows the app *and* the web content
+
+The Light/Dark/System setting does not stop at the native chrome: the app also tells
+arena.ai to switch palette. arena accepts `?__theme=dark|light` and keeps the choice in
+`localStorage`, so `TabWebViews.applyTheme()` sets both and re-applies it after every page
+load (and on each tab switch), which keeps the page from flipping back to light.
+
+### Sign-in: native account chooser, no browser
+
+**More → Sign in to Arena** opens a bottom sheet with *Continue with Google* /
+*Continue with GitHub*. Choosing one opens the provider's real login page **inside the
+app**, and the sheet closes the moment control returns to arena.ai — that round-trip is
+what sets the session cookie. The main tab reloads already signed in.
+
+### Appearance follows the app *and* the page
+
+Light/Dark/System does not stop at the native chrome. Arena accepts a
+`?__theme=dark|light` query parameter and remembers it in `localStorage`, so the app sets
+both — and re-applies it after every page load and on each tab switch, otherwise the page
+flips itself back to light.
+
+### In-app sign-in with an account chooser
+
+**More → Sign in to Arena** opens a bottom sheet with *Continue with Google* and
+*Continue with GitHub*. Picking one opens the provider's real login page **inside the
+app**; the sheet closes as soon as control returns to arena.ai, which is exactly when the
+session cookie is set. The tab reloads already signed in. Pages that call `window.open`
+themselves are routed into the same sheet.
+
 ### Navigation, animation, theme
 
 - Bottom nav shows **icons + labels**; a slim chevron handle above it collapses the bar
   to icons only and back (the old always-visible bar with a refresh button is gone).
+- **Four tabs: Chat · Rankings · Search · More.** Updates live inside the More sheet, and
+  More carries the dot / "Update!" label when a release is waiting.
+- **Four tabs only: Chat · Rankings · Search · More.** Updates live inside the More
+  sheet, and More carries the update dot/label when a release is waiting.
 - Top bar is now just the brand plus a contextual **update chip** (only when one exists)
   and a single overflow button — no permanent reload/three-dot clutter.
 - The **More** sheet slides up with a scrim fade; the Update sheet does the same;
@@ -119,7 +156,7 @@ and Back dismisses it.
 | Top bar | Brand only, plus an **update chip** that appears when a release is waiting and one overflow button |
 | Bottom nav | **Chat · Rankings · Search · Update · More** with icons + labels; chevron handle collapses it to icons |
 | Update screen | Bottom sheet: installed vs latest version, release notes, download progress, explicit **Install** |
-| More sheet | Update, reload, share, open in browser, **appearance**, clear data, plus the exact build number |
+| More sheet | **Update**, reload, **sign in**, **appearance**, clear data, plus the exact build number — no share / open-in-browser |
 | WebBridge / Downloads | page-generated files (`blob:`, `data:`) land in `Downloads/` |
 | No browser chrome | No URL bar, no tabs, no "powered by Chrome"; app-styled sheets, dialogs and toasts |
 | Pull-to-refresh, offline screen, dark mode | All native, not web fallbacks |
@@ -171,6 +208,25 @@ else keeps working.
 **Publishing a release (this is what makes the update appear)**
 
 Two ways — use whichever is available to you.
+
+### After every change: `commit.bat`
+
+```bat
+commit.bat "fixed the composer overlap"
+```
+
+Commits everything, pushes this branch, builds, and publishes a new release with the APK
+attached. Installed apps then see it on their next check. Run it after every update you
+make; that is the whole workflow.
+
+### After every change: `commit.bat`
+
+```bat
+commit.bat "fixed the composer overlap"
+```
+
+Commits everything, pushes this branch, builds, and publishes a new release with the APK
+attached. Installed apps then see it on their next check. That is the whole loop.
 
 ### A. From your PC: `publish.bat` (works today)
 

@@ -111,6 +111,56 @@ public final class TabWebViews {
         }
     }
 
+    /**
+     * Arena reads its palette from a "?__theme=light|dark" query parameter (and stores
+     * it in localStorage), so the page follows the app's Appearance setting instead of
+     * the system default. Re-applied whenever the tab is shown.
+     */
+    public static void applyTheme(WebView web, boolean dark) {
+        if (web == null) return;
+        String mode = dark ? "dark" : "light";
+        String js = "(function(){try{localStorage.setItem('theme','" + mode + "');}"
+                + "catch(e){}"
+                + "var u=new URL(location.href);"
+                + "if(u.searchParams.get('__theme')!=='" + mode + "'){"
+                + "u.searchParams.set('__theme','" + mode + "');"
+                + "location.replace(u.toString());}"
+                + "document.documentElement.setAttribute('data-theme','" + mode + "');"
+                + "document.documentElement.style.colorScheme='" + mode + "';})();";
+        web.evaluateJavascript(js, null);
+    }
+
+    /** Applies the current appearance to every live tab. */
+    public void applyThemeToAll(boolean dark) {
+        for (WebView w : views.values()) applyTheme(w, dark);
+    }
+
+    /**
+     * The app paints its own top bar and bottom nav around the page. Arena positions a
+     * few things with position:fixed (composer hint, floating menus), so without an
+     * inset they slide under our chrome ("the page spreads out of the UI").
+     * This exposes the reserved heights as CSS variables and pads the document, so the
+     * page lays itself out inside the app frame.
+     */
+    public static void applyChromeInsets(WebView web, int topPx, int bottomPx) {
+        if (web == null) return;
+        int cssTop = Math.max(0, topPx) / 2;      // WebView CSS px are density scaled
+        int cssBottom = Math.max(0, bottomPx) / 2;
+        String js = "(function(){"
+                + "var id='arena-app-insets';var old=document.getElementById(id);"
+                + "if(old) old.remove();"
+                + "var s=document.createElement('style');s.id=id;"
+                + "s.textContent="
+                + "':root{--arena-top-inset:" + cssTop + "px;"
+                + "--arena-bottom-inset:" + cssBottom + "px;}'"
+                + "+'body{scroll-padding-top:" + cssTop + "px;"
+                + "scroll-padding-bottom:" + cssBottom + "px;}';"
+                + "(document.head||document.documentElement).appendChild(s);"
+                + "window.dispatchEvent(new Event('arena-insets'));"
+                + "})();";
+        web.evaluateJavascript(js, null);
+    }
+
     private WebView ensure(int tab) {
         WebView existing = views.get(tab);
         if (existing != null) return existing;

@@ -14,10 +14,10 @@ android {
         // android:windowOptOutEdgeToEdgeEnforcement to values-v35/themes.xml if you
         // plan to publish on Google Play.
         targetSdk 34
-        // versionName drives the in-app updater: releases must be tagged v1.0.1,
-        // v1.0.2, ... so each release is newer than the installed build.
-        def vCode = (project.findProperty('VERSION_CODE') ?: '1001000').toString()
-        def vName = (project.findProperty('VERSION_NAME') ?: '1.1.0').toString()
+        // versionName drives the in-app updater. publish.bat / CI stamp the real
+        // version from the release tag, so these are just local defaults.
+        def vCode = (project.findProperty('VERSION_CODE') ?: '1002000').toString()
+        def vName = (project.findProperty('VERSION_NAME') ?: '1.2.0').toString()
         versionCode vCode.toInteger()
         versionName vName
 

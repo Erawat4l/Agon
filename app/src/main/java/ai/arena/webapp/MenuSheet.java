@@ -18,9 +18,7 @@ public final class MenuSheet {
 
         void onOpenUpdate();
 
-        void onShare();
-
-        void onOpenInBrowser();
+        void onSignIn();
 
         void onClearAppData();
 
@@ -70,15 +68,11 @@ public final class MenuSheet {
             callback.onReload();
         });
 
-        addRow(activity, sheet, R.string.share, null, R.drawable.ic_nav_share, false, v -> {
-            dismiss(parent, scrim, callback);
-            callback.onShare();
-        });
-
-        addRow(activity, sheet, R.string.open_in_browser, null,
-                R.drawable.ic_nav_open, false, v -> {
+        addRow(activity, sheet, R.string.account_signin,
+                activity.getString(R.string.account_signin_sub), R.drawable.ic_nav_account,
+                false, v -> {
                     dismiss(parent, scrim, callback);
-                    callback.onOpenInBrowser();
+                    callback.onSignIn();
                 });
 
         // Appearance: three-state chip row (System / Light / Dark).

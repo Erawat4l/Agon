@@ -75,6 +75,15 @@ if (-not (Test-Path $apk)) { Fail "APK not found at $apk" }
 
 Copy-Item $apk $asset -Force
 $sizeMb = [math]::Round((Get-Item $asset).Length / 1MB, 1)
+
+# One asset for every phone: check the APK's architectures before it is published, so a
+# 32-bit-only or 64-bit-only build can never become the download the in-app updater picks.
+$abiCheck = Join-Path $root "tools\check-apk-abis.py"
+if ($null -ne $python -and (Test-Path $abiCheck)) {
+    Write-Host "      checking architectures..."
+    & $python.Source $abiCheck $asset | Out-Host
+    if ($LASTEXITCODE -ne 0) { Fail "The APK does not cover both 32-bit and 64-bit (see above). Nothing was published." }
+}
 Write-Host "      $((Split-Path $asset -Leaf))  ($sizeMb MB)"
 
 # ---------------------------------------------------------------- github api

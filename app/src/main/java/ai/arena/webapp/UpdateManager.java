@@ -53,6 +53,9 @@ public final class UpdateManager {
     private static final String K_LATEST_SIZE = "latest_size";
     private static final String K_LATEST_NOTES = "latest_notes";
     private static final String K_LATEST_PAGE = "latest_page";
+    private static final String K_LATEST_ASSET = "latest_asset";
+    private static final String K_LATEST_PUBLISHED = "latest_published";
+    private static final String K_LATEST_TAG = "latest_tag";
     private static final String K_LAST_CHECK = "last_check";
     private static final String K_NOTIFIED_CODE = "notified_code";
     private static final String K_LAST_ERROR = "last_error";
@@ -133,9 +136,36 @@ public final class UpdateManager {
         return prefs(c).getString(K_LATEST_NOTES, "");
     }
 
-    /** Releases page for this repo, shown inside the app (never in a browser). */
+    /**
+     * The release the Update screen talks about: the newest one GitHub returns for the
+     * chosen channel, not the repository's release list.
+     *
+     * It used to be a fixed ".../releases", which is why "open release page" landed on a
+     * list instead of the build the sheet was offering. The stored html_url of the release
+     * that was actually checked is used when it is a github.com URL, and the list is only
+     * the fallback for "never checked successfully".
+     */
     public static String latestReleasePath(Context c) {
-        return "https://github.com/" + REPO_OWNER + "/" + REPO_NAME + "/releases";
+        String page = prefs(c).getString(K_LATEST_PAGE, "");
+        String fallback = "https://github.com/" + REPO_OWNER + "/" + REPO_NAME + "/releases";
+        if (page == null || page.isEmpty()) return fallback;
+        if (!page.startsWith("https://github.com/")) return fallback;
+        return page;
+    }
+
+    /** File name of the APK asset in the newest release ("" when unknown). */
+    public static String latestApkName(Context c) {
+        return prefs(c).getString(K_LATEST_ASSET, "");
+    }
+
+    /** Tag of the newest release, used for the "latest" line. */
+    public static String latestTag(Context c) {
+        return prefs(c).getString(K_LATEST_TAG, "");
+    }
+
+    /** Publish time of the newest release, or 0 when unknown. */
+    public static long latestPublishedAt(Context c) {
+        return prefs(c).getLong(K_LATEST_PUBLISHED, 0L);
     }
 
     public static String latestReleaseUrl(Context c) {
@@ -255,6 +285,7 @@ public final class UpdateManager {
             // Pick the .apk asset (the debug build is attached by CI).
             JSONArray assets = release.optJSONArray("assets");
             String apkUrl = null;
+            String apkName = "";
             long apkSize = 0;
             if (assets != null) {
                 for (int i = 0; i < assets.length(); i++) {
@@ -267,6 +298,7 @@ public final class UpdateManager {
                         String candidate = a.optString("browser_download_url", "");
                         apkUrl = isGitHubDownload(candidate) ? candidate : "";
                         apkSize = a.optLong("size", 0);
+                        apkName = name;
                         break;
                     }
                 }
@@ -281,6 +313,9 @@ public final class UpdateManager {
                     .putLong(K_LATEST_SIZE, apkSize)
                     .putString(K_LATEST_NOTES, notes)
                     .putString(K_LATEST_PAGE, page == null ? "" : page)
+                    .putString(K_LATEST_ASSET, apkName == null ? "" : apkName)
+                    .putString(K_LATEST_TAG, tag == null ? "" : tag)
+                    .putLong(K_LATEST_PUBLISHED, publishedAt(release))
                     .putLong(K_LAST_CHECK, System.currentTimeMillis())
                     .remove(K_LAST_ERROR);
             e.apply();
@@ -292,6 +327,22 @@ public final class UpdateManager {
             String msg = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             storeFailure(app, msg);
             return new Result(false, false, 0, null, null, null, msg);
+        }
+    }
+
+    /** GitHub's "published_at"/"created_at" as millis; 0 when it cannot be read. */
+    private static long publishedAt(JSONObject release) {
+        String raw = release.optString("published_at", "");
+        if (raw.isEmpty()) raw = release.optString("created_at", "");
+        if (raw.isEmpty()) return 0L;
+        try {
+            java.text.SimpleDateFormat format = new java.text.SimpleDateFormat(
+                    "yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+            format.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            java.util.Date parsed = format.parse(raw);
+            return parsed == null ? 0L : parsed.getTime();
+        } catch (Exception notADate) {
+            return 0L;
         }
     }
 

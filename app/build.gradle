@@ -16,12 +16,32 @@ android {
         targetSdk 34
         // versionName drives the in-app updater. publish.bat / CI stamp the real
         // version from the release tag, so these are just local defaults.
-        def vCode = (project.findProperty('VERSION_CODE') ?: '1002032').toString()
-        def vName = (project.findProperty('VERSION_NAME') ?: '1.4.21').toString()
+        def vCode = (project.findProperty('VERSION_CODE') ?: '1002033').toString()
+        def vName = (project.findProperty('VERSION_NAME') ?: '1.4.22').toString()
         versionCode vCode.toInteger()
         versionName vName
 
         buildConfigField "String", "ARENA_GH_TOKEN", '"' + (project.findProperty("ARENA_GH_TOKEN") ?: "") + '"'
+
+        // 32-bit and 64-bit are both real targets, not an afterthought.
+        //
+        // This app ships no native .so of its own - the only native code in the APK comes
+        // from AndroidX (core, browser), and those are plain Java libraries - so the APK is
+        // architecture-independent bytecode and runs on everything from a 32-bit
+        // armeabi-v7a phone to a 64-bit arm64 device, x86/x86_64 emulators included.
+        // ndk.abiFilters is set anyway: it documents the intent and it stops a future
+        // dependency from silently dropping one side (Play requires 64-bit, and plenty of
+        // cheap devices are still 32-bit only).
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+        }
+        // One APK for every device, not per-ABI splits: publishing one asset means the
+        // in-app updater cannot pick the wrong one.
+        splits {
+            abi {
+                enable false
+            }
+        }
     }
 
     buildFeatures {

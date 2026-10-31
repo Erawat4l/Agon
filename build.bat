@@ -166,6 +166,14 @@ exit /b 1
 copy /y "!APK!" "!FINALNAME!" >nul
 set "FINAL=%~dp0!FINALNAME!"
 
+REM 32-bit / 64-bit: report what the APK can actually run on, read out of the APK itself.
+REM An APK with no native libraries is architecture independent and says so; one that is
+REM missing a side is reported before it reaches a phone that would fail to run it.
+where python >nul 2>nul
+if errorlevel 1 goto :no_abi_check
+python tools\check-apk-abis.py "!FINAL!"
+:no_abi_check
+
 echo.
 echo =============================================
 echo   [OK] APK ready:

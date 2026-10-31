@@ -375,6 +375,36 @@ installer requires) — everything else is platform APIs, so the APK stays small
 
 ---
 
+## Which devices it runs on (32-bit and 64-bit)
+
+**One APK, every Android architecture.** The app ships no native library of its own (the
+only native code in it comes from AndroidX, which is plain Java), so the APK is
+architecture-independent bytecode:
+
+| Device | Works? | Why |
+| --- | --- | --- |
+| Android 7.0 (API 24) and newer, **32-bit ARM** (armeabi-v7a) | yes | no native code to match |
+| Android 7.0+, **64-bit ARM** (arm64-v8a) | yes | same |
+| x86 / x86_64 tablets and emulators (MSI App Player, BlueStacks) | yes | same |
+| Android 6 and older | no | `minSdk 24` |
+
+`app/build.gradle` declares `abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'` and
+disables per-ABI splits, so a future dependency that *does* bring native code cannot
+quietly drop one side, and there is only ever one APK to publish (so the in-app updater
+cannot pick the wrong one). `build.bat` and `publish.bat` then run
+`tools/check-apk-abis.py` against the APK that was actually produced: it reads every
+`lib/<abi>/*.so` and its ELF header and prints exactly which architectures the file can run
+on, and fails the publish if 32-bit is missing.
+
+Why the old build could not be checked on a 32-bit device and what was verified instead:
+the code has no `long`-to-`int` assumption that only holds on 64-bit, every API newer than
+minSdk is behind a `Build.VERSION.SDK_INT` check (notifications O, media-store Q, POST_
+NOTIFICATIONS 33, immutable PendingIntents M), and `getContentLengthLong()` is API 24 —
+which is exactly why `minSdk` is 24, not lower. On a 32-bit build the WebView is Chromium
+too, so the page renders identically.
+
+---
+
 ## Security, privacy and licensing — read this before publishing
 
 This repository is an unofficial client for arena.ai. Nothing in it is affiliated with,

@@ -43,6 +43,8 @@ public final class UpdateSheet {
     private final LinearLayout badgeRow;
 
     private File downloadedApk;
+    /** Guards the one check per sheet opening (refresh() re-enters itself). */
+    private boolean checkRequested;
 
     public UpdateSheet(Activity activity, Host host) {
         this.activity = activity;
@@ -252,6 +254,21 @@ public final class UpdateSheet {
 
     public void refresh() {
         AppUi.fadeIn(overlay);
+        render();
+        // Ask once per opening. Without this the sheet only ever showed what the last
+        // background check left behind - which is how "Update" could say "up to date"
+        // while a newer release was already published.
+        if (!checkRequested) {
+            checkRequested = true;
+            // Re-entrant refresh() would loop, so the answer only re-renders the sheet.
+            UpdateCenter.forceCheck(activity, result -> {
+                if (overlay.getParent() != null) render();
+            });
+        }
+    }
+
+    /** Draws whatever the last check left behind. No network, no re-entry. */
+    private void render() {
         final int installed = UpdateManager.currentVersionCode(activity);
         final int latest = UpdateManager.latestVersionCode(activity);
         boolean available = UpdateManager.isUpdateAvailable(activity);
@@ -264,11 +281,11 @@ public final class UpdateSheet {
                         : relativeTime(UpdateManager.lastCheck(activity))));
 
         // badges: channel + auto check + token state
-        // The drop-down summary: which build is installed and what GitHub offers.
+        // The drop-down summary: which build is installed and which release GitHub's
+        // "latest" endpoint actually returned - version, tag, date and the APK file.
         if (sheetSummary != null) {
             sheetSummary.setText(activity.getString(R.string.updates_dropdown_installed,
-                    installedName, installed) + "\n"
-                    + activity.getString(R.string.updates_dropdown_latest, latestName));
+                    installedName, installed) + "\n" + describeLatest(latestName));
         }
 
         badgeRow.removeAllViews();
@@ -353,7 +370,29 @@ public final class UpdateSheet {
             primaryButton.setOnClickListener(v -> checkNow());
             secondaryButton.setText(activity.getString(R.string.update_release_page));
             secondaryButton.setOnClickListener(v -> openReleasePage());
+            // An always-visible way to the newest release itself (not the list): the sheet
+            // is the "Update" entry in the menu, so it must be able to reach the release
+            // even when there is nothing newer to install.
+            badgeRow.setOnClickListener(v -> openReleasePage());
         }
+    }
+
+    /**
+     * "Latest on GitHub: 1.4.21 (build 1002032) - v1.4.21, 2 hours ago, ArenaAI-1.4.21.apk"
+     *
+     * Everything here comes from the check that just ran, so the line can never claim a
+     * release the button is not about to download.
+     */
+    private String describeLatest(String latestName) {
+        String tag = UpdateManager.latestTag(activity);
+        String asset = UpdateManager.latestApkName(activity);
+        long published = UpdateManager.latestPublishedAt(activity);
+        StringBuilder extra = new StringBuilder();
+        if (!tag.isEmpty()) extra.append(", ").append(tag);
+        if (published > 0) extra.append(", ").append(relativeTime(published));
+        if (!asset.isEmpty()) extra.append(", ").append(asset);
+        return activity.getString(R.string.updates_dropdown_latest, latestName)
+                + extra;
     }
 
     private View chip(String label) {

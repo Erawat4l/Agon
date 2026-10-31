@@ -354,8 +354,12 @@ installer requires) — everything else is platform APIs, so the APK stays small
 
 - **Change the start page** — `START_URL` in `MainActivity.java`.
 - **App name** — `app_name` in `app/src/main/res/values/strings.xml`.
-- **Icon** — replace the PNGs in `app/src/main/res/mipmap-*dpi/` and the vectors in
-  `app/src/main/res/drawable/ic_launcher_*.xml`; keep the same file names.
+- **Icon** — the mark is the rendered illustration in `artwork/agon-mark.jpg`. Run
+  `python3 artwork/make-icons.py` (needs Pillow) to re-cut every launcher size from it:
+  legacy `mipmap-*dpi/ic_launcher[_round].png`, the adaptive foreground/monochrome layers
+  in `mipmap-xxxhdpi/`, and the in-app `drawable-xxxhdpi/agon_logo.png`. The adaptive
+  background is the vector `drawable/ic_launcher_background.xml`. Preview:
+  `artwork/icon-preview.png`.
 - **Version** — `versionCode` / `versionName` in `app/build.gradle`.
 - **Package id** — `applicationId` in `app/build.gradle` (and the folder path under
   `app/src/main/java`).

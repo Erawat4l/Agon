@@ -1265,7 +1265,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         box.setPadding(pad, pad, pad, pad);
 
         ImageView logo = new ImageView(this);
-        logo.setImageResource(R.mipmap.ic_launcher);
+        // The full mark on transparent, not the launcher tile: on the error screen the
+        // charcoal square would look like a stray box on the app's warm background.
+        logo.setImageResource(R.drawable.agon_logo);
         LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(
                 AppUi.dp(this, 56), AppUi.dp(this, 56));
         logoLp.bottomMargin = pad / 2;

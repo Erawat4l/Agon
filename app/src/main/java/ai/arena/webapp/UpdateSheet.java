@@ -100,7 +100,9 @@ public final class UpdateSheet {
         header.setGravity(Gravity.CENTER_VERTICAL);
 
         android.widget.ImageView icon = new android.widget.ImageView(activity);
-        icon.setImageResource(R.mipmap.ic_launcher);
+        // The mark without its charcoal tile: the update sheet sits on the app's own
+        // surface, so a launcher-shaped square here looked pasted on.
+        icon.setImageResource(R.drawable.agon_logo);
         header.addView(icon, new LinearLayout.LayoutParams(AppUi.dp(activity, 42),
                 AppUi.dp(activity, 42)));
 

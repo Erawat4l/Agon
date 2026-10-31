@@ -620,10 +620,6 @@ public final class SignInSheet {
         root.bringToFront();
         // Drop any half-finished provider session so the page starts clean.
         CookieManager.getInstance().removeSessionCookies(null);
-        // preconnect() is not a load: it warms the socket while the first frames are
-        // still being laid out, which is most of the wait when the page has not been
-        // visited in this WebView before.
-        web.preconnect(startUrl);
         web.loadUrl(startUrl);
     }
 

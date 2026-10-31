@@ -423,12 +423,34 @@ ANDROID_MEMBERS = {
                     "setGeolocationEnabled", "getCacheMode", "setMinimumFontSize",
                     "supportMultipleWindows", "getJavaScriptCanOpenWindowsAutomatically",
                     "supportZoom", "getTextZoom", "getLoadsImagesAutomatically"},
+    # WebView is in here for one reason: 1.4.2 shipped `web.preconnect(url)`, which is a
+    # URLConnection method, not a WebView one. javac caught it on the user's machine; this
+    # table is what should have. Only real instance methods are listed.
+    "WebView": {"addJavascriptInterface", "removeJavascriptInterface", "loadUrl", "reload",
+                "evaluateJavascript", "post", "postDelayed", "stopLoading", "destroy",
+                "canGoBack", "canGoForward", "goBack", "goForward", "getUrl", "getTitle",
+                "getSettings", "setWebViewClient", "setWebChromeClient", "setDownloadListener",
+                "clearCache", "clearHistory", "clearFormData", "setOverScrollMode",
+                "setLongClickable", "setRendererPriorityPolicy", "getScale", "zoomIn",
+                "zoomOut", "requestFocus", "setInitialScale", "pageUp", "pageDown",
+                "setBackgroundColor", "getFocusedNode", "saveState", "restoreState"},
     "Build": {"MODEL", "MANUFACTURER", "BRAND", "DEVICE", "VERSION", "SDK_INT"},
     "Build.VERSION": {"RELEASE", "SDK_INT", "CODENAME", "PREVIEW_SDK_INT"},
 }
 # Calls that belong to java.lang.Object, not to the Android class.
 JAVA_METHODS = {"getClass", "hashCode", "equals", "toString", "notify", "notifyAll",
                 "wait", "clone", "finalize"}
+# Calls that belong to android.view.View. Every Android widget inherits them, so they are
+# never evidence that a type-specific member is wrong.
+VIEW_METHODS = {"getVisibility", "setVisibility", "setAlpha", "animate", "bringToFront",
+                "getContext", "getResources", "getParent", "setPadding", "setBackground",
+                "setBackgroundColor", "setClickable", "setFocusable", "setElevation",
+                "setLayoutParams", "setOnClickListener", "setLongClickable", "setTag",
+                "getTag", "requestLayout", "invalidate", "setTranslationY", "setTranslationX",
+                "setScaleX", "setScaleY", "setSelected", "setEnabled", "isEnabled",
+                "setContentDescription", "findViewById", "post", "postDelayed",
+                "removeCallbacks", "getHeight", "getWidth", "setMinimumHeight",
+                "setMinimumWidth", "getLayoutParams", "setClipToOutline", "setOutlineProvider"}
 
 
 def check_android_api(paths):
@@ -456,6 +478,10 @@ def check_android_api(paths):
                 if not types or not all(t in ANDROID_MEMBERS for t in types):
                     continue
             if any(member in ANDROID_MEMBERS[t] for t in types):
+                continue
+            # Inherited View behaviour is not type-specific: allow it, but only for classes
+            # that really are Views.
+            if member in VIEW_METHODS and types & {"WebView"}:
                 continue
             problems.append(f"{path}:{src[:m.start()].count(chr(10)) + 1}: "
                             f"{'/'.join(sorted(types))}.{member}() is not an Android API "

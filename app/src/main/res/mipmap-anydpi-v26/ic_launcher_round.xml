@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The layer is a bitmap, not a vector: the mark is a rendered illustration (cream
+     column, green bolt), and tracing it into paths would lose the shading. The launcher
+     masks the outer edges, so the artwork lives inside mipmap-xxxhdpi as one foreground
+     layer over the charcoal background. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
 </adaptive-icon>

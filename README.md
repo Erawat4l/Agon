@@ -302,7 +302,8 @@ Seven steps in one go:
 
 1. `git pull --rebase --autostash` — picks up anything pushed from elsewhere, and
    clears a stale local `version.txt` first so it can never block the pull
-2. bumps the version from `version.txt` (or the latest `v*` tag), e.g. `1.2.0` → `1.2.1`
+2. bumps the version from whichever is higher, `version.txt` or the newest `v*` tag,
+   e.g. `1.4.29` → `1.4.30`
 3. builds `app-debug.apk` with that version and copies it to `Agon-<version>.apk`
 4. commits + pushes this branch
 5. publishes the GitHub release with the APK attached
@@ -312,7 +313,16 @@ Seven steps in one go:
 `version.txt` in the repo root holds the last published version. It is **git-ignored
 and generated locally** — committing it made every later `git pull` fail with
 *"Your local changes to version.txt would be overwritten by merge"* — so the bump
-counts locally even before the first tag exists, without ever conflicting. Installed apps pick the new release up on
+counts locally even before the first tag exists, without ever conflicting.
+
+Because the two can disagree (a fresh clone, or a stale `version.txt` left behind by an
+older checkout), `publish.bat` takes the **higher** of the two, and `publish.ps1` refuses
+to publish a version lower than the highest release already on GitHub. That refusal
+matters: `releases/latest` only ever offers a build with a higher `versionCode`, so a
+release numbered *below* an existing one is invisible for ever and every phone keeps
+saying *"you are up to date"*. The app no longer trusts that endpoint blindly either — it
+compares the tags of the recent releases and installs the highest one that is actually
+newer. Installed apps pick the new release up on
 their next check (`Update → Check for updates`).
 
 ### A. From your PC: `publish.bat` (works today)
@@ -563,6 +573,8 @@ client, keep `NOTICE.md`, and do not put Arena's logo in it.
 | Blank page after sign-in | Clear the app's data (More → Clear app data), or check that your network allows Google sign-in |
 | Update check says *no release found* | The repository has no published release, or it was renamed: check `repos/Erawat4l/Agon/releases/latest` in a browser |
 | Update offered forever, same version | You are on `1.4.26` or older, whose `versionCode` disagreed with its tag. Install `1.4.27`+ once by hand; the loop cannot come back |
+| Upload fails with *"underlying connection was closed … on a send"* | The APK uploaded over a dropped TLS connection, not a rejected token. `publish.bat` retries 4× and leaves the release a **draft**, so nothing half-published. Retry without rebuilding: `powershell -NoProfile -ExecutionPolicy Bypass -File tools\upload-apk.ps1 <version>` |
+| `publish.bat` refuses with *"would publish 1.0.2, but v1.4.29 is already published"* | A stale `version.txt` (or an old local tag). Delete `version.txt` and run `publish.bat` again — it takes the higher of the two |
 | `publish.bat` says 401/403 | The token is expired, revoked or scoped to another repo. Run `gh auth login`, delete the stale `gh-token.txt`, then `publish.bat` — it reuses the CLI credential |
 | Actions run fails instantly, 0 steps | Actions is blocked for the repo — use `publish.bat` |
 | *App not installed* when updating | Old APK was signed with a different key — uninstall once, then install |

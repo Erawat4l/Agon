@@ -77,6 +77,10 @@ public final class Settings {
         return get(c, K_NOTIFY_UPDATES, true);
     }
 
+    public static boolean autoCheck(Context c) {
+        return get(c, K_AUTO_CHECK, true);
+    }
+
     public static boolean chatTaps(Context c) {
         return get(c, K_CHAT_TAPS, true);
     }

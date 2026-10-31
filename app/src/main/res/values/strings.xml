@@ -127,13 +127,13 @@
     <string name="settings_chat_taps">Tap gestures on Chat</string>
     <string name="settings_chat_taps_sub">1 tap: current chat · 2 taps: chat history · 3 taps: new chat</string>
     <string name="settings_hide_sidebar">Hide Arena\'s sidebar</string>
-    <string name="settings_hide_sidebar_sub">Removes the page\'s own New Chat / Leaderboard / Search panel</string>
+    <string name="settings_hide_sidebar_sub">On by default. Turn it off to get Arena\'s own New Chat / Leaderboard / Search panel back</string>
     <string name="settings_hide_header">Hide the page header</string>
     <string name="settings_hide_header_sub">Keeps the page\'s own top header out of the way</string>
     <string name="settings_keep_scroll">Remember scroll position</string>
     <string name="settings_keep_scroll_sub">Return to where you were on each tab</string>
     <string name="settings_ua">Chrome user agent</string>
-    <string name="settings_ua_sub">Stops \"Verify you are human\" challenges; turn off to identify as the app</string>
+    <string name="settings_ua_sub">Identifies as desktop Chrome instead of a WebView - can help a page that refuses an in-app browser, and can get Google\'s sign-in refused</string>
     <string name="settings_crash">Show crash details</string>
     <string name="settings_crash_sub">If startup fails, show the trace with a Copy button</string>
     <string name="settings_notify">Update notifications</string>
@@ -205,5 +205,5 @@
     <string name="signin_no_browser">No browser found that can open sign-in</string>
     <string name="signin_browser_open">Finish there, then come back. If the link returns to Agon, the session comes with it.</string>
     <string name="signin_browser_returned">Back from the browser - checking the session…</string>
-    <string name="signin_note">The first sign-in has to be typed on Google\'s page - a fresh app has no Google session of its own, and that is what makes the account list appear next time. After that, picking the account is enough.</string>
+    <string name="signin_note">Agon shows arena.ai in its own window and keeps Arena\'s session cookie. Google\'s page may refuse to finish inside any other app (its policy for embedded browsers); the email route does not depend on it. Nothing you type here is stored by Agon.</string>
 </resources>

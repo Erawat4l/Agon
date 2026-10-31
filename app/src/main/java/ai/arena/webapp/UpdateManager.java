@@ -261,7 +261,11 @@ public final class UpdateManager {
                     JSONObject a = assets.getJSONObject(i);
                     String name = a.optString("name", "");
                     if (name.toLowerCase(Locale.US).endsWith(".apk")) {
-                        apkUrl = a.optString("browser_download_url", "");
+                        // Only GitHub's own download URL is accepted. The app installs
+                        // whatever comes back from here, so a release (or anything that
+                        // could edit one) must not be able to point it at another host.
+                        String candidate = a.optString("browser_download_url", "");
+                        apkUrl = isGitHubDownload(candidate) ? candidate : "";
                         apkSize = a.optLong("size", 0);
                         break;
                     }
@@ -370,6 +374,7 @@ public final class UpdateManager {
         Context app = context.getApplicationContext();
         String url = latestReleaseUrl(app);
         if (url == null || url.isEmpty()) throw new IllegalStateException("no_apk");
+        if (!isGitHubDownload(url)) throw new IllegalStateException("untrusted apk host");
 
         String token = token(app);
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
@@ -430,6 +435,30 @@ public final class UpdateManager {
 
         if (out.length() == 0) throw new IllegalStateException("empty download");
         return out;
+    }
+
+    /**
+     * True for an https URL on GitHub's own release hosts.
+     *
+     * The APK is handed to Android's package installer, so this is the last thing between
+     * a network answer and an install prompt: it must be github.com, api.github.com or
+     * objects.githubusercontent.com (where release assets actually live) - not a URL that
+     * merely contains the word, and never plain http.
+     */
+    static boolean isGitHubDownload(String url) {
+        if (url == null) return false;
+        try {
+            URL parsed = new URL(url);
+            if (!"https".equalsIgnoreCase(parsed.getProtocol())) return false;
+            String host = parsed.getHost() == null
+                    ? "" : parsed.getHost().toLowerCase(Locale.US);
+            return host.equals("github.com")
+                    || host.endsWith(".github.com")
+                    || host.equals("githubusercontent.com")
+                    || host.endsWith(".githubusercontent.com");
+        } catch (Exception notAUrl) {
+            return false;
+        }
     }
 
     // ---------------------------------------------------------------- helpers

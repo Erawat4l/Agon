@@ -430,6 +430,10 @@ public final class TabWebViews {
         // at all - it just rebinds the page that is already showing. The popup itself is
         // hosted in-app by MainActivity.onCreateWindow, never by a browser.
         s.setSupportMultipleWindows(true);
+        // The page itself must never be able to read the device: remote documents get the
+        // web, not file:// or content:// access. Harmless on API 30+ (already the
+        // default) and a real fence on the older ones this app still supports.
+        s.setAllowFileAccess(false);
         // Use the phone's real width (CSS px) instead of a zoomed-out desktop viewport,
         // so arena's own responsive layout is the one that runs and nothing is cropped
         // on the right. applyChromeInsets() then pins the document to that width.
@@ -440,6 +444,8 @@ public final class TabWebViews {
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
         s.setMediaPlaybackRequiresUserGesture(false);
+        // Never: an arena page is https, so an http subresource would be a downgrade, and
+        // letting one through would let whoever controls it read the page it sits in.
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         // Cache policy: ask the network, let the cache answer what it legitimately can.
         //

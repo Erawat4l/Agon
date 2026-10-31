@@ -9,6 +9,12 @@ import org.json.JSONObject;
 /**
  * JS bridge for downloads that the page generates in memory (blob: / data: URIs).
  * Kept tiny — everything runs on the UI thread.
+ *
+ * Security note: every method here is reachable from any script running in the tab's
+ * WebView. Nothing in the bridge reads page state back to the native side — it only
+ * *writes a file* — so the worst a hostile script could do is download a file with a
+ * name it chooses. The name is flattened to a single path segment anyway: a name such as
+ * "../../databases/x" must never escape the Downloads folder.
  */
 public final class WebBridge {
 
@@ -22,10 +28,11 @@ public final class WebBridge {
 
     @JavascriptInterface
     public void saveBase64(final String name, final String mime, final String base64) {
+        final String safeName = safeFileName(name);
+        final String safeMime = mime == null || mime.isEmpty()
+                ? "application/octet-stream" : mime;
         activity.runOnUiThread(() -> Downloads.saveToDownloads(activity,
-                name == null || name.isEmpty() ? "arena-download" : name,
-                mime == null || mime.isEmpty() ? "application/octet-stream" : mime,
-                base64));
+                safeName == null ? "arena-download" : safeName, safeMime, base64));
     }
 
     @JavascriptInterface
@@ -35,9 +42,32 @@ public final class WebBridge {
                 .show());
     }
 
+    /**
+     * One path segment, no control characters, and never empty.
+     *
+     * The download is written through the MediaStore (or into the public Downloads
+     * directory), so a name containing slashes or ".." is the only part of this call an
+     * attacker could aim somewhere else; flattening it removes that.
+     */
+    static String safeFileName(String name) {
+        if (name == null) return null;
+        StringBuilder out = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); i++) {
+            char ch = name.charAt(i);
+            if (ch == '/' || ch == '\\' || ch < 0x20 || ch == 0x7f) continue;
+            out.append(ch);
+        }
+        String flat = out.toString().trim();
+        while (flat.startsWith(".")) flat = flat.substring(1);
+        if (flat.length() > 120) flat = flat.substring(flat.length() - 120);
+        return flat.isEmpty() ? null : flat;
+    }
+
     /** Pulls a blob: URL through fetch() and hands the bytes to the app. */
     void downloadBlob(String blobUrl, String contentDisposition) {
-        String name = android.webkit.URLUtil.guessFileName(blobUrl, contentDisposition, null);
+        String name = safeFileName(
+                android.webkit.URLUtil.guessFileName(blobUrl, contentDisposition, null));
+        if (name == null) name = "arena-download";
         String js = "(function(){"
                 + "var url=" + JSONObject.quote(blobUrl) + ";"
                 + "var name=" + JSONObject.quote(name) + ";"

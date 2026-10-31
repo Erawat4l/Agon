@@ -84,6 +84,10 @@ public final class Downloads implements DownloadListener {
 
     static void saveToDownloads(Activity activity, String fileName, String mime, String base64) {
         try {
+            // One path segment, always: the bridge is reachable from any script in the tab
+            // and this is the only thing it can aim outside the Downloads folder.
+            fileName = WebBridge.safeFileName(fileName);
+            if (fileName == null) fileName = "arena-download";
             byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 android.content.ContentValues values = new android.content.ContentValues();

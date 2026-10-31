@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    What may leave the device in a backup. Deliberately *not* everything: the GitHub token
+    (agon_update), the account email (agon_profile), the sign-in trace (agon_signin_trace)
+    and the WebView's own session/prefs files must never be restored onto another device
+    from a cloud copy.
+-->
 <full-backup-content>
     <include domain="sharedpref" path="." />
+    <exclude domain="sharedpref" path="agon_update.xml" />
+    <exclude domain="sharedpref" path="agon_signin_trace.xml" />
+    <exclude domain="sharedpref" path="agon_profile.xml" />
+    <exclude domain="database" path="." />
 </full-backup-content>

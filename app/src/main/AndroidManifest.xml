@@ -10,6 +10,12 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!--
+        allowBackup stays on for the device-transfer case, but both backup rule files
+        exclude the two preference files that hold a secret (agon_update: the GitHub
+        token, agon_signin_trace: URLs) and the account identity. A cloud backup of this
+        app must not be a way to read someone else's token.
+    -->
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -36,6 +42,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!--
+                A third-party app can send this app an ACTION_VIEW intent with any arena
+                link, so the filter must be as narrow as the links that are actually
+                handled: https on arena.ai / lmarena.ai only. The activity checks the host
+                again in handleIntent(); this is the first fence, not the only one.
+            -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

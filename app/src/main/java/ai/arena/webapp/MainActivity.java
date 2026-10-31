@@ -1456,10 +1456,19 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             openUpdateSheet();
             return;
         }
+        // This activity is exported, so any app on the phone can hand it an ACTION_VIEW
+        // intent. Only an https link *to* arena may go any further, and the host must be
+        // exactly arena.ai / lmarena.ai (or a real subdomain of them) - "notarena.ai" and
+        // "arena.ai.evil.example" both used to pass a plain endsWith() test.
         Uri data = intent.getData();
         if (data == null || data.getHost() == null) return;
-        String host = data.getHost().toLowerCase();
-        if (!host.endsWith("arena.ai") && !host.endsWith("lmarena.ai")) return;
+        if (!"https".equalsIgnoreCase(data.getScheme())) return;
+        String host = data.getHost().toLowerCase(java.util.Locale.ROOT);
+        if (!isArenaHost(host)) {
+            // Someone else's link: it is not loaded, and it is not recorded either.
+            SignInTrace.note(this, "ignored non-arena link: " + host);
+            return;
+        }
         // Record every arena link the OS ever hands us: this is the only place a browser
         // sign-in could come back into the app, so if nothing is noted here after a real
         // browser sign-in, the handoff does not exist and the browser row must not promise
@@ -1474,6 +1483,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             return;
         }
         if (tabs != null) tabs.loadInCurrent(data.toString());
+    }
+
+    /** "arena.ai", "www.arena.ai", "lmarena.ai" - and nothing that merely ends with it. */
+    static boolean isArenaHost(String host) {
+        if (host == null) return false;
+        for (String base : new String[]{"arena.ai", "lmarena.ai"}) {
+            if (host.equals(base) || host.endsWith("." + base)) return true;
+        }
+        return false;
     }
 
     /**

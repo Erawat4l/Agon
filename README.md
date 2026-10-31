@@ -129,7 +129,9 @@ and the link it comes back with is what finishes the sign-in **in the app**.
    looking for Arena's dialog — there is none on that host — and says whose page is on
    screen. If Google refuses the embedded page outright ("This browser or app may not be
    secure"), the header says so and the browser row is always one tap away.
-4b. **The first sign-in has to be typed on Google's page, and that is not avoidable.** A
+4b. **On a Google page, the first sign-in has to be typed there, and that is not avoidable
+   by the app.** (It *is* avoidable by using the email route above, which is why that row
+   exists.) A
    WebView has its own cookie jar, separate from Android's accounts and from Chrome, so a
    fresh app has no Google session and Google shows its email form. Once that jar holds a
    Google session, Google shows *"Choose an account"* instead, and the sign-in is that one
@@ -370,6 +372,61 @@ app/src/main/res/             icons (adaptive + legacy), theme, colors, strings
 
 Almost dependency-free: only `androidx.core` (for `FileProvider`, which the package
 installer requires) — everything else is platform APIs, so the APK stays small.
+
+---
+
+## Security, privacy and licensing — read this before publishing
+
+This repository is an unofficial client for arena.ai. Nothing in it is affiliated with,
+endorsed by, or supported by Arena / LMArena; that sentence is also in `NOTICE.md`, which
+must ship whenever the project is made public.
+
+**What the code holds about the user**
+
+| Thing | Where | Leaves the device? |
+| --- | --- | --- |
+| Arena session cookie | the WebView cookie jar (HttpOnly, owned by arena.ai) | only to arena.ai, as any browser does |
+| Account email + provider | `agon_profile` prefs | no |
+| GitHub token (private-repo update checks) | `agon_update` prefs, or `ARENA_GH_TOKEN` at build time | only to api.github.com |
+| Sign-in trace (URLs, query values stripped to `name=set`) | `agon_signin_trace` prefs | no |
+| Crash trace | `files/last_crash.txt` | no |
+
+Both backup rule files exclude `agon_update`, `agon_profile` and `agon_signin_trace`, so a
+cloud backup of the app cannot be used to read someone else's token or address. The app has
+no analytics, no telemetry and no third-party network calls of its own: it talks to arena.ai
+(the page) and api.github.com (update checks) and nothing else.
+
+**What was hardened in 1.4.20** (all of it is in the code with a comment saying why)
+
+- The exported activity accepts only `https` links to `arena.ai` / `lmarena.ai` compared
+  per host segment — `arena.ai.evil.example` and `notarena.ai` no longer pass.
+- The browser route refuses anything that is not an arena URL, so a link can never be used
+  to make the app open an arbitrary page in the user's browser.
+- The in-app updater only downloads an APK from `github.com` / `githubusercontent.com` over
+  https, and only if it is an `.apk` release asset. Android's installer still verifies the
+  signing certificate, so a swapped APK fails to install rather than replacing the app.
+- The `ArenaNative` JS bridge is write-only and flattens file names to a single path
+  segment, so a script in the page cannot aim a download outside `Downloads/`.
+- Every WebView has `setAllowFileAccess(false)` and denies mixed content, so a remote page
+  cannot read the app's private files.
+- `allowBackup` data that could carry a secret is excluded (above).
+
+**Known limits, stated instead of hidden**
+
+- Arena can detect that the page is running in a WebView, and Google's policy for embedded
+  browsers may refuse its sign-in. That is a policy decision by those services, not
+  something an app can fix; the app does not spoof its way around a refusal.
+- The "desktop Chrome user agent" switch is a developer tool. Turning it on makes the app
+  claim to be a browser, which can make a Google sign-in fail. It is off by default.
+- There is no password storage, no credential capture and no local proxy, by design.
+
+**Licence and third-party marks**
+
+`LICENSE` is Apache-2.0: it covers this repository's own source, and it disclaims warranty.
+It does not give anyone a licence to Arena's name, logo, service or page content — the
+Arena/LMArena names and marks belong to their owner, and `artwork/agon-mark.jpg` is the
+app's own icon, not Arena's logo. If the project is published, publish it as an unofficial
+client, keep `NOTICE.md`, and do not put Arena's logo in it.
 
 ---
 

@@ -229,18 +229,16 @@ public final class SettingsSheet {
         section(R.string.settings_developer);
         action(R.string.settings_developer_diag, R.string.settings_developer_diag_sub,
                 R.drawable.ic_nav_settings, v -> host.onDeveloperDiagnostics());
+        // One row per switch. The sidebar and header rows were each listed twice here,
+        // which meant two switches with the same label set the same key.
         toggle(Settings.K_HIDE_WEB_SIDEBAR, R.string.settings_hide_sidebar,
-                R.string.settings_hide_sidebar_sub, true);
+                R.string.settings_hide_sidebar_sub, Settings.hideWebSidebar(activity));
         toggle(Settings.K_HIDE_WEB_HEADER, R.string.settings_hide_header,
                 R.string.settings_hide_header_sub, true);
         toggle(Settings.K_SHOW_NAV, R.string.settings_nav_bar, R.string.settings_nav_bar_sub,
                 true);
         toggle(Settings.K_CHAT_TAPS, R.string.settings_chat_taps,
                 R.string.settings_chat_taps_sub, true);
-        toggle(Settings.K_HIDE_WEB_SIDEBAR, R.string.settings_hide_sidebar,
-                R.string.settings_hide_sidebar_sub, true);
-        toggle(Settings.K_HIDE_WEB_HEADER, R.string.settings_hide_header,
-                R.string.settings_hide_header_sub, true);
         toggle(Settings.K_KEEP_SCROLL, R.string.settings_keep_scroll,
                 R.string.settings_keep_scroll_sub, true);
         toggle(Settings.K_NO_SELECT, R.string.settings_selectable,

@@ -248,6 +248,8 @@ public final class SignInSheet {
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setSupportMultipleWindows(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // Same fence as the provider page: a remote document gets the web, not the device.
+        s.setAllowFileAccess(false);
         s.setUserAgentString(Settings.chromeUserAgent(activity)
                 ? AppChrome.userAgent(activity, s.getUserAgentString())
                 : AppChrome.defaultUserAgent(activity));
@@ -660,6 +662,10 @@ public final class SignInSheet {
         // here is what made "Continue with Google" appear to do nothing.
         s.setSupportMultipleWindows(true);
         s.setUserAgentString(AppChrome.userAgent(activity, s.getUserAgentString()));
+        // The page itself must never be able to read the device: remote documents get the
+        // web, not file:// or content:// access. Harmless on API 30+ (already the
+        // default) and a real fence on the older ones this app still supports.
+        s.setAllowFileAccess(false);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
@@ -925,6 +931,13 @@ public final class SignInSheet {
     }
 
     void openBrowserChooser(String url) {
+        // The one place the app leaves itself. It only ever leaves for arena's own site:
+        // a browser intent built from anything else would be a way to make the app open an
+        // arbitrary page on the user's behalf.
+        if (!isArenaUrl(url)) {
+            SignInTrace.note(activity, "browser route refused a non-arena url");
+            return;
+        }
         try {
             android.content.Intent view = new android.content.Intent(
                     android.content.Intent.ACTION_VIEW, Uri.parse(url));
@@ -942,6 +955,19 @@ public final class SignInSheet {
                 android.widget.Toast.makeText(activity, R.string.signin_no_browser,
                         android.widget.Toast.LENGTH_LONG).show();
             }
+        }
+    }
+
+    /** https + arena's own host. Used before anything is handed to a browser. */
+    static boolean isArenaUrl(String url) {
+        if (url == null) return false;
+        try {
+            android.net.Uri uri = android.net.Uri.parse(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme())) return false;
+            String target = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+            return MainActivity.isArenaHost(target);
+        } catch (Exception notAUrl) {
+            return false;
         }
     }
 
@@ -998,8 +1024,11 @@ public final class SignInSheet {
         // Only a link Arena itself publishes can start a session here. Anything else that
         // reaches this method returns without loading, so no other site can hand the app a
         // URL and have it treated as a sign-in.
+        // Same fence as the activity: https, and the host is arena's own - compared
+        // segment by segment, because "arena.ai.evil.example" also *ends with* arena.ai.
+        if (!"https".equalsIgnoreCase(uri.getScheme())) return;
         String from = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
-        if (!from.endsWith("arena.ai") && !from.endsWith("lmarena.ai")) return;
+        if (!MainActivity.isArenaHost(from)) return;
         if (!isShowing()) {
             // The sheet is gone (the activity was recreated while the browser was on top):
             // open the provider layer so there is somewhere for the session to land.

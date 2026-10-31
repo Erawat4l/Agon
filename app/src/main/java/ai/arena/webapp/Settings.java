@@ -16,7 +16,13 @@ public final class Settings {
 
     /** Nav bar: show the four icons over the page. */
     public static final String K_SHOW_NAV = "show_nav";
-    /** Hide arena's own sidebar/history panel inside the page. */
+    /**
+     * Hide arena's own sidebar/history panel inside the page.
+     *
+     * Hidden by default, from the first frame: the panel is never drawn on launch and
+     * nothing is opened on the user's behalf. The switch still exists under
+     * Settings -> For developers for anyone who wants Arena's own panel back.
+     */
     public static final String K_HIDE_WEB_SIDEBAR = "hide_web_sidebar";
     /** Hide the page's own header when arena draws one. */
     public static final String K_HIDE_WEB_HEADER = "hide_web_header";
@@ -65,8 +71,18 @@ public final class Settings {
         return get(c, K_SHOW_NAV, true);
     }
 
+    /**
+     * Off by default, everywhere: the page's own new-chat / history / search panel is not
+     * drawn when the app opens, and nothing is ever opened on the user's behalf for it.
+     * Kept switchable (Settings -> For developers) for anyone who prefers Arena's panel.
+     */
     public static boolean hideWebSidebar(Context c) {
         return get(c, K_HIDE_WEB_SIDEBAR, true);
+    }
+
+    /** True when the app may draw the page's own panel again (only if asked for). */
+    public static boolean sidebarAllowed(Context c) {
+        return !hideWebSidebar(c);
     }
 
     public static boolean hideWebHeader(Context c) {
@@ -80,6 +96,14 @@ public final class Settings {
      * ("disallowed_useragent"), and it also hides which client is signing in, so the
      * honest WebView UA is the default now. The switch is still here for anyone who
      * wants the old behaviour for ordinary browsing.
+     */
+    /**
+     * A desktop-Chrome user agent instead of the WebView one.
+     *
+     * Off by default and it is not a "hide from Google" switch: spoofing a browser is
+     * what Google's embedded-webview policy looks for, and it also makes the app lie about
+     * which client is signing in. Left as a developer switch for pages that refuse a
+     * WebView, with the caveat written next to it in Settings.
      */
     public static boolean chromeUserAgent(Context c) {
         return get(c, K_DESKTOP_UA, false);

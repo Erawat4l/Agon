@@ -58,6 +58,15 @@ if ($null -ne $python -and (Test-Path $preflight)) {
     if ($LASTEXITCODE -ne 0) { Fail "Pre-flight checks failed (see above). Nothing was published." }
 }
 
+# A release is public the moment it is attached to a published repo, so refuse to publish
+# anything that carries a token, a keystore password or a personal path.
+$secretCheck = Join-Path $root "tools\check-secrets.py"
+if ($null -ne $python -and (Test-Path $secretCheck)) {
+    Write-Host "[0/3] Checking tracked files for secrets..."
+    & $python.Source $secretCheck | Out-Host
+    if ($LASTEXITCODE -ne 0) { Fail "A secret or personal path is in the repository. Nothing was published." }
+}
+
 Write-Host "[1/3] Building..."
 & (Join-Path $root "gradlew.bat") --no-daemon assembleDebug `
     "-PVERSION_NAME=$Version" "-PVERSION_CODE=$code" | Out-Host

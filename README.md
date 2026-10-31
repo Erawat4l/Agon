@@ -410,6 +410,15 @@ no analytics, no telemetry and no third-party network calls of its own: it talks
 - Every WebView has `setAllowFileAccess(false)` and denies mixed content, so a remote page
   cannot read the app's private files.
 - `allowBackup` data that could carry a secret is excluded (above).
+- Every link a page can hand the app (a chat-history row, an app-link callback, the browser
+  route, the exported activity's intent) is re-checked with one host test: https and
+  `arena.ai` / `lmarena.ai`, compared per host segment.
+
+`python3 tools/check-secrets.py` runs in `build.bat` and `publish.bat` pre-flight. It fails
+the build when a tracked file contains a token-shaped string, a keystore password, a
+private key, a `C:\\Users\\<name>` path or a personal e-mail address, so publishing cannot
+quietly ship one. `git ls-files` also confirms none of `local.properties`, `gh-token.txt`,
+`*.jks` / `*.keystore` or `version.txt` is tracked.
 
 **Known limits, stated instead of hidden**
 

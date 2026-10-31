@@ -66,7 +66,8 @@
       "icon": "build/icon.ico",
       "artifactName": "Agon-Desktop-${version}-${arch}.${ext}",
       "publisherName": "Agon",
-      "verifyUpdateCodeSignature": false
+      "signAndEditExecutable": false,
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
@@ -88,6 +89,8 @@
     ],
     "portable": {
       "artifactName": "Agon-Portable-${version}-${arch}.${ext}"
-    }
+    },
+    "asar": true,
+    "beforePack": "scripts/before-pack.js"
   }
 }

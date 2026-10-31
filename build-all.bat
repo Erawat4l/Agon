@@ -58,14 +58,15 @@ set "NPM=npm"
 if not exist "desktop\package.json" goto :no_desktop
 if exist "desktop\node_modules\electron\package.json" goto :have_modules
 echo        Installing the desktop dependencies ^(first run only, a few minutes^)...
+echo        ^(deprecation warnings and "install scripts" notes are normal - ignore them^)
 pushd desktop
 call npm install --no-audit --no-fund
-if errorlevel 1 goto :desktop_install_failed
+set "INSTALL_RC=!errorlevel!"
 popd
-goto :have_modules
-
-:desktop_install_failed
-popd
+if "!INSTALL_RC!"=="0" goto :have_modules
+REM npm can exit non-zero on its own postinstall-script notice while node_modules is
+REM complete. Only a missing electron binary means the install really failed.
+if exist "desktop\node_modules\electron\package.json" goto :have_modules
 echo        [X] npm install failed - see the messages above.
 goto :exe_failed
 
@@ -73,8 +74,9 @@ goto :exe_failed
 echo        Packaging the Windows installers ^(x64 + ia32^)...
 pushd desktop
 call npm run dist
-if errorlevel 1 goto :desktop_build_failed
+set "DIST_RC=!errorlevel!"
 popd
+if not "!DIST_RC!"=="0" goto :desktop_build_failed
 if not exist "desktop\release" goto :nothing_built
 
 REM Copy every produced .exe up here, keeping the name electron-builder gave it:
@@ -87,8 +89,9 @@ set "EXE_OK=1"
 goto :summary
 
 :desktop_build_failed
-popd
 echo        [X] electron-builder failed - see the messages above.
+echo            A "Cannot create symbolic link" error is an old cache problem; delete
+echo            %LOCALAPPDATA%\electron-builder\Cache and run this again.
 goto :exe_failed
 
 :nothing_built

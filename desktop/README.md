@@ -39,9 +39,11 @@ npm run dist      :: build the installers into desktop\release\
 ### If packaging fails
 
 **`Cannot create symbolic link … darwin\10.12\lib\libcrypto.dylib` (error exit status 2).**
-Electron-builder downloads its `winCodeSign` bundle to get `signtool`, and that bundle
-contains **macOS symlinks**. Windows only lets you create a symlink with Administrator rights
-or Developer Mode. Two ways out:
+electron-builder downloads a 5.6 MB `winCodeSign` archive to *rename and sign* the exe, and
+that archive contains **macOS symlinks**. Windows only lets you create a symlink with
+Administrator rights or Developer Mode, so the unpack fails, retries four times and the build
+dies. `win.signAndEditExecutable: false` (the default here) skips that code path entirely:
+`winPackager.signApp()` returns before it ever asks for the bundle. Two ways out:
 
 | | Command | What it costs |
 | --- | --- | --- |

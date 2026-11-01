@@ -83,9 +83,15 @@ if !TAGN! GEQ !FILEN! (
 ) else (
     set "LASTTAG=!FILETAG!"
 )
-if not defined LASTTAG set "LASTTAG=1.0.0"
 set "TAGTAG="
 set "FILETAG="
+
+REM Nothing to bump from is NOT 1.0.0. The tags and version.txt were deliberately deleted,
+REM but the phones still have a newer build installed, and a release numbered below what is
+REM installed is invisible for ever: releases/latest only ever offers something higher, so
+REM the in-app updater quietly says "you are up to date" from then on. Asking for the number
+REM once is the difference between a working update and a silent dead end.
+if not defined LASTTAG goto :ask_version
 :have_tag
 for /f "tokens=1,2,3 delims=." %%a in ("!LASTTAG!") do (
     set "MAJ=%%a"
@@ -96,6 +102,25 @@ if not defined PAT set "PAT=0"
 set /a "PAT+=1"
 set "VERSION=!MAJ!.!MIN!.!PAT!"
 echo [2/4] Version: !VERSION! ^(auto-bump from !LASTTAG!^)
+goto :have_version
+
+:ask_version
+echo.
+echo     No published version to bump from - no v* tag and no version.txt.
+echo     Enter the version to publish, higher than the build on the phones.
+echo     For example: 1.4.47
+echo.
+set /p VERSION=Version: 
+if "!VERSION!"=="" (
+    echo [X] A version is required.
+    exit /b 1
+)
+echo !VERSION!| findstr /r "^[0-9][0-9]*[.][0-9][0-9]*[.][0-9][0-9]*$" >nul
+if errorlevel 1 (
+    echo [X] "!VERSION!" is not a version. It must look like 1.4.47
+    exit /b 1
+)
+echo [2/4] Version: !VERSION! ^(given^)
 goto :have_version
 
 :have_version

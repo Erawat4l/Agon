@@ -115,7 +115,7 @@ function readWindowState() {
   } catch (ignored) {
     // first run, or a half-written file: the defaults below are fine
   }
-  return { width: 1200, height: 820 };
+  return { width: 1280, height: 900 };
 }
 
 function writeWindowState() {
@@ -222,8 +222,11 @@ function createWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
-    minWidth: 420,
-    minHeight: 480,
+    // Arena's composer row plus its upward-opening model menu need this much height; a
+    // smaller window clips the menu's top options. 420x480 allowed a window where the
+    // page technically rendered but could not be operated.
+    minWidth: 760,
+    minHeight: 640,
     title: 'Agon',
     backgroundColor: '#191919',
     autoHideMenuBar: false,

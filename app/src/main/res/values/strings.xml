@@ -126,6 +126,8 @@
     <string name="settings_notify_sub">Chime + notification when a new build is published</string>
     <string name="settings_auto_check">Check automatically</string>
     <string name="settings_auto_check_sub">Silent check every few hours and on resume</string>
+    <string name="settings_update_dot">Dot on the More icon</string>
+    <string name="settings_update_dot_sub">Mark More when a newer build exists. Off: the update is only listed inside More</string>
     <string name="settings_show_version">Show version in the bar</string>
     <string name="settings_show_version_sub">Small version label under the nav icons</string>
     <string name="settings_account">Account</string>

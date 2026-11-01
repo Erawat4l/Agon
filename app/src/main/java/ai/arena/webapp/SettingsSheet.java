@@ -251,6 +251,8 @@ public final class SettingsSheet {
                 R.string.settings_notify_sub, true);
         toggle(Settings.K_AUTO_CHECK, R.string.settings_auto_check,
                 R.string.settings_auto_check_sub, true);
+        toggle(Settings.K_SHOW_UPDATE_DOT, R.string.settings_update_dot,
+                R.string.settings_update_dot_sub, false);
         toggle(Settings.K_SHOW_VERSION, R.string.settings_show_version,
                 R.string.settings_show_version_sub, false);
         action(R.string.settings_reset, R.string.settings_reset_sub,

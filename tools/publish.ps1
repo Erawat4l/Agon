@@ -300,7 +300,14 @@ if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
         # finishes building both installers and then fails with
         #   "⨯ GitHub Personal Access Token is not set ... using env \"GH_TOKEN\""
         # The upload is this script's job, not electron-builder's.
-        & $npm.Source run dist -- --publish never "-c.extraMetadata.version=$Version" | Out-Host
+        # ONE --publish flag only. `npm run dist` already expands to
+        # `electron-builder --publish never`, so adding another one produced
+        #   --publish never --publish never
+        # and yargs turned that into the ARRAY ["never","never"], which is not the string
+        # "never" - so electron-builder considered publishing enabled, built everything and
+        # then died with "GitHub Personal Access Token is not set". The npm script carries
+        # the flag; this adds only the version.
+        & $npm.Source run dist -- "-c.extraMetadata.version=$Version" | Out-Host
         $distOk = ($LASTEXITCODE -eq 0)
     } finally {
         Pop-Location

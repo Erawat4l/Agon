@@ -97,6 +97,17 @@ exports.default = async function makeReleaseAssets(context) {
   fs.writeFileSync(path.join(outDir, 'latest.yml'), latest);
   console.log('[release] latest.yml now describes Agon-Setup-64.exe');
 
+  // Delete the combined x64+ia32 installer and the arch-suffixed duplicates. electron-builder
+  // emits Agon-Setup-<version>.exe (both arches in one file, ~133 MB) as well as the two
+  // per-arch installers, and none of those three are published - keeping only the two that
+  // are means desktop/release/ cannot be mistaken for the release contents, and saves 270 MB
+  // of disk on every build.
+  for (const name of fs.readdirSync(outDir)) {
+    if (/^Agon-Setup-\d+\.\d+\.\d+(-(x64|ia32))?(\.exe|\.exe\.blockmap)$/.test(name)) {
+      try { fs.unlinkSync(path.join(outDir, name)); } catch (ignored) { /* locked file: ignore */ }
+    }
+  }
+
   // Everything the release should carry, and nothing else.
   return [
     found.x64.clean,

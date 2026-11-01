@@ -47,6 +47,8 @@ public final class ChatHistorySheet {
     private final Host host;
     private FrameLayout overlay;
     private LinearLayout listBox;
+    /** The empty-state button is added once per show, not on every refresh. */
+    private boolean offeredArenaHistory;
     private TextView status;
 
     public ChatHistorySheet(Activity activity, ViewGroup parent, Host host) {
@@ -137,21 +139,44 @@ public final class ChatHistorySheet {
     public void requestHistory(WebView page) {
         if (page == null) return;
         page.addJavascriptInterface(new Bridge(), "AgonHistory");
-        String js = "(function(){try{"
-                + "var out=[];var seen={};"
-                + "var as=document.querySelectorAll('a[href]');"
-                + "for(var i=0;i<as.length;i++){var a=as[i];"
-                + "var h=a.href||'';if(h.indexOf('/c/')<0&&h.indexOf('/chat/')<0)"
-                + "continue;"
-                + "var t=(a.innerText||a.getAttribute('aria-label')||'').trim();"
-                + "if(!t||t.length>120)continue;"
-                + "if(seen[h])continue;seen[h]=1;"
-                + "out.push({u:h,t:t});"
-                + "if(out.length>=40)break;}"
-                + "AgonHistory.receive(JSON.stringify(out));"
-                + "}catch(e){AgonHistory.receive('[]');}})();";
-        page.evaluateJavascript(js, null);
+        page.evaluateJavascript(JS_HISTORY, null);
     }
+
+    /**
+     * Reads conversation links out of the live page.
+     *
+     * The previous version used {@code document.querySelectorAll('a[href]')}, which sees
+     * only the light DOM. Arena renders its sidebar inside a shadow root, and this app
+     * hides that sidebar, so the query found nothing and the sheet always said "nothing
+     * here" - a double tap that looked broken rather than empty.
+     *
+     * So this walks shadow roots the same way SignInDriver does, and it does not depend on
+     * the sidebar being visible: a conversation link is a conversation link whether it is
+     * on screen or inside a collapsed drawer. A bounded budget keeps a big page from
+     * turning one tap into a stall.
+     *
+     * Only arena links containing /c/ or /chat/ are returned; the Kotlin side re-checks
+     * them against the host allow-list before drawing a row.
+     */
+    private static final String JS_HISTORY =
+            "(function(){try{"
+            + "var out=[],seen={},budget=6000;"
+            + "function walk(root){if(!root||budget<=0)return;"
+            + "var as;try{as=root.querySelectorAll('a[href]');}catch(e){as=[];}"
+            + "for(var i=0;i<as.length;i++){var a=as[i];var h=a.href||'';"
+            + "if(h.indexOf('/c/')<0&&h.indexOf('/chat/')<0)continue;"
+            + "var t=(a.innerText||a.textContent||a.getAttribute('aria-label')||'')"
+            + ".replace(/\\s+/g,' ').trim();"
+            + "if(!t||t.length>120)continue;"
+            + "if(seen[h])continue;seen[h]=1;out.push({u:h,t:t});"
+            + "if(out.length>=40)break;}"
+            + "var kids;try{kids=root.querySelectorAll('*');}catch(e){kids=[];}"
+            + "for(var j=0;j<kids.length;j++){budget--;var el=kids[j];"
+            + "if(el.shadowRoot){walk(el.shadowRoot);}"
+            + "if(budget<=0)break;}}"
+            + "walk(document);"
+            + "AgonHistory.receive(JSON.stringify(out));"
+            + "}catch(e){AgonHistory.receive('[]');}})();";
 
     /** Receives the list from the page. Runs on a WebView thread, so it hops to the UI. */
     private final class Bridge {
@@ -186,8 +211,20 @@ public final class ChatHistorySheet {
         if (rows.isEmpty()) {
             status.setText(activity.getString(R.string.history_empty));
             status.setVisibility(View.VISIBLE);
+            // Even with a working scrape, arena may not have the list in the DOM (signed
+            // out, or a page that renders it only on its own history route). A sheet that
+            // says "nothing here" and nothing else is a dead end, so offer the route that
+            // certainly exists and let arena render its own history.
+            if (!offeredArenaHistory) {
+                offeredArenaHistory = true;
+                listBox.addView(chip(R.string.history_open_arena, () -> {
+                    dismiss();
+                    host.openConversation("https://arena.ai/history");
+                }));
+            }
             return;
         }
+        offeredArenaHistory = false;
         status.setVisibility(View.GONE);
         for (String[] row : rows) {
             listBox.addView(conversationRow(row[1], row[0]));

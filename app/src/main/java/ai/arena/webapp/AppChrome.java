@@ -110,6 +110,144 @@ public final class AppChrome {
                                          FileChooserParams params) {
             return ((MainActivity) activity).handleFileChooser(callback, params);
         }
+
+        // ------------------------------------------------------------------ script dialogs
+        //
+        // A WebView with no onJsAlert/onJsConfirm/onJsPrompt override answers every one of
+        // them itself and immediately: alert() returns, confirm() returns *false*, prompt()
+        // returns null. Nothing is drawn, so from the user's side the button they tapped
+        // simply did nothing - and a confirm() that quietly answers "no" is how a delete
+        // or a rename inside arena's own file panel looks broken. The dialogs are drawn
+        // here in the app's own styling, one at a time (a page can block on a dialog, and
+        // Android crashes the renderer if a second one is stacked on top).
+
+        /** True while one script dialog owns the screen: only one may be up at a time. */
+        private boolean dialogOpen;
+
+        /**
+         * The page's outstanding answer, if any.
+         *
+         * A script dialog *blocks the page*: until confirm()/cancel() is called on this
+         * object, the document is frozen. So it is answered on every exit path - a button,
+         * Back, or the dialog being torn down with the activity - and the check is idempotent
+         * because answering twice is as bad as never answering.
+         */
+        private android.webkit.JsResult pendingResult;
+
+        /** A prompt() is blocking the page, so nothing else may be drawn over it. */
+        protected boolean isDialogOpen() {
+            return dialogOpen;
+        }
+
+        private android.app.AlertDialog.Builder themed() {
+            return new android.app.AlertDialog.Builder(activity);
+        }
+
+        /**
+         * Shows one dialog and keeps {@link #pendingResult} as the page's answer.
+         *
+         * The dismissal path is the important one: an AlertDialog can be closed by Back,
+         * without any button being pressed, and that left the page blocked for ever - the
+         * "everything stopped responding after I opened the file panel" symptom.
+         */
+        private void showDialog(final android.app.AlertDialog.Builder builder,
+                                final android.webkit.JsResult result) {
+            if (dialogOpen) {
+                // The page is blocked on the first dialog; a second one has nowhere to go,
+                // so it is answered at once rather than stacked.
+                result.cancel();
+                return;
+            }
+            dialogOpen = true;
+            pendingResult = result;
+            final android.app.AlertDialog dialog;
+            try {
+                dialog = builder.create();
+            } catch (RuntimeException e) {
+                dialogOpen = false;
+                answer(RESULT_CANCEL);
+                return;
+            }
+            dialog.setOnDismissListener(d -> {
+                dialogOpen = false;
+                // Back, or the window going away: whatever has not been answered yet gets
+                // the "no" the page would have got from a stock WebView, so it unfreezes.
+                answer(RESULT_CANCEL);
+            });
+            // The tab underneath must not be tapped through a modal question.
+            dialog.setCanceledOnTouchOutside(false);
+            try {
+                dialog.show();
+            } catch (RuntimeException e) {
+                dialogOpen = false;
+                answer(RESULT_CANCEL);
+            }
+        }
+
+        private static final int RESULT_CANCEL = 0;
+        private static final int RESULT_CONFIRM = 1;
+
+        /** Answers the page exactly once, whichever path got here first. */
+        private void answer(int how) {
+            answer(how, null);
+        }
+
+        private synchronized void answer(int how, String text) {
+            final android.webkit.JsResult result = pendingResult;
+            if (result == null) return;
+            pendingResult = null;
+            if (how == RESULT_CONFIRM && result instanceof android.webkit.JsPromptResult) {
+                ((android.webkit.JsPromptResult) result).confirm(text == null ? "" : text);
+                return;
+            }
+            if (how == RESULT_CONFIRM) result.confirm();
+            else result.cancel();
+        }
+
+        @Override
+        public boolean onJsAlert(WebView view, String url, String message,
+                                 final android.webkit.JsResult result) {
+            showDialog(themed().setMessage(message)
+                    .setPositiveButton(R.string.dialog_ok, (d, w) -> answer(RESULT_CONFIRM)),
+                    result);
+            return true;
+        }
+
+        @Override
+        public boolean onJsConfirm(WebView view, String url, String message,
+                                   final android.webkit.JsResult result) {
+            showDialog(themed().setMessage(message)
+                    .setPositiveButton(R.string.dialog_ok, (d, w) -> answer(RESULT_CONFIRM))
+                    .setNegativeButton(R.string.dialog_cancel,
+                            (d, w) -> answer(RESULT_CANCEL)),
+                    result);
+            return true;
+        }
+
+        @Override
+        public boolean onJsBeforeUnload(WebView view, String url, String message,
+                                        final android.webkit.JsResult result) {
+            // Leaving the page would throw away a draft: ask, instead of dropping it.
+            return onJsConfirm(view, url, message, result);
+        }
+
+        @Override
+        public boolean onJsPrompt(WebView view, String url, String message,
+                                  String defaultValue,
+                                  final android.webkit.JsPromptResult result) {
+            final android.widget.EditText field = new android.widget.EditText(activity);
+            field.setText(defaultValue == null ? "" : defaultValue);
+            field.setSingleLine(message != null && message.length() < 80);
+            int pad = (int) (16 * activity.getResources().getDisplayMetrics().density);
+            field.setPadding(pad, pad, pad, pad);
+            showDialog(themed().setMessage(message).setView(field)
+                    .setPositiveButton(R.string.dialog_ok,
+                            (d, w) -> answer(RESULT_CONFIRM, field.getText().toString()))
+                    .setNegativeButton(R.string.dialog_cancel,
+                            (d, w) -> answer(RESULT_CANCEL)),
+                    result);
+            return true;
+        }
     }
 
     /**

@@ -705,7 +705,9 @@ ANDROID_MEMBERS = {
                 "clearCache", "clearHistory", "clearFormData", "setOverScrollMode",
                 "setLongClickable", "setRendererPriorityPolicy", "getScale", "zoomIn",
                 "zoomOut", "requestFocus", "setInitialScale", "pageUp", "pageDown",
-                "setBackgroundColor", "getFocusedNode", "saveState", "restoreState"},
+                "setBackgroundColor", "getFocusedNode", "saveState", "restoreState",
+                # static, API 19+, and the only way to reach chrome://inspect on a device.
+                "setWebContentsDebuggingEnabled"},
     "Build": {"MODEL", "MANUFACTURER", "BRAND", "DEVICE", "VERSION", "SDK_INT"},
     "Build.VERSION": {"RELEASE", "SDK_INT", "CODENAME", "PREVIEW_SDK_INT"},
 }

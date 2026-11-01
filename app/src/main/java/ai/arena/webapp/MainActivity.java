@@ -121,6 +121,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // Catch anything the startup path throws: a crash must show its trace on screen
         // (and in files/last_crash.txt) instead of closing the app with no message.
         CrashLog.install(this);
+        // Only when the user has unlocked developer options: this exposes chrome://inspect
+        // over adb for whatever is open in a tab, which is how a panel that renders empty
+        // can be looked at instead of guessed about. Never on for an ordinary build.
+        if (Settings.developerOptions(this)) {
+            try {
+                WebView.setWebContentsDebuggingEnabled(true);
+            } catch (RuntimeException ignored) {
+            }
+        }
         try {
             buildShell(savedInstanceState);
         } catch (Throwable error) {

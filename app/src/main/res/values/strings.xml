@@ -165,7 +165,8 @@
     <string name="settings_selectable">App-style text</string>
     <string name="settings_selectable_sub">No text selection or long-press menu, like a real app</string>
     <string name="history_title">Your chats</string>
-    <string name="history_empty">No conversations found on this page yet.</string>
+    <string name="history_empty">Arena is not showing a chat list right now. Open Arena\'s own history page, or start a new chat.</string>
+    <string name="history_open_arena">Open Arena\'s history page</string>
     <string name="history_new_chat">New chat</string>
     <string name="history_leaderboard">Leaderboard</string>
     <string name="history_search">Search chats</string>

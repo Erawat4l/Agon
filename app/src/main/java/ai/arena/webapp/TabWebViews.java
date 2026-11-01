@@ -125,20 +125,61 @@ public final class TabWebViews {
             target.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
         }
         target.bringToFront();
+        applyRendererPriority();
         return target;
+    }
+
+    /**
+     * Only the tab on screen keeps the high renderer priority; everything else is left to
+     * the system. Called on every tab switch, because the priorities of hidden tabs are
+     * exactly what was wrong before.
+     */
+    private void applyRendererPriority() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        for (Map.Entry<Integer, WebView> entry : views.entrySet()) {
+            WebView web = entry.getValue();
+            if (web == null) continue;
+            boolean showing = entry.getKey() == currentTab;
+            try {
+                web.setRendererPriorityPolicy(
+                        showing ? WebView.RENDERER_PRIORITY_IMPORTANT
+                                : WebView.RENDERER_PRIORITY_BOUND,
+                        true);
+            } catch (RuntimeException ignored) {
+                // a destroyed renderer must not take the tab switch with it
+            }
+        }
     }
 
     /**
      * Builds the other tabs' WebViews in the background so the first tap is not a
      * cold start. ensure() keeps them GONE until the user asks for them.
+     *
+     * Only when the device has room for it. Each WebView is a separate Chromium renderer
+     * process, and two of them loaded before the user has tapped anything is most of why
+     * the app felt heavy on a phone that is already short of memory. A low-RAM device
+     * (ActivityManager.isLowRamDevice()) gets its tabs built on demand instead: a slightly
+     * slower first tap is a much better trade than a laggy chat.
      */
     public void preload() {
+        if (isLowRamDevice()) return;
         int[] tabs = {AppUi.TAB_LEADERBOARD, AppUi.TAB_SEARCH};
         for (int i = 0; i < tabs.length; i++) {
             final int tab = tabs[i];
             main.postDelayed(() -> {
                 if (!views.containsKey(tab)) ensure(tab);
             }, 500L + 400L * i);
+        }
+    }
+
+    /** True when Android itself has decided this phone has little memory to give. */
+    private boolean isLowRamDevice() {
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager)
+                    activity.getSystemService(Activity.ACTIVITY_SERVICE);
+            return am != null && am.isLowRamDevice();
+        } catch (RuntimeException ignored) {
+            return false;
         }
     }
 
@@ -529,8 +570,18 @@ public final class TabWebViews {
         w.setBackgroundColor(AppUi.color(activity, R.color.bg));
         w.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
         w.setLongClickable(true);
+        // Priority follows VISIBILITY, not a permanent pin.
+        //
+        // This used to be RENDERER_PRIORITY_IMPORTANT with `false` ("do not drop priority
+        // when the view is not visible"), applied to every tab and to the two tabs that are
+        // preloaded in the background. That tells Android no renderer may ever be reclaimed,
+        // so on a phone without much RAM the whole app competes with itself: the chat, the
+        // leaderboard and search all stay at the highest priority while only one is on
+        // screen. `true` means "behave normally when hidden", which is what lets the system
+        // take memory back from the tabs nobody is looking at. applyRendererPriority() then
+        // promotes whichever tab is actually showing.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+            w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
         }
 
         WebSettings s = w.getSettings();

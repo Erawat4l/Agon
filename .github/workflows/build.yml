@@ -1,6 +1,10 @@
 name: Build Agon (APK + Windows)
 
-# Every push to main publishes ONE release with both deliverables, under one version:
+# MANUAL ONLY (`on: workflow_dispatch`). Releases are published from the owner's PC with
+# publish.bat, which is the supported path; this workflow is a fallback that never runs
+# by itself. Pushing to main, opening a pull request or merging one starts nothing.
+#
+# When run by hand it publishes ONE release with both platforms, under one version:
 #
 #     Agon-<version>.apk                 Android (32- and 64-bit, no native code)
 #     Agon-Setup-64.exe                  Windows installer, 64-bit
@@ -10,12 +14,7 @@ name: Build Agon (APK + Windows)
 # The APK and the installers share the version number because they are one release; the
 # in-app updaters on both platforms compare against it. No tagging by hand.
 #
-# Any other branch (a work branch, a pull request) only builds and uploads artifacts, so a
-# side branch can never become "the latest release" for people who already installed Agon.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -170,30 +169,7 @@ jobs:
       # how the 32-bit installers came out missing from the first two-platform release.
       - name: Package
         working-directory: desktop
-        shell: pwsh
-        run: |
-          # Capture the output and, on failure, republish the last lines as annotations.
-          # electron-builder's error is otherwise buried in a log that is not always
-          # fetchable; an annotation shows up on the run page and in the API.
-          npm run dist -- --publish never 2>&1 | Tee-Object -FilePath dist.log
-          $code = $LASTEXITCODE
-          if ($code -ne 0) {
-            Write-Host "electron-builder exited with $code"
-            # Only the lines that look like the failure: everything else is progress noise,
-            # and GitHub returns annotations in order, so a wall of noise hides the error.
-            $lines = Get-Content dist.log
-            $hits = @()
-            for ($i = 0; $i -lt $lines.Count; $i++) {
-              if ($lines[$i] -match '(?i)(error|⨯|failed|cannot|unable|missing|not found|EEXIST|EPERM|throw|exit code)') {
-                $hits += ("{0}: {1}" -f ($i + 1), $lines[$i].Trim())
-              }
-            }
-            $last = $lines | Where-Object { $_.Trim() } | Select-Object -Last 1
-            $report = @($hits | Select-Object -First 6)
-            $report += "LAST LINE: $($last -replace "`n", ' ')"
-            foreach ($line in $report) { Write-Host "::error::$(($line -replace "%", '%25') -replace "`r", '' -replace "`n", ' ')" }
-            throw "electron-builder failed (exit $code) - see the annotations"
-          }
+        run: npm run dist -- --publish never
 
       # Fail here, not after the upload, if a target silently did not get built: 32-bit
       # support is a promise in the README, so its absence has to break the build.

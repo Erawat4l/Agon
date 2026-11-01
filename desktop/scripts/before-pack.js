@@ -26,7 +26,13 @@ const path = require('path');
 
 exports.default = async function beforePack(context) {
   const root = path.join(__dirname, '..');
-  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  // Strip a UTF-8 BOM first. PowerShell's `Set-Content -Encoding UTF8` (what the release
+  // script used to write this file with) prepends one, and JSON.parse throws on it:
+  //   Unexpected token '\uFEFF', "\uFEFF{ ... is not valid JSON
+  // which failed the entire Windows build, in this hook, before anything was packed.
+  const pkg = JSON.parse(
+    String(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).replace(/^\uFEFF/, '')
+  );
   const win = (pkg.build && pkg.build.win) || {};
 
   const icon = path.join(root, 'build', 'icon.ico');

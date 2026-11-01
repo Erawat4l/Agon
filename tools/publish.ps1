@@ -292,13 +292,26 @@ if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
         # Keep package.json in step with the tag that was just published, so the Windows
         # build carries the same version number as the APK in the same release.
         $desktopPkg = Join-Path $desktopDir "package.json"
-        $pkg = Get-Content $desktopPkg -Raw | ConvertFrom-Json
+        # Read with the BOM stripped, so the comparison is against the real version.
+        $pkg = (Get-Content $desktopPkg -Raw) -replace "^\uFEFF", "" | ConvertFrom-Json
         if ($pkg.version -ne $Version) {
             $pkg.version = $Version
-            ($pkg | ConvertTo-Json -Depth 20) | Set-Content $desktopPkg -Encoding UTF8
+            # No BOM. `Set-Content -Encoding UTF8` on Windows PowerShell 5.1 writes one, and
+            # JSON.parse then rejects the file inside electron-builder's beforePack hook -
+            # which failed the whole Windows build with
+            #   Unexpected token '﻿', "﻿{ ... is not valid JSON"
+            # UTF8Encoding($false) = UTF-8 without a BOM.
+            $json = $pkg | ConvertTo-Json -Depth 20
+            [System.IO.File]::WriteAllText($desktopPkg, $json,
+                (New-Object System.Text.UTF8Encoding($false)))
         }
         & $npm.Source install --no-audit --no-fund | Out-Host
-        & $npm.Source run dist | Out-Host
+        # Force "never publish" on the command line as well as in the npm script: with a
+        # publish config in package.json but no GH_TOKEN in the environment, electron-builder
+        # finishes building both installers and then fails with
+        #   "⨯ GitHub Personal Access Token is not set ... using env \"GH_TOKEN\""
+        # The upload is this script's job, not electron-builder's.
+        & $npm.Source run dist -- --publish never | Out-Host
         $distOk = ($LASTEXITCODE -eq 0)
     } finally {
         Pop-Location

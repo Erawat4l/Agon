@@ -46,6 +46,8 @@
     <string name="download_started">Saved to Downloads</string>
     <string name="download_failed">Download failed</string>
     <string name="no_browser">No app found to open this link</string>
+    <string name="dialog_ok">OK</string>
+    <string name="dialog_cancel">Cancel</string>
     <string name="upload_failed">Could not open a file picker</string>
     <string name="reload">Reload</string>
     <string name="clear_data">Clear app data</string>

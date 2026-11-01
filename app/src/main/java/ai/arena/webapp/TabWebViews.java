@@ -297,6 +297,16 @@ public final class TabWebViews {
                 + "if(cs.position!=='fixed')continue;"
                 + "var r=el.getBoundingClientRect();"
                 + "if(r.width<1||r.height<1)continue;"
+                // A panel parked down the SIDE of the page (a chat's files/workspace
+                // rail) never reaches the bottom edge, so the branch below never ran
+                // for it and it was left as tall as the unscrolled window: the footer
+                // controls ended up under the app's bar and the list looked empty.
+                // It needs the cap, not the lift - and the cap is idempotent, so
+                // re-running this every 600ms cannot shrink it further.
+                + "if(r.top<window.innerHeight*0.35||"
+                + "r.height>window.innerHeight-" + cssTop + "-8){"
+                + "el.style.setProperty('max-height','calc(100dvh - "
+                + (cssTop + cssBottom) + "px)','important');}"
                 + "if(r.bottom>=window.innerHeight-" + cssBottom + "-8){"
                 + "el.style.setProperty('transform','translateY(-' + " + cssBottom
                 + " + 'px)','important');"
@@ -361,9 +371,18 @@ public final class TabWebViews {
                 + "box-sizing:border-box !important;"
                 + "min-height:calc(100dvh - " + (cssTop + cssBottom) + "px) !important;"
                 + "max-width:100vw !important;overflow-x:hidden !important;}"
-                // 3. bottom-anchored elements inside the page are lifted clear of the nav
-                + "body [style*=\"position: fixed\"],body [style*=\"position:fixed\"]{"
-                + "margin-bottom:" + cssBottom + "px !important;}"
+                // 3. NOTHING here may touch the page's own fixed elements.
+                //
+                // This used to be a rule matching any descendant whose inline style said
+                // "position: fixed" and giving it a bottom margin. That was wrong twice
+                // over. A bottom margin means nothing to a fixed element (it is not laid
+                // out by margins), so it never fixed anything - and on arena's own side
+                // panels, which are fixed columns whose flex list fills the remaining
+                // height, that margin was *inside* the panel: the panel kept its size, its
+                // content was squeezed into what was left, and the result is a panel that
+                // opens empty and answers no taps - the files/workspace icon at the top
+                // right of a chat. liftFixed() below is what actually moves fixed elements,
+                // and it only ever moves chrome pinned to the very bottom edge.
                 // An app is not a web page: no accidental text selection and no long-press
                 // copy callout. Inputs and editable areas keep normal behaviour.
                 + (selectable ? "" : "*{-webkit-user-select:none !important;"
@@ -433,6 +452,10 @@ public final class TabWebViews {
             + "var r=el.getBoundingClientRect();"
             + "if(r.width<120||r.height<80)continue;"
             + "if(r.height>=vh-24)continue;"                      // a panel, not a menu
+            // A menu is short. A panel that takes half the window or more (a chat's
+            // files/workspace rail) is not a menu: capping its height and giving it its
+            // own scrollbar is what let it open looking empty, so it is left alone.
+            + "if(r.height>vh*0.5)continue;"
             + "var cs=getComputedStyle(el);"
             + "if(cs.position!=='fixed'&&cs.position!=='absolute')continue;"
             + "if(el.querySelector('main,form,textarea,[contenteditable=\"true\"]'))continue;"

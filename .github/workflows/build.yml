@@ -3,10 +3,9 @@ name: Build Agon (APK + Windows)
 # Every push to main publishes ONE release with both deliverables, under one version:
 #
 #     Agon-<version>.apk                 Android (32- and 64-bit, no native code)
-#     Agon-Setup-<version>-x64.exe       Windows installer, 64-bit
-#     Agon-Setup-<version>-ia32.exe      Windows installer, 32-bit
-#     Agon-Portable-<version>-{x64,ia32}.exe
-#     latest.yml + *.blockmap            what the Windows auto-updater reads
+#     Agon-Setup-64.exe                  Windows installer, 64-bit
+#     Agon-Setup-32.exe                  Windows installer, 32-bit
+#     latest.yml                         what the Windows auto-updater reads (64-bit)
 #
 # The APK and the installers share the version number because they are one release; the
 # in-app updaters on both platforms compare against it. No tagging by hand.
@@ -116,10 +115,11 @@ jobs:
             Runs on 32- and 64-bit phones (the app has no native code).
 
             ### Windows
-            `Agon-Setup-${{ steps.v.outputs.name }}-x64.exe` is the installer for 64-bit
-            Windows, `-ia32.exe` for 32-bit Windows. The `Agon-Portable-*.exe` files need no
-            installation. Windows SmartScreen warns on the first run because the installers
-            are not signed with a paid certificate: *More info* → *Run anyway*.
+            `Agon-Setup-64.exe` is the installer for 64-bit Windows, `Agon-Setup-32.exe`
+            for 32-bit Windows. Both come from this release; they are separate files
+            because Electron compiles the app once per architecture and a single .exe
+            cannot contain both. Windows SmartScreen warns on the first run because the
+            installers are not signed with a paid certificate: *More info* → *Run anyway*.
 
             Apps already running Agon detect this release automatically
             (**Update → Check for updates** on Android, **Help → Check for updates** on
@@ -178,11 +178,16 @@ jobs:
         shell: pwsh
         run: |
           $version = '${{ steps.v.outputs.version }}'
+          # make-release-assets.js (build.afterAllArtifactBuild) turns electron-builder's
+          # per-arch installers into exactly two published files and rewrites latest.yml to
+          # describe the 64-bit one, because electron-builder names that file `latest.yml`
+          # for both arches and the second build overwrites the first.
           $expected = @(
-            "Agon-Setup-$version-x64.exe",
+            "Agon-Setup-$version-x64.exe",     # electron-builder output, kept for the check
             "Agon-Setup-$version-ia32.exe",
-            "Agon-Portable-$version-x64.exe",
-            "Agon-Portable-$version-ia32.exe"
+            "Agon-Setup-64.exe",               # what is published
+            "Agon-Setup-32.exe",
+            "latest.yml"
           )
           $missing = @()
           foreach ($name in $expected) {
@@ -190,18 +195,24 @@ jobs:
           }
           Get-ChildItem desktop/release -File | Select-Object Name, Length | Format-Table
           if ($missing.Count -gt 0) {
-            throw ("electron-builder did not produce: " + ($missing -join ', '))
+            throw ("missing build output: " + ($missing -join ', '))
           }
-          Write-Host 'All four installers present (x64 + ia32, setup + portable).'
+          # latest.yml must point at the 64-bit installer, or 64-bit clients are handed the
+          # 32-bit one (and a 32-bit machine is handed one it cannot run).
+          $yml = Get-Content 'desktop/release/latest.yml' -Raw
+          if ($yml -notmatch 'Agon-Setup-64\.exe') {
+            throw 'latest.yml does not describe Agon-Setup-64.exe'
+          }
+          Write-Host 'Both installers present, latest.yml describes the 64-bit build.'
 
       - name: Keep the installers as artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Agon-windows
           path: |
-            desktop/release/*.exe
+            desktop/release/Agon-Setup-64.exe
+            desktop/release/Agon-Setup-32.exe
             desktop/release/latest.yml
-            desktop/release/*.blockmap
           if-no-files-found: error
 
       - name: Add the installers to the same release
@@ -212,8 +223,9 @@ jobs:
           $tag = '${{ needs.build.outputs.tag }}'
           # Only what a user or an updater needs: the installers, the blockmaps and
           # latest.yml. builder-debug.yml is electron-builder's own log and stays out.
+          $wanted = @('Agon-Setup-64.exe', 'Agon-Setup-32.exe', 'latest.yml')
           $files = Get-ChildItem desktop/release -File |
-            Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' } |
+            Where-Object { $wanted -contains $_.Name } |
             ForEach-Object { $_.FullName }
           if (-not $files) { throw 'electron-builder produced no installers.' }
           foreach ($f in $files) {

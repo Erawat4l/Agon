@@ -24,7 +24,7 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 | Command | What it does |
 | --- | --- |
 | `build.bat` | Builds `Agon-debug.apk` — signed with the debug key, installs immediately |
-| `build-all.bat` | **Both apps in one command:** the APK *and* the Windows installers (x64 + ia32, setup + portable), renamed to `Agon.apk` / `Agon.exe` |
+| `build-all.bat` | **Both apps in one command:** the APK *and* the Windows installers (64-bit and 32-bit setup), renamed to `Agon.apk` / `Agon.exe` |
 | `build-all.bat release` | Same, but a signed release APK |
 | `build.bat install` | Builds, then installs + launches on a USB-connected phone (needs `adb`) |
 | `build.bat release` | Builds `Agon-release.apk` (signed if you ran `make-keystore.bat` first) |
@@ -359,11 +359,22 @@ every push to `main`, under a single version number:
 
 | Asset in the release | Platform |
 | --- | --- |
-| `Agon-<version>.apk` | Android - install on the phone |
-| `Agon-Setup-<version>-x64.exe` | Windows installer, 64-bit |
-| `Agon-Setup-<version>-ia32.exe` | Windows installer, 32-bit |
-| `Agon-Portable-<version>-{x64,ia32}.exe` | no installation needed |
-| `latest.yml` + `.blockmap` | what the Windows auto-updater verifies |
+| `Agon-<version>.apk` | Android - one file for 32- **and** 64-bit phones |
+| `Agon-Setup-64.exe` | Windows installer, 64-bit |
+| `Agon-Setup-32.exe` | Windows installer, 32-bit |
+| `latest.yml` | what the Windows auto-updater verifies |
+
+Two `.exe` files, not one: Electron bundles a whole Chromium, compiled separately for
+each architecture, so a single installer cannot run on both. The APK is genuinely one
+file because the app has no native code — Android's own runtime handles either ABI.
+
+`latest.yml` describes `Agon-Setup-64.exe`, because that is the only name
+electron-updater reads on Windows and one YAML file cannot describe two binaries. 64-bit
+installs therefore self-update; a 32-bit install is pointed at `Agon-Setup-32.exe` when
+it checks. `desktop/scripts/make-release-assets.js` produces all three files, and rewrites
+`latest.yml` after both architectures are built — electron-builder writes `latest.yml`
+per arch, so the second build used to overwrite the first and the release ended up
+advertising the 32-bit installer to 64-bit machines.
 
 The APK job decides the version and publishes the release; the Windows job takes that same
 tag from it, so the two never drift apart. No tagging by hand — both updaters pick the

@@ -211,41 +211,27 @@ then refuses.)
 
 ## Step 6 — Delete the older releases, keeping the new one
 
-You authorised this, and it is what makes `v1.4.43` the *latest* release: GitHub's
-`releases/latest` — which every installed app reads — points at the newest **published**
-release. With only one left, there is no ambiguity.
+> **Do not paste anything from this step until Step 5 printed `[OK] Release live`.**
+> `gh release delete` is immediate and irreversible. Type one line at a time and read the
+> tag in it before pressing Enter. Pasting this whole section as a block has already
+> happened once — it ran a list *and* a delete in one go.
+
+Deleting the old ones is what makes the new tag the *latest* release: every installed app
+reads GitHub's `releases/latest`, and with one release left there is no ambiguity.
+
+**6a. Prove the new release is complete before touching anything:**
 
 ```bat
 gh release list
 ```
 
-Look at the list. Then delete everything except the newest tag (`v1.4.43`) — replace the
-tag names with what you actually see:
+The new version must be listed and **not** marked *Draft*. Then:
 
 ```bat
-gh release delete v1.4.42 --yes --cleanup-tag
-gh release delete v1.4.41 --yes --cleanup-tag
+gh release view --json assets --jq ".assets[].name"
 ```
 
-> `--cleanup-tag` also deletes the tag, which is what keeps `publish.bat`'s auto-bump from
-> reading a version that no longer exists. **Read the tag name before you press Enter** —
-> `gh release delete` is immediate and irreversible, and deleting the release you just
-> published is a real mistake that has already happened once on this project. Never delete
-> the release whose tag is the one you just created.
-
-Confirm what is left:
-
-```bat
-gh release list
-```
-
-Exactly one row, marked **Latest**, with four assets. Check them:
-
-```bat
-gh release view --json assets --jq ".assets[] | .name + \"  \" + (.size|tostring)"
-```
-
-You should see exactly these four:
+That must print all four names:
 
 ```
 Agon-1.4.43.apk
@@ -254,11 +240,30 @@ Agon-Setup-64.exe
 latest.yml
 ```
 
-If a `.exe` or `latest.yml` is missing, the Windows build failed and the release should
-have been left as a draft — check `gh release list` for a *Draft* row and read the error
-that `publish.bat` printed.
+**If any of the four is missing, stop here.** Do not delete the older release — it is
+currently the working one, and the new release is incomplete. Fix the build and publish
+again with the same version.
 
----
+**6b. Delete the older releases, one line per release:**
+
+```bat
+gh release delete v1.4.42 --yes --cleanup-tag
+```
+
+Read that tag before pressing Enter. If the only release listed is the one you just
+published, there is nothing to delete and you are already done.
+
+`--cleanup-tag` removes the git tag too, which is what stops the auto-bump from reading a
+version that no longer exists.
+
+**6c. Confirm:**
+
+```bat
+gh release list
+```
+
+Exactly one row, marked **Latest**. If the old one is still listed, delete it and re-run;
+nothing is broken by having two releases for a while.
 
 ## Step 7 — Check it actually works
 
@@ -296,7 +301,7 @@ yourself are the signing key and the credential (Step 2); nothing else is irrepl
 | --- | --- |
 | `'git' is not recognized` | Git installed but cmd was open before it. Close cmd, open it again. |
 | `Java not found` | JDK missing, or `JAVA_HOME` not set. `winget install EclipseAdoptium.Temurin.17.JDK`, reopen cmd. |
-| `Android SDK not found` | Step 3, or set `ANDROID_HOME` to `%LOCALAPPDATA%\Android\Sdk`. |
+| Gradle: `SDK location not found. Define a valid SDK location with an ANDROID_HOME environment variable...` | The SDK is missing or in an unexpected place — Step 3. `publish.bat` now finds it and writes `local.properties` itself; if it still says this, the SDK genuinely is not installed. |
 | `App not installed` when updating | Different signing key (Step 2b). Uninstall Agon once, install the APK by hand, and updates work again. |
 | *This would publish 1.0.1, but v1.4.42 is already published* | A stale `version.txt`. Delete it (`del version.txt`) and pass the version explicitly: `publish.bat 1.4.43`. |
 | `publish.bat` says 401 / 403 | The credential expired. `gh auth login` again, delete `gh-token.txt` if it exists, retry. |

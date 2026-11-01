@@ -47,6 +47,14 @@
     <string name="download_failed">Download failed</string>
     <string name="no_browser">No app found to open this link</string>
     <string name="dialog_ok">OK</string>
+    <string name="menu_new_window">New window</string>
+    <string name="menu_new_window_sub">A second arena, kept loaded - switch between chats without reloading</string>
+    <string name="menu_windows_open">Open windows</string>
+    <string name="menu_window_current">on screen now</string>
+    <string name="window_opened">New window is loading in the background</string>
+    <string name="window_switched">Switched to %1$s</string>
+    <string name="window_number">Window %1$d</string>
+    <string name="window_limit">Four windows is the limit on a phone - close one first</string>
     <string name="webwindow_loading">Opening…</string>
     <string name="webwindow_ready">Loaded</string>
     <string name="webwindow_failed">This page did not load. Tap the address to retry.</string>

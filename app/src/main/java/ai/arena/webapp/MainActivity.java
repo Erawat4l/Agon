@@ -488,8 +488,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     /** One tap: show the chat tab that is already warm. */
     private void showChat() {
-        if (currentTab != AppUi.TAB_CHAT) {
-            showTab(AppUi.TAB_CHAT);
+        // A window may be in front of the chat tab while the nav still highlights Chat:
+        // the nav says "Chat" and tapping it must put the chat itself back on screen.
+        if (currentTab != AppUi.TAB_CHAT || pageId() != AppUi.TAB_CHAT) {
+            currentTab = AppUi.TAB_CHAT;
+            hideChatSheets();
+            tabs.show(AppUi.TAB_CHAT);
+            applyChromeInsets();
+            AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(),
+                    navExpanded, true);
             return;
         }
         // Already on chat: just make sure nothing is covering it.
@@ -571,6 +578,75 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             return;
         }
         showTab(tab);
+    }
+
+    /**
+     * The id of the page on screen.
+     *
+     * currentTab is the *nav* highlight (it stays on Chat while a window is open, because a
+     * window is not a place in the nav); the tab layer is what knows which window is really
+     * in front. Everything that needs "the page the user is looking at" asks here.
+     */
+    private int pageId() {
+        if (tabs == null) return currentTab;
+        WebView shown = tabs.current();
+        int id = tabs.tabOf(shown);
+        return id >= 0 ? id : currentTab;
+    }
+
+    /**
+     * Opens another arena window on a fresh chat, in the background.
+     *
+     * It is created straight away and starts loading, so the first switch to it costs
+     * nothing. The four-window ceiling is not arbitrary: each window is its own Chromium
+     * renderer, and a phone that already reported lag cannot keep six of them.
+     */
+    private void newWindow() {
+        if (tabs == null) return;
+        int id = tabs.openWindow();
+        if (id < 0) {
+            toast(R.string.window_limit);
+            return;
+        }
+        switchWindow(id);
+        toast(R.string.window_opened);
+    }
+
+    /** Puts an open window (or any page id) on screen. */
+    private void switchWindow(int id) {
+        if (tabs == null) return;
+        if (tabs.get(id) == null) return;
+        hideError();
+        closeWebWindow();
+        WebView page = tabs.show(id);
+        if (page == null) return;
+        TabWebViews.applyTheme(page, AppUi.isDark(this));
+        applyChromeInsets();
+        // The nav keeps Chat lit: a window is another chat, not another destination.
+        AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
+        toast(getString(R.string.window_switched, windowName(id)));
+    }
+
+    /** What a window is called: its page title, or its number in the list. */
+    private String windowName(int id) {
+        String title = tabs == null ? null : tabs.windowTitle(id);
+        if (title != null) return title;
+        java.util.List<Integer> open = tabs == null ? null : tabs.windows();
+        int index = open == null ? -1 : open.indexOf(id);
+        return index < 0 ? getString(R.string.menu_new_window)
+                : getString(R.string.window_number, index + 1);
+    }
+
+    /** The open windows, in the order the More sheet lists them. */
+    private java.util.List<MenuSheet.Window> windowList() {
+        java.util.List<MenuSheet.Window> out = new java.util.ArrayList<>();
+        if (tabs == null) return out;
+        for (Integer id : tabs.windows()) {
+            // A window the app cannot put on screen is not a window worth listing.
+            if (tabs.get(id) == null) continue;
+            out.add(new MenuSheet.Window(id, windowName(id)));
+        }
+        return out;
     }
 
     /** Switches the visible page (the tabs that are not sheets). */
@@ -1144,6 +1220,30 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
+            public void onNewWindow() {
+                newWindow();
+            }
+
+            @Override
+            public void onSwitchWindow(int windowId) {
+                switchWindow(windowId);
+            }
+
+            @Override
+            public void onCloseWindow(int windowId) {
+                if (tabs == null) return;
+                boolean wasCurrent = tabs.current() != null && windowId == pageId();
+                tabs.closeWindow(windowId);
+                if (wasCurrent) {
+                    // The page the user was looking at is gone: fall back to the chat tab
+                    // and put the nav (and the content area) back in step with it.
+                    currentTab = AppUi.TAB_CHAT;
+                    tabs.show(AppUi.TAB_CHAT);
+                    applyChromeInsets();
+                }
+            }
+
+            @Override
             public void onOpenUpdate() {
                 openUpdateSheet();
             }
@@ -1162,7 +1262,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onDismissed() {
                 menuSheet = null;
             }
-        });
+        }, windowList(), pageId());
     }
 
     /**

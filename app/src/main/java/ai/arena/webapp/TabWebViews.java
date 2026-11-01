@@ -525,7 +525,7 @@ public final class TabWebViews {
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     private WebView createWebView(int tab) {
-        WebView w = new WebView(activity);
+        WebView w = new SelectionSafeWebView(activity);
         w.setBackgroundColor(AppUi.color(activity, R.color.bg));
         w.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
         w.setLongClickable(true);
@@ -587,6 +587,7 @@ public final class TabWebViews {
         w.addJavascriptInterface(new WebBridge(activity, w), "ArenaNative");
         w.setWebChromeClient(host.chromeFactory().create());
         w.setDownloadListener(host.downloadListener());
+
         return w;
     }
 
@@ -759,5 +760,77 @@ public final class TabWebViews {
     public void loadInCurrent(String url) {
         WebView w = current();
         if (w != null) w.loadUrl(url);
+    }
+
+    /**
+     * A WebView whose text-selection menu carries no "Process text" / "Share" items.
+     *
+     * Why a subclass and not a plain call: setActionModeCallback() is a TextView API -
+     * WebView has no such method, so calling it on a WebView cannot compile. Chromium
+     * starts the selection menu through View.startActionMode(), which is what is wrapped
+     * here: once the framework has populated the menu, the two outbound intents are
+     * dropped, leaving the standard cut / copy / paste / select-all items. That keeps
+     * editing inside fields intact while a long-press on a page can no longer hand the
+     * selection to the Google app / Assistant.
+     */
+    static final class SelectionSafeWebView extends WebView {
+
+        SelectionSafeWebView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public android.view.ActionMode startActionMode(
+                android.view.ActionMode.Callback callback, int type) {
+            return super.startActionMode(new Filtered(callback), type);
+        }
+
+        @Override
+        public android.view.ActionMode startActionMode(
+                android.view.ActionMode.Callback callback) {
+            return super.startActionMode(new Filtered(callback));
+        }
+    }
+
+    /** Wraps the WebView's own selection callback so the menu can be pruned. */
+    private static final class Filtered implements android.view.ActionMode.Callback {
+        private final android.view.ActionMode.Callback inner;
+
+        Filtered(android.view.ActionMode.Callback inner) {
+            this.inner = inner;
+        }
+
+        @Override
+        public boolean onCreateActionMode(android.view.ActionMode mode, android.view.Menu menu) {
+            return inner.onCreateActionMode(mode, menu);
+        }
+
+        @Override
+        public boolean onPrepareActionMode(android.view.ActionMode mode, android.view.Menu menu) {
+            boolean changed = inner.onPrepareActionMode(mode, menu);
+            for (int i = menu.size() - 1; i >= 0; i--) {
+                android.view.MenuItem item = menu.getItem(i);
+                android.content.Intent intent = item.getIntent();
+                if (intent == null) continue;
+                String action = intent.getAction();
+                if (android.content.Intent.ACTION_PROCESS_TEXT.equals(action)
+                        || android.content.Intent.ACTION_SEND.equals(action)) {
+                    menu.removeItem(item.getItemId());
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
+        @Override
+        public boolean onActionItemClicked(android.view.ActionMode mode,
+                                          android.view.MenuItem item) {
+            return inner.onActionItemClicked(mode, item);
+        }
+
+        @Override
+        public void onDestroyActionMode(android.view.ActionMode mode) {
+            inner.onDestroyActionMode(mode);
+        }
     }
 }

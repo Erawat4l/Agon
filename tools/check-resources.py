@@ -171,11 +171,18 @@ def check_interface_calls(java_paths):
         # stay switched on.
         typed = {}
         for tm in re.finditer(r"\b([A-Z]\w*)\s+(\w+)\s*(?=[,)=;])", src):
+            # `android.view.ActionMode.Callback callback` is NOT this project's `Callback`:
+            # a qualified type is a different type, and unioning the two by simple name
+            # would report every method of the platform interface as missing.
+            if src[tm.start(1) - 1] == ".":
+                continue
             typed.setdefault(tm.group(2), set()).add(tm.group(1))
         for sig in re.finditer(r"\b(?:public|private|protected|static|final|synchronized|"
                                r"abstract|default|native|\s)+[\w.<>\[\]]+\s+\w+\s*"
                                r"\(([^)]*)\)", src):
             for tm in re.finditer(r"\b([A-Z]\w*)\s+(\w+)\s*(?=[,)]|$)", sig.group(1)):
+                if sig.group(1)[tm.start(1) - 1:tm.start(1)] == ".":
+                    continue
                 typed.setdefault(tm.group(2), set()).add(tm.group(1))
         for m in re.finditer(r"\b(\w+)\.(\w+)\s*\(", src):
             var, method = m.group(1), m.group(2)

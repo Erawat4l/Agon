@@ -175,8 +175,9 @@ function hardenWebContents(contents) {
  * `role` decides what is allowed:
  *   'app'     the arena.ai window - may navigate inside arena.ai, nothing else
  *   'popup'   a small arena.ai popup (opened by the page) - same rules as the app
- *   'provider' a Google sign-in window - free to roam Google's own pages, and it may never
- *             wander off to somewhere unrelated
+ *   'provider' a Google sign-in window - free to roam Google's own pages and to return to
+ *             arena.ai when the redirect carries the session; it may never wander off to
+ *             some unrelated third-party site
  *
  * The previous version applied the app's rules to every window, which meant a Google popup
  * that navigated to a second Google page was treated as hostile: it was redirected to
@@ -187,7 +188,11 @@ function attachNavigationPolicy(contents, role) {
 
   const allowedHere = (info) => {
     if (!info || info.scheme !== 'https') return false;
-    if (kind === 'provider') return isProviderHost(info.host);
+    // A provider window must be able to come BACK. Google sign-in ends by redirecting to
+    // arena.ai with the session, and the cookie is set on that final arena.ai page - so
+    // allowing only provider hosts here cancelled the one navigation that actually signs
+    // the app in. Any other outside host is still refused.
+    if (kind === 'provider') return isProviderHost(info.host) || isArenaHost(info.host);
     return isArenaHost(info.host);
   };
 
@@ -341,6 +346,28 @@ function openProviderWindow(url) {
     });
     if (answer.response === 0) { /* nothing to do */ }
   });
+  // The redirect that carries the session lands on arena.ai inside THIS window, while the
+  // app window behind it still shows the signed-out page it loaded minutes ago. Without
+  // this, a successful sign-in looked like nothing happened: the popup showed arena, the
+  // app still showed "Log In". The cookie jar is shared, so reloading is enough.
+  let handedOff = false;
+  child.webContents.on('did-navigate-in-page', () => handOff());
+  child.webContents.on('did-navigate', () => handOff());
+  child.webContents.on('did-finish-load', () => handOff());
+  function handOff() {
+    if (handedOff || child.isDestroyed()) return;
+    const info = urlInfo(child.webContents.getURL());
+    if (!info || !isArenaHost(info.host)) return;
+    handedOff = true;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(START_URL);
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+    // Close the helper window: its job was to carry the cookie back, and leaving a second
+    // arena.ai window open invites the user to keep working in the wrong one.
+    if (!child.isDestroyed()) child.close();
+  }
   child.loadURL(url);
 }
 

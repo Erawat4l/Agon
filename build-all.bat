@@ -6,9 +6,9 @@ REM ===========================================================================
 REM  Agon - build BOTH the Android APK and the Windows EXE with one command
 REM
 REM  Usage:
-REM     build-all.bat            APK (debug) + Windows installer + portable EXE
+REM     build-all.bat            APK (debug) + Windows installers (64-bit + 32-bit)
 REM     build-all.bat release    APK (release, signed if keystore.properties exists)
-REM                              + Windows installer + portable EXE
+REM                              + Windows installers (64-bit + 32-bit)
 REM
 REM  What you get, in this folder:
 REM     Agon.apk                     the Android build               <- phones

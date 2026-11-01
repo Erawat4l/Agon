@@ -67,8 +67,8 @@ if !TAGN! GEQ !FILEN! (
     set "LASTTAG=!FILETAG!"
 )
 if not defined LASTTAG set "LASTTAG=1.0.0"
-TAGTAG=
-FILETAG=
+set "TAGTAG="
+set "FILETAG="
 :have_tag
 for /f "tokens=1,2,3 delims=." %%a in ("!LASTTAG!") do (
     set "MAJ=%%a"

@@ -82,16 +82,26 @@ function urlInfo(raw) {
 }
 
 /**
- * A Chromium user agent with the Electron wrapper token removed.
+ * A Chromium user agent with the app's and Electron's tokens removed.
  *
- * Nothing else is changed: the Chrome version stays the real one, so a page that sniffs
- * the browser sees what it actually is. The token is dropped because it is what some
- * sites use to refuse an "embedded" client, and because keeping it would make the session
- * look like a different browser than the one that stores it.
+ * The token list is not guesswork: Electron composes the default UA from the `name` field
+ * of package.json, which is "agon-desktop", so the real string is
+ *   ... (KHTML, like Gecko) agon-desktop/1.4.22 Chrome/116... Electron/26.6.10 Safari/537.36
+ * The old cleaner only stripped "Agon/" and then "Electron/", so `agon-desktop/1.4.22`
+ * survived and every request to arena.ai and Google carried "this is an app" in it. That
+ * is exactly what an embedded-browser refusal is keyed on. Both real tokens are removed,
+ * and any future name (=<word>/<digits>) is caught by the last pattern.
+ *
+ * The Chrome version is left alone: a page that sniffs the browser still learns the truth
+ * about the engine, and inventing a newer one would only create a mismatch to be caught by.
  */
 function userAgent(ses) {
   const ua = ses.getUserAgent();
-  return ua.replace(/\sElectron\/[\d.]+/i, '').replace(/\sAgon\/[\d.]+/i, '');
+  return ua
+    .replace(/\s(?:agon-desktop|agon|ArenaApp)\/[\d.]+/gi, '')
+    .replace(/\sElectron\/[\d.]+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 /** One path segment: a page-supplied download name must not escape the Downloads folder. */
@@ -161,6 +171,28 @@ function hardenSession(ses) {
   // Nothing but https: a downgraded page would be able to read what it is embedded in.
   ses.webRequest.onBeforeRequest({ urls: ['http://*/*'] }, (details, callback) => {
     callback({ cancel: true });
+  });
+
+  // setUserAgent() rewrites User-Agent but NOT the User-Agent Client Hints that newer
+  // Google pages read, so those still announced Electron:
+  //   sec-ch-ua: "Not)A;Brand";v="24", "Chromium";v="116", "Electron";v="26"
+  // Dropping the Electron entry with a plain regex leaves a dangling comma (or a leading
+  // one, when Electron comes first), which is a malformed header - worse than the original
+  // because it becomes a fingerprint of its own. Split the list instead, filter, rejoin.
+  const withoutElectron = (value) => {
+    if (!value) return value;
+    const brands = value.split(',').map((part) => part.trim()).filter(Boolean);
+    const kept = brands.filter((part) => !/^"Electron"\s*;/i.test(part));
+    return kept.length === brands.length ? value : kept.join(', ');
+  };
+  // Registered here, not in createWindow(): this runs once per session, and createWindow
+  // runs again whenever the window is recreated (all windows closed, then reactivated).
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    const headers = details.requestHeaders;
+    for (const key of Object.keys(headers)) {
+      if (/^sec-ch-ua$/i.test(key)) headers[key] = withoutElectron(headers[key]);
+    }
+    callback({ requestHeaders: headers });
   });
 }
 

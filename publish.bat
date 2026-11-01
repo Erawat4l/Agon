@@ -125,6 +125,8 @@ goto :have_version
 
 :have_version
 if "!CHANNEL!"=="" set "CHANNEL=stable"
+REM "quiet" second word: never prompt, never stop for input. Used for a pasted one-liner.
+if /i "!CHANNEL!"=="quiet" set "CHANNEL=stable"
 
 REM ---------- token -------------------------------------------------------
 set "TOKEN="
@@ -181,6 +183,10 @@ if "!LOCAL!"=="1" goto :local_done
 > version.txt echo !VERSION!
 echo Local copy: %~dp0Agon-!VERSION!.apk
 echo Apps already installed get it via Update -^> Check for updates.
+echo.
+echo   Release: https://github.com/Erawat4l/Agon/releases/tag/v!VERSION!
+REM Not "start": opening the page is a convenience, but launching a browser from a batch
+REM job that was pasted into a console is noise. The URL is printed instead.
 exit /b 0
 
 :local_done

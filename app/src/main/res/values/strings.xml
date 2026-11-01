@@ -47,6 +47,9 @@
     <string name="download_failed">Download failed</string>
     <string name="no_browser">No app found to open this link</string>
     <string name="dialog_ok">OK</string>
+    <string name="webwindow_loading">Opening…</string>
+    <string name="webwindow_ready">Loaded</string>
+    <string name="webwindow_failed">This page did not load. Tap the address to retry.</string>
     <string name="dialog_cancel">Cancel</string>
     <string name="upload_failed">Could not open a file picker</string>
     <string name="reload">Reload</string>
@@ -167,6 +170,7 @@
     <string name="settings_selectable">App-style text</string>
     <string name="settings_selectable_sub">No text selection or long-press menu, like a real app</string>
     <string name="history_title">Your chats</string>
+    <string name="history_looking">Looking for your chats…</string>
     <string name="history_empty">Arena is not showing a chat list right now. Open Arena\'s own history page, or start a new chat.</string>
     <string name="history_open_arena">Open Arena\'s history page</string>
     <string name="history_new_chat">New chat</string>

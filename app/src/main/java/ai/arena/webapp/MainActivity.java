@@ -104,6 +104,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private File pendingInstallApk;
 
     private ValueCallback<Uri[]> pendingFileCallback;
+    /** A window the page opened for a non-arena address (a preview, a docs link). */
+    private WebWindow webWindow;
     private PermissionRequest pendingPermissionRequest;
 
     // ------------------------------------------------------------------ lifecycle
@@ -577,6 +579,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         currentTab = tab;
         hideError();
         boolean firstVisit = tabs.get(tab) == null;
+        // A window the page opened covers the tabs; switching tab means the user is done
+        // with it, and leaving it there would look like the nav did nothing.
+        closeWebWindow();
         tabs.show(tab);
         TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
         applyChromeInsets();
@@ -824,11 +829,65 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 // renders nothing until it is attached), keeps the navigation inside the
                 // app and watches for the session coming back.
                 ensureSignInSheet().openAccountWindow(popup, true);
-            } else if (tabs != null) {
+            } else if (!isInternalWindow(url)) {
+                // An ordinary window.open() to somewhere that is not a sign-in provider:
+                // the user asked to open it, so it opens - in a small browser window of its
+                // own, on top of the tabs.
+                //
+                // This used to be `popup.destroy(); tabs.loadInCurrent(url)` for everything
+                // not on a provider host. That is the "clicking a local preview link does
+                // nothing" report: an `about:blank` window was given to the *chat tab*
+                // (replacing the conversation the user was reading with a blank document),
+                // and a local address died silently because the app forbids cleartext
+                // http - no request, no error, no page. A window has to survive to load.
                 popup.destroy();
-                tabs.loadInCurrent(url);
+                openWebWindow(url);
+            } else {
+                // Still about:blank, or an arena page: host it and let it reveal its URL.
+                // A lazy window only starts loading once it is attached, so an empty one
+                // that is thrown away here is exactly how a click goes nowhere.
+                ensureSignInSheet().openAccountWindow(popup, true);
             }
         });
+    }
+
+    /** True for an address that belongs in a tab, not in a window of its own. */
+    private static boolean isInternalWindow(String url) {
+        if (url == null || url.isEmpty()) return true;
+        if ("about:blank".equals(url)) return true;
+        try {
+            return AppChrome.isInternal(Uri.parse(url));
+        } catch (Exception notAUrl) {
+            return true;
+        }
+    }
+
+    /** The window the page opened for a non-arena address, one at a time. */
+    private void openWebWindow(String url) {
+        if (webWindow != null) {
+            webWindow.dismiss();
+            webWindow = null;
+        }
+        webWindow = WebWindow.open(this, window, url);
+    }
+
+    /** True while a window the page opened owns the screen. */
+    boolean hasWebWindow() {
+        return webWindow != null;
+    }
+
+    /** Closes that window; Back uses this before it touches a tab's history. */
+    void closeWebWindow() {
+        if (webWindow == null) return;
+        webWindow.dismiss();
+        webWindow = null;
+    }
+
+    /** An arena link tapped inside that window comes back to a tab. */
+    void openInTab(String url) {
+        if (tabs == null || url == null) return;
+        closeWebWindow();
+        tabs.loadInCurrent(url);
     }
 
     /** The sign-in sheet, created but not shown. */
@@ -1385,6 +1444,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     @Override
     public void onBackPressed() {
+        if (webWindow != null) {
+            closeWebWindow();
+            return;
+        }
         if (historySheet != null && historySheet.isShowing()) {
             historySheet.dismiss();
             return;
@@ -1536,6 +1599,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     @Override
     protected void onDestroy() {
+        closeWebWindow();
         if (tabs != null) tabs.destroyAll();
         super.onDestroy();
     }

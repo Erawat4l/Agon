@@ -104,7 +104,7 @@ public final class ChatHistorySheet {
             host.openConversation("https://arena.ai/history/search");
         }));
         actions.addView(chip(R.string.history_refresh, () -> {
-            if (page != null) requestHistory(page);
+            if (page != null) refreshHistory(page);
         }));
         LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -142,51 +142,132 @@ public final class ChatHistorySheet {
         page.evaluateJavascript(JS_HISTORY, null);
     }
 
+    /** Re-reads the page now, for the sheet's own Refresh chip. */
+    public void refreshHistory(WebView page) {
+        if (page == null) return;
+        page.evaluateJavascript(
+                "(function(){if(window.__agonHistory)window.__agonHistory();})();", null);
+    }
+
     /**
-     * Reads conversation links out of the live page.
+     * Asks the page how it keeps its conversations, instead of assuming.
      *
-     * The previous version used {@code document.querySelectorAll('a[href]')}, which sees
-     * only the light DOM. Arena renders its sidebar inside a shadow root, and this app
-     * hides that sidebar, so the query found nothing and the sheet always said "nothing
-     * here" - a double tap that looked broken rather than empty.
+     * Two earlier versions guessed and both were wrong on a real device: the first read
+     * the light DOM, the second walked shadow roots. Arena's list is simply not in the
+     * document while the sheet is open - it is fetched or rendered lazily - so no amount of
+     * searching at one instant can find it. This version does not search at open time at
+     * all; it gives the page a short window (about two seconds) and reports what appears:
      *
-     * So this walks shadow roots the same way SignInDriver does, and it does not depend on
-     * the sidebar being visible: a conversation link is a conversation link whether it is
-     * on screen or inside a collapsed drawer. A bounded budget keeps a big page from
-     * turning one tap into a stall.
+     *  1. any link that looks like a conversation, from the light DOM, every open shadow
+     *     root, and every frame reachable from this one;
+     *  2. failing that, whatever storage already holds: localStorage and sessionStorage
+     *     keys that name a conversation or a history, which is what an app stores when it
+     *     renders the list somewhere the DOM walk cannot see.
      *
-     * Only arena links containing /c/ or /chat/ are returned; the Kotlin side re-checks
-     * them against the host allow-list before drawing a row.
+     * The answer is sent twice: once immediately (cheap, usually enough) and once when the
+     * document has stopped changing. The sheet draws whichever arrives with rows.
      */
     private static final String JS_HISTORY =
             "(function(){try{"
-            + "var out=[],seen={},budget=6000;"
-            + "function walk(root){if(!root||budget<=0)return;"
+            // ---- one collector, used for every root
+            + "var out=[],seen={};"
+            + "function conv(u){if(!u)return false;u=String(u);"
+            + "return u.indexOf('/c/')>=0||u.indexOf('/chat/')>=0||u.indexOf('/conversation')>=0"
+            + "||u.indexOf('/thread')>=0;}"
+            + "function add(u,t){if(!conv(u))return;"
+            + "u=String(u);if(u.charAt(0)==='/')u='https://arena.ai'+u;"
+            + "if(!/^https?:\\/\\/([a-z0-9-]+\\.)*arena\\.ai([\\/?#]|$)/i.test(u)&&"
+            + "!/^https?:\\/\\/([a-z0-9-]+\\.)*lmarena\\.ai([\\/?#]|$)/i.test(u))return;"
+            + "u=u.split('#')[0];if(seen[u])return;"
+            + "t=(t||'').replace(/\\s+/g,' ').trim();if(!t||t.length>120)return;"
+            + "seen[u]=1;out.push({u:u,t:t});}"
+            + "function scan(root,depth){if(!root||depth>6||out.length>=40)return;"
             + "var as;try{as=root.querySelectorAll('a[href]');}catch(e){as=[];}"
-            + "for(var i=0;i<as.length;i++){var a=as[i];var h=a.href||'';"
-            + "if(h.indexOf('/c/')<0&&h.indexOf('/chat/')<0)continue;"
-            + "var t=(a.innerText||a.textContent||a.getAttribute('aria-label')||'')"
-            + ".replace(/\\s+/g,' ').trim();"
+            + "for(var i=0;i<as.length;i++){var a=as[i];"
+            + "add(a.href,a.getAttribute('aria-label')||a.innerText||a.textContent);}"
+            // elements that carry the conversation id in an attribute but are not anchors
+            + "var ds;try{ds=root.querySelectorAll('[data-id],[data-conversation-id],[data-chat-id]');}"
+            + "catch(e){ds=[];}"
+            + "for(var k=0;k<ds.length;k++){var d=ds[k];"
+            + "var id=d.getAttribute('data-conversation-id')||d.getAttribute('data-chat-id')"
+            + "||d.getAttribute('data-id');"
+            + "if(!id||!/^[\\w-]{6,}$/.test(id))continue;"
+            + "add('/c/'+id,d.innerText||d.textContent);}"
+            // buttons whose label reads like a conversation (arena renders rows as buttons)
+            + "var bs;try{bs=root.querySelectorAll('button,[role=\\\"link\\\"],[role=\\\"button\\\"]');}"
+            + "catch(e){bs=[];}"
+            + "for(var b=0;b<bs.length&&b<400;b++){var el=bs[b];"
+            + "var t=(el.innerText||el.textContent||'').replace(/\\s+/g,' ').trim();"
             + "if(!t||t.length>120)continue;"
-            + "if(seen[h])continue;seen[h]=1;out.push({u:h,t:t});"
-            + "if(out.length>=40)break;}"
+            + "var id2=el.getAttribute('data-id')||el.getAttribute('value')||'';"
+            + "var href=el.getAttribute('data-href')||el.getAttribute('href')||'';"
+            + "if(href)add(href,t);"
+            + "else if(id2&&/^[\\w-]{6,}$/.test(id2))add('/c/'+id2,t);}"
+            // descend, and cross into frames
             + "var kids;try{kids=root.querySelectorAll('*');}catch(e){kids=[];}"
-            + "for(var j=0;j<kids.length;j++){budget--;var el=kids[j];"
-            + "if(el.shadowRoot){walk(el.shadowRoot);}"
-            + "if(budget<=0)break;}}"
-            + "walk(document);"
-            + "AgonHistory.receive(JSON.stringify(out));"
-            + "}catch(e){AgonHistory.receive('[]');}})();";
+            + "for(var j=0;j<kids.length;j++){var e2=kids[j];"
+            + "if(e2.shadowRoot)scan(e2.shadowRoot,depth+1);"
+            + "if(e2.tagName==='IFRAME'||e2.tagName==='FRAME'){"
+            + "try{if(e2.contentDocument)scan(e2.contentDocument,depth+1);}catch(e){}}}"
+            + "}"
+            // ---- storage: what an app keeps when the DOM holds no list
+            + "function fromStore(store){"
+            + "if(!store)return;"
+            + "for(var i=0;i<store.length;i++){var k=store.key(i);"
+            + "if(!/chat|conversation|history|thread|session/i.test(k))continue;"
+            + "var v=null;try{v=store.getItem(k);}catch(e){continue;}"
+            + "if(!v||v.length>200000)continue;"
+            + "var m=v.match(/[\\w-]{8,}/g);if(!m)continue;"
+            + "for(var j=0;j<m.length&&out.length<60;j++){"
+            + "if(/(chat|conv|thread)/i.test(k)&&/^[0-9a-f-]{8,}$/i.test(m[j])){"
+            + "add('/c/'+m[j],k.replace(/[:._-]+/g,' ').trim()+' '+m[j].slice(0,8));}}"
+            + "}"
+            + "}"
+            + "function collect(){out=[];seen={};"
+            + "scan(document,0);"
+            + "try{fromStore(window.localStorage);}catch(e){}"
+            + "try{fromStore(window.sessionStorage);}catch(e){}"
+            + "return JSON.stringify(out.slice(0,40));"
+            + "}"
+            // ---- first answer straight away
+            + "AgonHistory.receive(collect());"
+            // ---- and again once the page has actually rendered its list
+            + "var pending=null,quiet=0,passes=0;"
+            + "function again(){if(++passes>24)return;"
+            + "if(pending)clearTimeout(pending);"
+            + "pending=setTimeout(function(){"
+            + "var now=collect();"
+            + "if(now!=='[]')AgonHistory.receive(now);"
+            + "},quiet>2?120:260);"
+            + "quiet++;}"
+            + "var obs=null;"
+            + "try{obs=new MutationObserver(again);"
+            + "obs.observe(document.documentElement,{childList:true,subtree:true});}catch(e){}"
+            // A sheet that is open while the user taps around still gets a fresh answer.
+            + "setTimeout(function(){if(obs)obs.disconnect();"
+            + "if(AgonHistory.done)AgonHistory.done(collect());"
+            + "else AgonHistory.receive(collect());},2400);"
+            // ---- and a manual nudge for the sheet's Refresh chip
+            + "window.__agonHistory=function(){AgonHistory.receive(collect());};"
+            + "}catch(e){try{AgonHistory.receive('[]');}catch(x){}}}"
+            + ")();";
 
     /** Receives the list from the page. Runs on a WebView thread, so it hops to the UI. */
     private final class Bridge {
+        /** An answer that arrived while the page may still be rendering its list. */
         @JavascriptInterface
         public void receive(final String json) {
-            activity.runOnUiThread(() -> render(json));
+            activity.runOnUiThread(() -> render(json, false));
+        }
+
+        /** The last answer for this request: from here, empty means empty. */
+        @JavascriptInterface
+        public void done(final String json) {
+            activity.runOnUiThread(() -> render(json, true));
         }
     }
 
-    private void render(String json) {
+    private void render(String json, boolean finished) {
         if (listBox == null) return;
         listBox.removeAllViews();
         List<String[]> rows = new ArrayList<>();
@@ -209,8 +290,13 @@ public final class ChatHistorySheet {
         }
 
         if (rows.isEmpty()) {
-            status.setText(activity.getString(R.string.history_empty));
+            // An interim answer is not "you have no chats" - the page is still building
+            // the list, and telling the user it is empty made a sheet that filled in a
+            // second later look like it had failed.
+            status.setText(activity.getString(
+                    finished ? R.string.history_empty : R.string.history_looking));
             status.setVisibility(View.VISIBLE);
+            if (!finished) return;
             // Even with a working scrape, arena may not have the list in the DOM (signed
             // out, or a page that renders it only on its own history route). A sheet that
             // says "nothing here" and nothing else is a dead end, so offer the route that

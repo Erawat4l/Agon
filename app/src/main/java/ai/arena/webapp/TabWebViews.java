@@ -49,6 +49,25 @@ public final class TabWebViews {
 
     private static final int MAX_WARM = 5;
 
+    /**
+     * Extra arena windows start here.
+     *
+     * A "window" is a chat the user opened from More -> New window: a fully independent
+     * WebView with its own page, its own scroll position and its own conversation, kept
+     * alive beside the built-in tabs so switching between two chats is a bringToFront()
+     * and not a reload. The ids are above every built-in tab so the nav, the URL table and
+     * the tab bookkeeping cannot confuse one with the other.
+     */
+    public static final int CHAT_WINDOW_BASE = 1000;
+
+    /** How many extra windows may be open at once (each one is a Chromium renderer). */
+    public static final int MAX_WINDOWS = 4;
+
+    /** True for an id that is one of the user's own extra windows. */
+    public static boolean isWindow(int id) {
+        return id >= CHAT_WINDOW_BASE;
+    }
+
     private final Activity activity;
     private final Host host;
     private final FrameLayout container;
@@ -77,6 +96,79 @@ public final class TabWebViews {
     /** Every tab that currently has a live WebView. */
     public java.util.List<Integer> warmTabs() {
         return new java.util.ArrayList<>(views.keySet());
+    }
+
+    /**
+     * The extra windows the user has opened, in the order they were opened.
+     *
+     * A window built by preload() is deliberately not in here: it exists so that the first
+     * New window is instant, but listing it in More before anyone asked for it would be a
+     * menu entry for something the user never created.
+     */
+    public java.util.List<Integer> windows() {
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        for (Integer id : views.keySet()) {
+            if (isWindow(id) && usedWindows.contains(id)) out.add(id);
+        }
+        java.util.Collections.sort(out);
+        return out;
+    }
+
+    /**
+     * Opens a new window on arena and returns its id, or -1 when there is no room.
+     *
+     * The window is created and loaded straight away, in the background, so the first time
+     * the user switches to it there is nothing left to fetch - which is the whole point of
+     * asking for it from More.
+     */
+    public int openWindow() {
+        // A window that is already warm (preload() makes one) is handed over instead of
+        // building a second one: the point is a page that is already loaded.
+        for (Integer id : windows()) {
+            if (!usedWindows.contains(id)) {
+                usedWindows.add(id);
+                return id;
+            }
+        }
+        if (windows().size() >= MAX_WINDOWS) return -1;
+        int id = CHAT_WINDOW_BASE;
+        while (views.containsKey(id)) id++;
+        // Created and loading now, while the user is still in More: by the time they
+        // switch to it there is nothing left to fetch. ensure() starts the load.
+        ensure(id);
+        usedWindows.add(id);
+        return id;
+    }
+
+    /** Windows the user has actually opened (as opposed to one built ahead of time). */
+    private final java.util.Set<Integer> usedWindows = new java.util.HashSet<>();
+
+    /** Closes an extra window. The one on screen is never left as the current page. */
+    public boolean closeWindow(int id) {
+        if (!isWindow(id)) return false;
+        WebView w = views.remove(id);
+        if (w == null) return false;
+        loaded.remove(id);
+        container.removeView(w);
+        w.destroy();
+        if (currentTab == id) {
+            currentTab = AppUi.TAB_CHAT;
+            WebView chat = show(AppUi.TAB_CHAT);
+            if (chat != null) chat.bringToFront();
+        }
+        return true;
+    }
+
+    /** The page title arena gave a window, for the list in More. */
+    public String windowTitle(int id) {
+        WebView w = views.get(id);
+        if (w == null) return null;
+        String title = w.getTitle();
+        if (title == null || title.trim().isEmpty()) return null;
+        // "arena.ai" is what an empty document reports before the app renders: not a name.
+        if (title.trim().equalsIgnoreCase("arena.ai")
+                || title.trim().equalsIgnoreCase("arena")) return null;
+        return title.trim();
     }
 
     /** The tab a WebView belongs to, or -1 when it is not one of ours (a popup). */
@@ -170,6 +262,13 @@ public final class TabWebViews {
                 if (!views.containsKey(tab)) ensure(tab);
             }, 500L + 400L * i);
         }
+        // ...and one window, so More -> New window is not the only way to get a second
+        // arena already warm. If the user never opens one it costs a single background
+        // renderer while it is still hidden (priority BOUND - the policy above is what
+        // keeps it from competing with the page on screen).
+        main.postDelayed(() -> {
+            if (windows().isEmpty()) ensure(CHAT_WINDOW_BASE);
+        }, 400L + 500L * tabs.length);
     }
 
     /** True when Android itself has decided this phone has little memory to give. */
@@ -731,14 +830,21 @@ public final class TabWebViews {
 
     /** Keeps at most MAX_WARM WebViews; drops the least recently used background tab. */
     private void trim() {
-        while (views.size() > MAX_WARM) {
+        while (views.size() > MAX_WARM + Math.min(MAX_WINDOWS, windows().size() + 1)) {
+            // A window is only ever reclaimed when there is nothing else to reclaim: it is
+            // the page the user deliberately opened and expects to find still there.
             Integer victim = null;
+            Integer windowVictim = null;
             for (Integer key : views.keySet()) {
-                if (key != currentTab) {
+                if (key == currentTab) continue;
+                if (isWindow(key)) {
+                    if (windowVictim == null) windowVictim = key;
+                } else {
                     victim = key;
                     break;
                 }
             }
+            if (victim == null) victim = windowVictim;
             if (victim == null) return;
             WebView w = views.remove(victim);
             if (w != null) {

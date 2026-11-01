@@ -170,7 +170,22 @@ jobs:
       # how the 32-bit installers came out missing from the first two-platform release.
       - name: Package
         working-directory: desktop
-        run: npm run dist -- --publish never
+        shell: pwsh
+        run: |
+          # Capture the output and, on failure, republish the last lines as annotations.
+          # electron-builder's error is otherwise buried in a log that is not always
+          # fetchable; an annotation shows up on the run page and in the API.
+          npm run dist -- --publish never 2>&1 | Tee-Object -FilePath dist.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host '--- last 30 lines of the electron-builder output ---'
+            $tail = (Get-Content dist.log -Tail 30) -join "`n"
+            Write-Host $tail
+            foreach ($line in ($tail -split "`n")) {
+              $text = $line.Trim()
+              if ($text) { Write-Host "::error::$text" }
+            }
+            throw 'electron-builder failed - the error lines are annotated above'
+          }
 
       # Fail here, not after the upload, if a target silently did not get built: 32-bit
       # support is a promise in the README, so its absence has to break the build.

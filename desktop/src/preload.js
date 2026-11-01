@@ -12,7 +12,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const ALLOWED_COMMANDS = new Set([
-  'new-chat', 'chat', 'leaderboard', 'sign-in', 'release-page', 'devtools',
+  'new-chat', 'chat', 'leaderboard', 'sign-in', 'sign-in-browser', 'release-page', 'devtools',
 ]);
 
 contextBridge.exposeInMainWorld('agon', {

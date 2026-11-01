@@ -169,50 +169,179 @@ function hardenWebContents(contents) {
   contents.on('will-attach-webview', (event) => event.preventDefault());
 }
 
-function attachNavigationPolicy(contents) {
+/**
+ * Navigation rules for one webContents.
+ *
+ * `role` decides what is allowed:
+ *   'app'     the arena.ai window - may navigate inside arena.ai, nothing else
+ *   'popup'   a small arena.ai popup (opened by the page) - same rules as the app
+ *   'provider' a Google sign-in window - free to roam Google's own pages, and it may never
+ *             wander off to somewhere unrelated
+ *
+ * The previous version applied the app's rules to every window, which meant a Google popup
+ * that navigated to a second Google page was treated as hostile: it was redirected to
+ * arena.ai, loading the whole app *inside* the sign-in window.
+ */
+function attachNavigationPolicy(contents, role) {
+  const kind = role || 'app';
+
+  const allowedHere = (info) => {
+    if (!info || info.scheme !== 'https') return false;
+    if (kind === 'provider') return isProviderHost(info.host);
+    return isArenaHost(info.host);
+  };
+
   contents.on('will-navigate', (event, rawUrl) => {
     const info = urlInfo(rawUrl);
-    if (!info) {
+    if (allowedHere(info)) return;
+
+    // In the app window, a provider page must not replace the app: hand it to its own
+    // window so arena stays loaded behind it.
+    if (kind !== 'provider' && info && info.scheme === 'https' && isProviderHost(info.host)) {
       event.preventDefault();
+      openProviderWindow(info.url.toString());
       return;
     }
-    if (info.scheme === 'https' && isArenaHost(info.host)) return;   // the app's own site
     event.preventDefault();
-    // A provider page in the same window would replace the app's page and lose the way
-    // back; anything else is not this app's business at all.
-    if (info.scheme === 'https' && isProviderHost(info.host)) {
-      contents.loadURL(START_URL);
-    }
   });
 
-  // window.open / target=_blank: a provider popup gets a child window in the SAME session
-  // (so the cookie it sets is the one arena.ai then sees), everything else is refused.
+  // window.open / target=_blank. A provider popup gets a child window in the SAME session
+  // (so the cookie it sets is the one arena.ai then sees); everything else is refused.
   contents.setWindowOpenHandler(({ url }) => {
     const info = urlInfo(url);
-    if (!info) return { action: 'deny' };
-    if (info.scheme === 'https' && (isArenaHost(info.host) || isProviderHost(info.host))) {
-      return {
-        action: 'allow',
-        overrideBrowserWindowOptions: {
-          width: 520,
-          height: 700,
-          parent: mainWindow || undefined,
-          modal: false,
-          autoHideMenuBar: true,
-          icon: path.join(__dirname, '..', 'build', 'icon.png'),
-          webPreferences: {
-            partition: PARTITION,
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-            webviewTag: false,
-            spellcheck: false,
-          },
+    if (!info || info.scheme !== 'https') return { action: 'deny' };
+    const provider = isProviderHost(info.host);
+    const arena = isArenaHost(info.host);
+    if (!provider && !arena) return { action: 'deny' };
+    if (kind === 'provider' && !provider) return { action: 'deny' };
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        // Google's sign-in page is a full page, not a 520px card: at popup size its form is
+        // cramped and its own layout collapses. A provider popup gets a real window size;
+        // an arena.ai popup keeps the small one.
+        width: provider ? 720 : 520,
+        height: provider ? 780 : 700,
+        parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+        modal: false,
+        autoHideMenuBar: true,
+        backgroundColor: provider ? '#ffffff' : '#191919',
+        title: provider ? 'Sign in' : 'Agon',
+        icon: path.join(__dirname, '..', 'build', 'icon.png'),
+        webPreferences: {
+          partition: PARTITION,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          webviewTag: false,
+          spellcheck: false,
         },
-      };
-    }
-    return { action: 'deny' };
+      },
+    };
   });
+}
+
+/**
+ * Makes the window behave like an application, not a web page.
+ *
+ * The screen recording showed two things that should never happen in a client: dragging
+ * across the page selected every heading, and the selection's right-click menu offered
+ * "Print" and "Search the web" - Chromium's page menu. Typing fields keep their normal
+ * behaviour, because those are the one place selection is wanted.
+ *
+ * Everything is scoped to arena's own pages; a provider popup (Google) is left alone so its
+ * own form still works.
+ */
+const APP_CSS = `
+  html, body, div, span, p, h1, h2, h3, h4, h5, h6, li, a, button, label, article, section {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-user-drag: none !important;
+  }
+  input, textarea, [contenteditable="true"], [contenteditable=""] {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+  /* The blank white flash between page loads: the app's own background shows instead. */
+  html { background: #191919; }
+`;
+
+/** Windows whose context-menu handler is already installed. */
+const chromeHooked = new WeakSet();
+
+function applyAppChrome(contents, rawUrl) {
+  const info = rawUrl ? urlInfo(rawUrl) : null;
+  if (info && !isArenaHost(info.host)) return;      // leave provider pages untouched
+  // insertCSS() only affects the document that is already loaded, so it has to run again
+  // after every navigation. The listener below is different: it belongs to the window and
+  // would otherwise be added once per page load, piling up handlers that all fire forever.
+  contents.insertCSS(APP_CSS).catch(() => {});
+  if (chromeHooked.has(contents)) return;
+  chromeHooked.add(contents);
+  // Chromium's page menu (Print, Search the web, Copy image) is replaced by nothing at all:
+  // an app window has no business offering to print the site. Inputs still get the native
+  // edit menu, which Chromium provides for editable fields without this handler firing.
+  contents.on('context-menu', (event, params) => {
+    if (params.isEditable) return;                  // keep cut/copy/paste in fields
+    event.preventDefault();
+  });
+}
+
+/** Opens a provider sign-in page in its own small window, in the app's session. */
+function openProviderWindow(url) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const child = new BrowserWindow({
+    width: 720,
+    height: 780,
+    parent: mainWindow,
+    modal: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#ffffff',
+    title: 'Sign in',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    webPreferences: {
+      partition: PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: false,
+      spellcheck: false,
+    },
+  });
+  // Present as a normal Chrome. The session UA is already stripped of the Electron token
+  // (see userAgent()), and a page opened without it would put the token back.
+  child.webContents.setUserAgent(userAgent(session.fromPartition(PARTITION)));
+  childWindows.add(child);
+  child.on('closed', () => childWindows.delete(child));
+  hardenWebContents(child.webContents);
+  attachNavigationPolicy(child.webContents, 'provider');
+  // Google refuses "this browser may not be secure" often enough that the failure has to be
+  // explained where it happens, not in a menu dialog the user cannot see any more.
+  let warned = false;
+  child.webContents.on('did-finish-load', async () => {
+    const url = child.webContents.getURL();
+    if (warned || !/accounts\.google\.com/.test(url)) return;
+    const blocked = await child.webContents.executeJavaScript(`(function(){
+      var t = (document.body && document.body.innerText || '').toLowerCase();
+      return t.indexOf('browser or app may not be secure') >= 0
+          || t.indexOf('couldn.t sign you in') >= 0
+          || t.indexOf('not secure') >= 0;
+    })()`, true).catch(() => false);
+    if (!blocked) return;
+    warned = true;
+    if (!child.isDestroyed()) child.close();
+    const answer = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Google refused this window',
+      message: 'Google does not allow its sign-in inside an embedded browser.',
+      detail: 'That is Google\'s policy for apps like this one, and no setting here can '
+        + 'override it. The email route works inside Agon (Agon menu -> "Use the sign-in link '
+        + 'from my browser"), or sign in with Google in your normal browser.',
+      buttons: ['OK'],
+    });
+    if (answer.response === 0) { /* nothing to do */ }
+  });
+  child.loadURL(url);
 }
 
 function createWindow() {
@@ -249,13 +378,32 @@ function createWindow() {
   hardenSession(ses);
 
   hardenWebContents(mainWindow.webContents);
-  attachNavigationPolicy(mainWindow.webContents);
+  attachNavigationPolicy(mainWindow.webContents, 'app');
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    applyAppChrome(mainWindow.webContents, mainWindow.webContents.getURL());
+  });
+  mainWindow.webContents.on('dom-ready', () => {
+    applyAppChrome(mainWindow.webContents, mainWindow.webContents.getURL());
+  });
 
   mainWindow.webContents.on('did-create-window', (child) => {
     childWindows.add(child);
     child.on('closed', () => childWindows.delete(child));
     hardenWebContents(child.webContents);
-    attachNavigationPolicy(child.webContents);
+    // The child's URL is not set yet at this point (did-create-window fires before the page
+    // loads), so decide the role from the first navigation instead of guessing from ''.
+    let roleSet = false;
+    const setRole = (rawUrl) => {
+      if (roleSet) return;
+      roleSet = true;
+      const info = rawUrl ? urlInfo(rawUrl) : null;
+      attachNavigationPolicy(child.webContents,
+        info && isProviderHost(info.host) ? 'provider' : 'popup');
+    };
+    child.webContents.once('will-navigate', (event, rawUrl) => setRole(rawUrl));
+    child.webContents.once('did-start-loading', () => setRole(child.webContents.getURL()));
+    setRole(child.webContents.getURL());
   });
 
   mainWindow.on('close', writeWindowState);
@@ -316,25 +464,204 @@ function runCommand(command) {
       mainWindow.webContents.toggleDevTools();
       break;
     case 'sign-in':
+      // No dialog. The old one was a modal with a "Continue" button that only reloaded the
+      // homepage and then STAYED ON TOP of the page, covering arena's login panel with a
+      // grey scrim - so the sign-in screen could not be used at all. Choosing Sign in now
+      // just puts you on arena's own login form, which is the only thing that can sign you
+      // in. Arena has no password field to fill: it emails a link (see promptForSignInLink
+      // for how that link ends up in this app's session).
       go(START_URL);
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Sign in',
-        message: 'Use arena.ai\'s own sign-in on the page.',
-        detail: 'Tap Log in on the page: the email route works here, and a magic link opens '
-          + 'in your default browser. If Google refuses this window, use "Open in browser" - '
-          + 'the sign-in then stays in that browser, not in Agon.',
-        buttons: ['Continue', 'Open arena.ai in the browser', 'Cancel'],
-        defaultId: 0,
-        cancelId: 2,
-      }).then((answer) => {
-        if (answer.response === 1) openExternally(START_URL);
-      });
+      break;
+    case 'sign-in-browser':
+      // The label already says "Use the sign-in link", so ask for the link straight away.
+      // The old dialog before it explained what to do and then asked again, which is one
+      // click of pure delay for the person who already has the link - and it offered to
+      // open arena.ai in a browser, which can never sign this app in.
+      promptForSignInLink();
       break;
     default:
       break;
   }
 }
+
+/**
+ * Signing in with the email magic link, the only route arena offers.
+ *
+ * The flow is: type an address on the page, arena emails a link, you click it. The link
+ * opens in the DEFAULT BROWSER, and putting a link there is not something an app can
+ * redirect - so the browser ends up with the session and Agon does not. That is the whole
+ * "sign-in works on the phone but not on Windows" problem.
+ *
+ * What is possible, and what this does: the browser shows the sign-in confirmation page on
+ * arena.ai. `Agon -> Use the sign-in link from my browser` asks for that page's address
+ * (paste with Ctrl+V), reads that exact page inside Agon's own session, and relates any
+ * cookies arena sets while doing so to the sign-in. Apps normally must not read another
+ * app's session; this is the user's own link for the user's own account, handed over
+ * deliberately, which is the case the rules exist for.
+ *
+ * Nothing here guesses a token shape. It loads the URL the user pasted and checks whether
+ * arena now considers the session signed in; if it does not, it says so instead of
+ * pretending it worked.
+ */
+async function useBrowserSignInLink(rawUrl) {
+  let info;
+  try {
+    info = urlInfo(rawUrl);
+  } catch (notAUrl) {
+    info = null;
+  }
+  if (!info || info.scheme !== 'https' || !isArenaHost(info.host)) {
+    throw new Error('That is not an arena.ai link. Copy the address of the page that opened '
+      + 'after you clicked the link in your email.');
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('The window is closed.');
+
+  const ses = session.fromPartition(PARTITION);
+  const before = new Set((await ses.cookies.get({ domain: 'arena.ai' })).map(cookieKey));
+  await mainWindow.loadURL(info.url.toString());
+  const after = await ses.cookies.get({ domain: 'arena.ai' });
+  const fresh = after.filter((c) => !before.has(cookieKey(c)));
+  if (fresh.length > 0) {
+    await ses.cookies.flushStore();
+  }
+  const signedIn = await looksSignedIn(mainWindow.webContents);
+  return { signedIn, cookies: fresh.map((c) => c.name) };
+}
+
+/** Identity of a cookie, so "set during this load" can be told apart from "already there". */
+function cookieKey(c) {
+  return [c.name, c.domain, c.path, c.hostOnly ? 'host' : 'domain'].join('|');
+}
+
+/**
+ * Asks the page itself whether the session is signed in.
+ *
+ * Deliberately conservative: a positive answer needs either a Log in / Log out control or
+ * a known session cookie. When neither is visible it reports "unknown" rather than claiming
+ * success - a false "you are signed in" would be worse than an honest "cannot tell".
+ */
+async function looksSignedIn(contents) {
+  try {
+    return await contents.executeJavaScript(`(function(){
+      try {
+        var txt = (document.body && document.body.innerText || '').toLowerCase();
+        var hasLogIn = /\\blog\\s*in\\b|sign\\s*in/.test(txt);
+        var hasLogOut = /\\blog\\s*out\\b|sign\\s*out/.test(txt);
+        if (hasLogOut && !hasLogIn) return true;
+        if (hasLogIn && !hasLogOut) return false;
+        return 'unknown';
+      } catch (e) { return 'unknown'; }
+    })()`, true);
+  } catch (cannot) {
+    return 'unknown';
+  }
+}
+
+async function promptForSignInLink() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  // A tiny window instead of a text dialog: Electron has no built-in prompt, and the user
+  // has to paste a long URL, which needs a real input and Ctrl+V.
+  const win = new BrowserWindow({
+    width: 640,
+    height: 240,
+    parent: mainWindow,
+    modal: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    autoHideMenuBar: true,
+    title: 'Use the sign-in link from your browser',
+    backgroundColor: '#191919',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // The listener is registered BEFORE anything is loaded into the window. Registering it
+  // afterwards left a gap: the page could report its answer while nothing was listening,
+  // and then the dialog waited for a second answer that could never come.
+  const answer = await new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      // Always unhooked: a once() listener that the user cancels out of would stay behind
+      // and swallow the next attempt's value.
+      ipcMain.removeListener('agon:paste-link', onPaste);
+      resolve(value);
+    };
+    function onPaste(event, value) { finish(value); }
+    ipcMain.on('agon:paste-link', onPaste);
+    win.once('closed', () => finish(null));
+
+    // The dialog's own button handler calls window.agon.pasteLink(). A data: URL has no
+    // preload of its own, so expose exactly that one function, only for this window, and
+    // only while it is open. It accepts a string and nothing else.
+    win.webContents.on('page-title-updated', (event, title) => {
+      if (title && title.startsWith('agon:paste:')) {
+        event.preventDefault();
+        ipcMain.emit('agon:paste-link', null, title.slice('agon:paste:'.length));
+      }
+    });
+    win.webContents.once('did-finish-load', () => {
+      win.webContents.executeJavaScript(
+        "window.agon = { pasteLink: function (v) {"
+        + " document.title = 'agon:paste:' + (typeof v === 'string' ? v : ''); } };", true);
+    });
+    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(PASTE_HTML));
+  });
+  if (!win.isDestroyed()) win.destroy();
+  if (!answer) return;
+
+  let result;
+  try {
+    result = await useBrowserSignInLink(answer);
+  } catch (error) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'warning', title: 'That did not work', message: 'The link could not be used.',
+      detail: String(error.message || error), buttons: ['OK'],
+    });
+    return;
+  }
+  const ok = result.signedIn === true;
+  await dialog.showMessageBox(mainWindow, {
+    type: ok ? 'info' : 'warning',
+    title: ok ? 'Signed in' : 'Still not signed in',
+    message: ok ? 'Agon is signed in.' : 'That page did not sign this app in.',
+    detail: ok
+      ? 'The session is stored and will be kept on this PC.'
+      : 'The link was opened inside Agon but the page still shows a Log in / Sign in'
+        + ' control. Links expire quickly, and each one only works once - request a fresh'
+        + ' one with "Continue with email" on the page and use it straight away.'
+        + (result.cookies.length ? '\n\nCookies set: ' + result.cookies.join(', ') : '\n\nNo new cookies were set.'),
+    buttons: ['OK'],
+  });
+}
+
+/** The paste window's markup. Kept here so it is obvious there is no remote content. */
+const PASTE_HTML = `<!doctype html><html><head><meta charset="utf-8">
+<style>
+  body{font:14px/1.5 system-ui,Segoe UI,sans-serif;background:#191919;color:#e8e8e8;margin:0;padding:16px}
+  h1{font-size:15px;margin:0 0 6px}
+  p{margin:0 0 12px;color:#a8a8a8;font-size:12.5px}
+  input{width:100%;box-sizing:border-box;padding:9px 10px;border-radius:8px;border:1px solid #3a3a3a;
+        background:#111;color:#e8e8e8;font:inherit}
+  .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+  button{padding:7px 16px;border-radius:8px;border:1px solid #3a3a3a;background:#242424;
+         color:#e8e8e8;font:inherit;cursor:pointer}
+  button.primary{background:#c7f26a;border-color:#c7f26a;color:#111;font-weight:600}
+</style></head><body>
+<h1>Paste the sign-in link from your email</h1>
+<p>The link works once, so copy it from the email before clicking it: right-click the link
+   and choose &ldquo;Copy Link Address&rdquo;. Then paste it here.</p>
+<input id="u" autofocus placeholder="https://arena.ai/...">
+<div class="row"><button id="c">Cancel</button><button class="primary" id="ok">Use this link</button></div>
+<script>
+  var u=document.getElementById('u');
+  function send(v){ if(window.agon && window.agon.pasteLink) window.agon.pasteLink(v); }
+  document.getElementById('ok').onclick=function(){send(u.value.trim());};
+  document.getElementById('c').onclick=function(){send('');};
+  u.addEventListener('keydown',function(e){if(e.key==='Enter')send(u.value.trim());});
+  u.focus();
+</script></body></html>`;
 
 /** The releases page of the release the app is checking. */
 function releasePageUrl() {
@@ -350,6 +677,7 @@ function buildMenu() {
         { label: 'Chat', accelerator: 'CmdOrCtrl+1', click: () => runCommand('chat') },
         { label: 'Leaderboard', accelerator: 'CmdOrCtrl+2', click: () => runCommand('leaderboard') },
         { label: 'Sign in', click: () => runCommand('sign-in') },
+        { label: 'Use the sign-in link from my browser', click: () => runCommand('sign-in-browser') },
         { type: 'separator' },
         { label: 'Check for updates…', click: () => checkForUpdates(true) },
         { label: 'Open the release page', click: () => runCommand('release-page') },
@@ -540,6 +868,9 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     // Anything that is not https never reaches a renderer.
+    // Every window, including ones Electron creates on its own, refuses anything that is
+    // not https. Per-window host rules live in attachNavigationPolicy, which knows whether
+    // it is guarding the app window or a Google popup.
     app.on('web-contents-created', (event, contents) => {
       contents.on('will-navigate', (navEvent, rawUrl) => {
         const info = urlInfo(rawUrl);

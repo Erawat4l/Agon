@@ -49,13 +49,21 @@ exports.default = async function makeReleaseAssets(context) {
     throw new Error('no output directory; nothing to rename');
   }
 
-  // Strip a BOM before parsing. Both CI and tools/publish.ps1 rewrite this file with
-  // PowerShell's `Set-Content -Encoding UTF8`, which on Windows PowerShell 5.1 writes a
-  // UTF-8 BOM - and JSON.parse rejects the file outright ("Unexpected token '\uFEFF'").
-  // That is exactly how the first run of this hook failed.
-  const pkgPath = path.join(__dirname, '..', 'package.json');
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8').replace(/^\uFEFF/, ''));
-  const version = pkg.version;
+  // The version comes from the installers electron-builder just wrote, not from
+  // package.json: the release script passes the version on the command line
+  // (-c.extraMetadata.version=...) so that it never has to modify a tracked file, which
+  // means package.json still holds whatever version is committed. Reading the file would
+  // therefore look for installers under the wrong number and fail.
+  let version = null;
+  for (const name of fs.readdirSync(outDir)) {
+    const m = /^Agon-Setup-(\d+\.\d+\.\d+)-(?:x64|ia32)\.exe$/.exec(name);
+    if (m) { version = m[1]; break; }
+  }
+  if (!version) {
+    throw new Error('no Agon-Setup-<version>-<arch>.exe in ' + outDir
+      + ' - electron-builder did not produce the installers');
+  }
+  console.log('[release] version ' + version + ' (from the built installers)');
 
   const found = {};
   for (const [arch, suffix] of Object.entries(ARCH_NAMES)) {

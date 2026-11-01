@@ -345,10 +345,9 @@ function openProviderWindow(url) {
       title: 'Google refused this window',
       message: 'Google does not allow its sign-in inside an embedded browser.',
       detail: 'That is Google\'s policy for apps like this, and nothing in Agon can override '
-        + 'it.\n\nUse the email link instead - it is the route that works: choose "Continue '
-        + 'with email" on arena.ai, then copy the link out of the email WITHOUT clicking it '
-        + 'and paste it into the next window.\n\nSigning in with Google in your normal '
-        + 'browser does not help: that signs the browser in, not Agon.',
+        + 'it.\n\nUse the email route instead - it is the one that works. The next window '
+        + 'walks you through it.\n\nSigning in with Google in your normal browser does not '
+        + 'help: that signs the browser in, not Agon.',
       buttons: ['Use the email link', 'Cancel'],
       defaultId: 0,
       cancelId: 1,
@@ -599,7 +598,7 @@ async function promptForSignInLink() {
   // has to paste a long URL, which needs a real input and Ctrl+V.
   const win = new BrowserWindow({
     width: 640,
-    height: 240,
+    height: 340,
     parent: mainWindow,
     modal: true,
     resizable: false,
@@ -666,7 +665,8 @@ async function promptForSignInLink() {
       ? 'The session is stored and will be kept on this PC.'
       : 'The link was opened inside Agon but the page still shows a Log in / Sign in'
         + ' control. Links expire quickly, and each one only works once - request a fresh'
-        + ' one with "Continue with email" on the page and use it straight away.'
+        + ' one: type your email into "Your email", click "Continue with email", and use'
+        + ' the link from that email straight away.'
         + (result.cookies.length ? '\n\nCookies set: ' + result.cookies.join(', ') : '\n\nNo new cookies were set.'),
     buttons: ['OK'],
   });
@@ -678,6 +678,9 @@ const PASTE_HTML = `<!doctype html><html><head><meta charset="utf-8">
   body{font:14px/1.5 system-ui,Segoe UI,sans-serif;background:#191919;color:#e8e8e8;margin:0;padding:16px}
   h1{font-size:15px;margin:0 0 6px}
   p{margin:0 0 12px;color:#a8a8a8;font-size:12.5px}
+  ol{margin:0 0 12px;padding-left:20px;color:#a8a8a8;font-size:12.5px}
+  ol b{color:#e8e8e8;font-weight:600}
+  li{margin-bottom:5px}
   input{width:100%;box-sizing:border-box;padding:9px 10px;border-radius:8px;border:1px solid #3a3a3a;
         background:#111;color:#e8e8e8;font:inherit}
   .row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
@@ -686,8 +689,15 @@ const PASTE_HTML = `<!doctype html><html><head><meta charset="utf-8">
   button.primary{background:#c7f26a;border-color:#c7f26a;color:#111;font-weight:600}
 </style></head><body>
 <h1>Paste the sign-in link from your email</h1>
-<p>The link works once, so copy it from the email before clicking it: right-click the link
-   and choose &ldquo;Copy Link Address&rdquo;. Then paste it here.</p>
+<ol>
+  <li>In Agon, on arena's <b>Log In or Create Account</b> panel, type your address into
+      <b>Your email</b>.</li>
+  <li>Click <b>Continue with email</b>. (With the field empty it only says
+      <i>Email is required</i> - that is not a failure.)</li>
+  <li>Open the email arena sends. <b>Do not click the link in it</b> - it works once, and
+      clicking uses it up in your mail app.</li>
+  <li>Right-click that link and choose <b>Copy Link Address</b>, then paste it here.</li>
+</ol>
 <input id="u" autofocus placeholder="https://arena.ai/...">
 <div class="row"><button id="c">Cancel</button><button class="primary" id="ok">Use this link</button></div>
 <script>

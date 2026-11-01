@@ -390,15 +390,43 @@ const HIDE_GOOGLE_JS = `(function () {
     return GOOGLE_WORDS.test(label) && label.trim().length < 80;
   }
 
+  /**
+   * The "OR" between Google and the email field.
+   *
+   * Only a divider, not a container: a button, a paragraph, or an element whose own text is
+   * the word AND whose children carry no text. The last part matters because the wrapper
+   * that holds the email field may itself *start* with "OR"; hiding that would take the
+   * email input with it. A bare "OR" like that never has text inside its children.
+   */
+  function isOrDivider(el) {
+    var own = (el.textContent || '').trim();
+    if (!/^(or|—|-+)$/i.test(own)) return false;
+    if (own.length > 3) return false;
+    var tag = el.tagName.toLowerCase();
+    var role = (el.getAttribute('role') || '').toLowerCase();
+    var structural = tag === 'button' || tag === 'a' || role === 'button' || role === 'link';
+    if (structural) return true;
+    for (var i = 0; i < el.children.length; i++) {
+      if ((el.children[i].textContent || '').trim()) return false;
+    }
+    return true;
+  }
+
   function hideGoogle() {
     var panel = findPanel();
     if (!panel) return false;
-    var candidates = panel.querySelectorAll('button, a, [role="button"], [role="link"]');
     var hit = false;
+
+    // 1. the Google control itself, and 2. the divider that separated it from the email
+    // field - with the button gone, a lone "OR" reads as a broken layout.
+    var candidates = panel.querySelectorAll(
+      'button, a, [role="button"], [role="link"], p, span, div');
     for (var i = 0; i < candidates.length; i++) {
       var el = candidates[i];
       if (el.hasAttribute('data-agon-hidden-google')) continue;
-      if (!isGoogleControl(el)) continue;
+      if (!isGoogleControl(el) && !isOrDivider(el)) continue;
+      // Never something that contains the email field: hiding that would hide the form.
+      if (hasEmailField(el)) continue;
       el.setAttribute('data-agon-hidden-google', '1');
       hit = true;
     }
@@ -971,12 +999,6 @@ function buildMenu() {
         { label: 'Leaderboard', accelerator: 'CmdOrCtrl+2', click: () => runCommand('leaderboard') },
         { label: 'Sign in', click: () => runCommand('sign-in') },
         { label: 'Use the sign-in link from my browser', click: () => runCommand('sign-in-browser') },
-        {
-          label: 'Hide "Continue with Google" on the sign-in panel',
-          type: 'checkbox',
-          checked: readSettings().hideGoogleSignIn,
-          click: (item) => runCommand(item.checked ? 'hide-google-on' : 'hide-google-off'),
-        },
         { type: 'separator' },
         { label: 'Check for updates…', click: () => checkForUpdates(true) },
         { label: 'Open the release page', click: () => runCommand('release-page') },
@@ -997,6 +1019,16 @@ function buildMenu() {
         { role: 'togglefullscreen' },
         { label: 'Toggle developer tools', accelerator: 'CmdOrCtrl+Shift+I',
           click: () => runCommand('devtools') },
+        { type: 'separator' },
+        {
+          // A view preference about how arena's page is displayed, so it lives here rather
+          // than with the sign-in commands: it is not part of signing in, it changes what
+          // the page shows.
+          label: 'Hide "Continue with Google" on the sign-in panel',
+          type: 'checkbox',
+          checked: readSettings().hideGoogleSignIn,
+          click: (item) => runCommand(item.checked ? 'hide-google-on' : 'hide-google-off'),
+        },
       ],
     },
     {

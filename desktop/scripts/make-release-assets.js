@@ -49,7 +49,12 @@ exports.default = async function makeReleaseAssets(context) {
     throw new Error('no output directory; nothing to rename');
   }
 
-  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  // Strip a BOM before parsing. Both CI and tools/publish.ps1 rewrite this file with
+  // PowerShell's `Set-Content -Encoding UTF8`, which on Windows PowerShell 5.1 writes a
+  // UTF-8 BOM - and JSON.parse rejects the file outright ("Unexpected token '\uFEFF'").
+  // That is exactly how the first run of this hook failed.
+  const pkgPath = path.join(__dirname, '..', 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8').replace(/^\uFEFF/, ''));
   const version = pkg.version;
 
   const found = {};

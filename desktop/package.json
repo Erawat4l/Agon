@@ -10,10 +10,10 @@
   "scripts": {
     "start": "electron .",
     "icon": "python ../artwork/make-icons.py",
-    "dist": "electron-builder --win nsis portable --x64 --ia32",
-    "dist:dir": "electron-builder --win --dir --x64 --ia32",
-    "release": "electron-builder --win nsis portable --x64 --ia32 --publish always",
-    "dist:branded": "electron-builder --win nsis portable --x64 --ia32 -c.win.signAndEditExecutable=true"
+    "dist": "electron-builder --publish never",
+    "dist:dir": "electron-builder --dir",
+    "release": "electron-builder --publish always",
+    "dist:branded": "electron-builder -c.win.signAndEditExecutable=true"
   },
   "devDependencies": {
     "electron": "26.6.10",
@@ -55,13 +55,6 @@
             "x64",
             "ia32"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64",
-            "ia32"
-          ]
         }
       ],
       "icon": "build/icon.ico",
@@ -88,10 +81,8 @@
         "releaseType": "release"
       }
     ],
-    "portable": {
-      "artifactName": "Agon-Portable-${version}-${arch}.${ext}"
-    },
     "asar": true,
-    "beforePack": "scripts/before-pack.js"
+    "beforePack": "scripts/before-pack.js",
+    "afterAllArtifactBuild": "scripts/make-release-assets.js"
   }
 }

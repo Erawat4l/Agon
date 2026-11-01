@@ -200,7 +200,7 @@ if ($code -lt $highestCode) {
 
 $sha = (& git rev-parse HEAD).Trim()
 if (-not $Notes) {
-    $Notes = "Agon $Version`n`nInstall: download the APK below, tap it and approve Android's update prompt. Apps already running this build detect the release automatically."
+    $Notes = "Agon $Version`n`nAndroid: Agon-$Version.apk - download it, tap it and approve Android's update prompt. One file for 32- and 64-bit phones.`n`nWindows: Agon-Setup-64.exe for 64-bit Windows, Agon-Setup-32.exe for 32-bit. They are two files because Electron compiles the app per architecture; one .exe cannot hold both.`n`nInstalled copies detect this release automatically."
 }
 
 $Notes = "$Notes`n`nAPK: Agon-$Version.apk ($sizeMb MB)"
@@ -307,15 +307,22 @@ if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
         Write-Host "      [i] Windows build failed - the APK release is still published." -ForegroundColor Yellow
     } else {
         $releaseDir = Join-Path $desktopDir "release"
+        # Exactly two executables, the way they are published: Agon-Setup-64.exe and
+        # Agon-Setup-32.exe, plus the latest.yml that desktop/scripts/make-release-assets.js
+        # rewrote to describe the 64-bit one. The arch-suffixed originals from
+        # electron-builder are deliberately NOT uploaded - the same installer under two names
+        # doubles the download for everybody.
+        $wanted = @("Agon-Setup-64.exe", "Agon-Setup-32.exe", "latest.yml")
         $desktopAssets = @()
         if (Test-Path $releaseDir) {
-            # latest.yml is what the desktop updater reads; builder-debug.yml is internal.
             $desktopAssets = Get-ChildItem $releaseDir -File |
-                Where-Object { $_.Extension -in ".exe", ".blockmap" -or $_.Name -eq "latest.yml" }
+                Where-Object { $wanted -contains $_.Name }
         }
         $yml = $desktopAssets | Where-Object { $_.Name -eq "latest.yml" }
         if ($null -eq $yml) {
-            Write-Host "      [i] No latest.yml from electron-builder; skipping desktop upload." -ForegroundColor Yellow
+            Write-Host "      [i] No latest.yml in desktop/release; skipping the Windows upload." -ForegroundColor Yellow
+        } elseif ($desktopAssets.Count -lt 3) {
+            Write-Host "      [i] Windows build incomplete (need Agon-Setup-64.exe and -32.exe); skipping the Windows upload." -ForegroundColor Yellow
         } else {
             foreach ($file in $desktopAssets) {
                 Write-Host "      uploading $($file.Name)..."

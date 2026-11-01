@@ -464,6 +464,31 @@ function updates() {
   autoUpdater.on('update-downloaded', async (info) => {
     autoUpdater.__manualCheck = false;
     if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    // latest.yml describes Agon-Setup-64.exe, because a single YAML file cannot describe
+    // two binaries and serving the 64-bit build is the safe choice (an x64 installer can
+    // only fail on a 32-bit machine, while the right file downloaded by hand always works).
+    // So a 32-bit install is told where its own installer is instead of being handed one
+    // it cannot run.
+    if (process.arch === 'ia32') {
+      await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update available',
+        message: 'Agon ' + info.version + ' is available for 32-bit Windows.',
+        detail: 'Automatic installation is only set up for the 64-bit build. Download '
+          + 'Agon-Setup-32.exe from the release page and run it; your data stays as it is.',
+        buttons: ['Open the release page', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+      }).then((answer) => {
+        if (answer.response === 0) {
+          shell.openExternal('https://github.com/' + REPO_OWNER + '/' + REPO_NAME
+            + '/releases/latest');
+        }
+      });
+      return;
+    }
+
     const answer = await dialog.showMessageBox(mainWindow, {
       type: 'question',
       title: 'Update ready',

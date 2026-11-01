@@ -50,8 +50,14 @@ def main():
         os.path.join(root, "Agon-release.apk"),
         os.path.join(root, "Agon-debug.apk"),
     ])
-    exe64 = first_match([os.path.join(root, "Agon-Setup-*-x64.exe")])
-    exe32 = first_match([os.path.join(root, "Agon-Setup-*-ia32.exe")])
+    # Prefer the two names that are actually published; the arch-suffixed originals are
+    # electron-builder's own output and are only used if the hook did not run.
+    exe64 = first_match([os.path.join(root, "Agon-Setup-64.exe"),
+                         os.path.join(root, "desktop", "release", "Agon-Setup-64.exe"),
+                         os.path.join(root, "Agon-Setup-*-x64.exe")])
+    exe32 = first_match([os.path.join(root, "Agon-Setup-32.exe"),
+                         os.path.join(root, "desktop", "release", "Agon-Setup-32.exe"),
+                         os.path.join(root, "Agon-Setup-*-ia32.exe")])
 
     ok = True
 

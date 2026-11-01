@@ -18,7 +18,7 @@ REM  The versioned files those are copied from stay too, because the Windows
 REM  updater and the release page refer to them:
 REM     Agon-debug.apk / Agon-release.apk
 REM     Agon-Setup-<ver>-x64.exe / -ia32.exe                      <- installer
-REM     Agon-Portable-<ver>-x64.exe / -ia32.exe                   <- no install needed
+REM     Agon-Setup-64.exe / Agon-Setup-32.exe                   <- what gets published
 REM
 REM  The APK needs: JDK 17-21 + Android SDK (build.bat finds them).
 REM  The EXE needs: Node.js 18+  (winget install OpenJS.NodeJS.LTS)
@@ -83,8 +83,8 @@ if not "!DIST_RC!"=="0" goto :dist_failed
 if not exist "desktop\release" goto :nothing_built
 
 REM Copy every produced .exe up here, keeping the name electron-builder gave it:
-REM   Agon-Setup-<version>-x64.exe / -ia32.exe       the installer (what to send people)
-REM   Agon-Portable-<version>-x64.exe / -ia32.exe    runs without installing
+REM   Agon-Setup-<version>-x64.exe / -ia32.exe       electron-builder output
+REM   Agon-Setup-64.exe / Agon-Setup-32.exe         the two that are published
 for %%f in ("desktop\release\*.exe") do (
     if exist "%%~f" copy /y "%%~f" "%~dp0%%~nxf" >nul
 )
@@ -147,8 +147,8 @@ if "!APK_OK!"=="1" (
 if "!EXE_OK!"=="1" (
     echo   EXE   : %~dp0Agon.exe             ^(64-bit installer^)
     echo           %~dp0Agon-32.exe          ^(32-bit installer, if built^)
-    echo           %~dp0Agon-Setup-*.exe     ^(same installers, versioned^)
-    echo           %~dp0Agon-Portable-*.exe  ^(no install needed^)
+    echo           %~dp0Agon-Setup-64.exe    ^(64-bit, what gets published^)
+    echo           %~dp0Agon-Setup-32.exe    ^(32-bit, what gets published^)
 ) else (
     echo   EXE   : not built
 )

@@ -447,6 +447,16 @@ downloads flattened to one path segment, and updates verified against the releas
 `latest.yml`. `publish.bat` builds it for the same tag as the APK, so both carry one
 version number. See `desktop/README.md`.
 
+**Sign-in on Windows and Google.** Google refuses its own sign-in inside an embedded
+browser, which an Electron window is. The email-link route in the Agon menu is the one that
+works. Because the "Continue with Google" button on arena's panel can therefore only fail,
+the Windows client hides it inside that panel only (`Agon -> Hide "Continue with Google"`,
+on by default, switchable off). It is hidden with CSS, never removed, and only an element
+matching both the panel's heading and an email field is touched — if arena changes its
+markup the worst case is that the button reappears, never that something unrelated
+disappears. If arena links an account to Google, the app says so instead of starting an
+email flow that cannot work.
+
 **iOS honestly:** there is no iOS app in here, and adding a fake Xcode project would be
 worse than nothing. An iOS client is a separate Swift project around `WKWebView` (same
 host allow-list, same "sign in on Arena's own page" rule), and Apple requires a Mac with

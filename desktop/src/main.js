@@ -313,6 +313,7 @@ function applyAppChrome(contents, rawUrl) {
   // after every navigation. The listener below is different: it belongs to the window and
   // would otherwise be added once per page load, piling up handlers that all fire forever.
   contents.insertCSS(APP_CSS).catch(() => {});
+  applyGoogleSignInRule(contents);
   if (chromeHooked.has(contents)) return;
   chromeHooked.add(contents);
   // Chromium's page menu (Print, Search the web, Copy image) is replaced by nothing at all:
@@ -322,6 +323,112 @@ function applyAppChrome(contents, rawUrl) {
     if (params.isEditable) return;                  // keep cut/copy/paste in fields
     event.preventDefault();
   });
+}
+
+/**
+ * Hides arena's "Continue with Google" button inside arena's own sign-in panel.
+ *
+ * Why: Google does not allow its sign-in inside an embedded browser, so on this client the
+ * button cannot succeed. Leaving it on screen offers a route that is guaranteed to fail,
+ * and the refusal it produces (a Google page, or arena's own "please sign in with Google")
+ * reads like the app is broken.
+ *
+ * How, and why it is shaped this way:
+ *   - Only elements *inside the sign-in panel* are touched. The panel is found by its own
+ *     heading ("Log In or Create Account"), then the Google control is matched by its text.
+ *     Nothing is hidden from the rest of the page, so nav or footer Google links stay.
+ *   - The control is hidden with CSS on that element, not removed from the DOM: arena's
+ *     own code keeps a working reference, and nothing throws on the next re-render.
+ *   - If the panel is not found, or no matching control is found, nothing happens. The
+ *     worst case of arena changing its markup is therefore "the button is still there",
+ *     never "something unrelated disappeared".
+ *   - A MutationObserver re-applies it, because arena re-renders the panel.
+ *
+ * It is a guess about someone else's markup, which is why it is a switch in the menu.
+ */
+const HIDE_GOOGLE_CSS = `
+  [data-agon-hidden-google="1"] {
+    display: none !important;
+  }
+`;
+
+const HIDE_GOOGLE_JS = `(function () {
+  if (window.__agonHideGoogle) return;
+  window.__agonHideGoogle = true;
+
+  // The panel is identified by BOTH its heading and an email field inside it. That pair is
+  // what makes this safe: walking up from any stray "Google" link can no longer reach an
+  // element that merely mentions the heading somewhere, because the email field has to be
+  // in there too.
+  var HEADINGS = ['log in or create account', 'sign in or create account',
+                  'log in', 'sign in', 'create account'];
+  var GOOGLE_WORDS = /continue with google|sign in with google|log in with google/i;
+
+  function hasEmailField(el) {
+    return !!el.querySelector('input[type="email"], input[name*="email" i],'
+      + ' input[placeholder*="email" i], input[autocomplete="email"]');
+  }
+
+  function findPanel() {
+    var els = document.querySelectorAll('div, section, form, dialog, [role="dialog"]');
+    var best = null;
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (!hasEmailField(el)) continue;
+      var heading = el.querySelector('h1, h2, h3, h4, legend, [role="heading"]');
+      var text = ((heading && heading.textContent) || '').toLowerCase().trim();
+      if (!text) continue;
+      if (!HEADINGS.some(function (h) { return text.indexOf(h) >= 0; })) continue;
+      // The innermost match wins: the email field must not belong to a larger container.
+      if (!best || best.contains(el)) best = el;
+    }
+    return best;
+  }
+
+  function isGoogleControl(el) {
+    var label = (el.getAttribute('aria-label') || '') + ' ' + (el.textContent || '');
+    return GOOGLE_WORDS.test(label) && label.trim().length < 80;
+  }
+
+  function hideGoogle() {
+    var panel = findPanel();
+    if (!panel) return false;
+    var candidates = panel.querySelectorAll('button, a, [role="button"], [role="link"]');
+    var hit = false;
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (el.hasAttribute('data-agon-hidden-google')) continue;
+      if (!isGoogleControl(el)) continue;
+      el.setAttribute('data-agon-hidden-google', '1');
+      hit = true;
+    }
+    return hit;
+  }
+
+  hideGoogle();
+  var observer = new MutationObserver(function () { hideGoogle(); });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+}());`;
+
+/**
+ * Applies (or undoes) the "no Google button" rule for the document that is now loaded.
+ *
+ * Turning the setting OFF must really bring the button back, so the markers are removed
+ * rather than merely not added - otherwise a user who switches it off sees no change until
+ * the next full navigation, which looks like the switch does nothing.
+ */
+function applyGoogleSignInRule(contents) {
+  const wanted = readSettings().hideGoogleSignIn;
+  contents.insertCSS(HIDE_GOOGLE_CSS).catch(() => {});
+  if (wanted) {
+    contents.executeJavaScript(HIDE_GOOGLE_JS, true).catch(() => {});
+    return;
+  }
+  contents.executeJavaScript(
+    "(function(){"
+    + " document.querySelectorAll('[data-agon-hidden-google]')"
+    + "   .forEach(function (el) { el.removeAttribute('data-agon-hidden-google'); });"
+    + "}());", true).catch(() => {});
 }
 
 /** Opens a provider sign-in page in its own small window, in the app's session. */
@@ -539,6 +646,29 @@ function runCommand(command) {
       // for how that link ends up in this app's session).
       go(START_URL);
       break;
+    case 'hide-google-on':
+    case 'hide-google-off': {
+      setSetting('hideGoogleSignIn', command === 'hide-google-on');
+      // Re-apply to the page on screen, so the change is visible immediately instead of
+      // after the next load.
+      applyGoogleSignInRule(mainWindow.webContents);
+      const nowHidden = readSettings().hideGoogleSignIn;
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: nowHidden ? 'Google button hidden' : 'Google button shown again',
+        message: nowHidden
+          ? 'The sign-in panel no longer offers "Continue with Google".'
+          : '"Continue with Google" is visible again.',
+        detail: nowHidden
+          ? 'Google does not allow its sign-in inside an embedded browser, so the button '
+            + 'could only ever fail. Use the email link: Agon menu -> "Use the sign-in link '
+            + 'from my browser".\n\nIf a Google button still appears, arena changed its '
+            + 'page; report it rather than relying on this switch.'
+          : 'Reopen arena.ai with View -> Reload if the panel does not change immediately.',
+        buttons: ['OK'],
+      });
+      break;
+    }
     case 'sign-in-browser':
       // The label already says "Use the sign-in link", so ask for the link straight away.
       // The old dialog before it explained what to do and then asked again, which is one
@@ -595,6 +725,71 @@ async function useBrowserSignInLink(rawUrl) {
   return { signedIn, cookies: fresh.map((c) => c.name) };
 }
 
+// ---------------------------------------------------------------- settings
+//
+// One JSON file in the profile folder, for choices that must survive a restart. Kept
+// separate from window-state.json so a corrupt window position can never take a setting
+// with it, and written with the same "a read-only profile must not break the app" care.
+function settingsPath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+const DEFAULT_SETTINGS = {
+  // Hide arena's "Continue with Google" button on its sign-in panel. On by default because
+  // Google refuses its own sign-in inside an embedded browser, so that button cannot work
+  // here - it only looks like an option and then fails. Off is one menu click away, because
+  // this is the app rewriting a site's page, and if arena changes its markup the guess can
+  // hide the wrong thing.
+  hideGoogleSignIn: true,
+};
+
+let cachedSettings = null;
+
+function readSettings() {
+  if (cachedSettings) return cachedSettings;
+  cachedSettings = { ...DEFAULT_SETTINGS };
+  try {
+    const raw = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    if (raw && typeof raw === 'object') {
+      for (const key of Object.keys(DEFAULT_SETTINGS)) {
+        if (typeof raw[key] === 'boolean') cachedSettings[key] = raw[key];
+      }
+    }
+  } catch (ignored) {
+    // first run, or unreadable: the defaults are the intended behaviour
+  }
+  return cachedSettings;
+}
+
+function setSetting(key, value) {
+  const settings = readSettings();
+  settings[key] = value;
+  try {
+    fs.writeFileSync(settingsPath(), JSON.stringify(settings));
+  } catch (ignored) {
+    // a read-only profile keeps the in-memory value for this run only
+  }
+}
+
+/**
+ * Whether arena has refused the email route for this account, and its own wording if so.
+ *
+ * Reads the page's visible text rather than guessing at a response body: the refusal shows
+ * up as a toast, not a status the shell can see. Returns the matched sentence, or null.
+ */
+async function emailRouteRefused(contents) {
+  if (!contents || contents.isDestroyed()) return null;
+  try {
+    return await contents.executeJavaScript(`(function(){
+      var t = (document.body && document.body.innerText || '');
+      var m = /please sign in with google[^\n]*/i.exec(t);
+      return m ? m[0].trim() : null;
+    })()`, true);
+  } catch (cannot) {
+    return null;                       // never block sign-in on a failed read
+  }
+}
+
 /** Identity of a cookie, so "set during this load" can be told apart from "already there". */
 function cookieKey(c) {
   return [c.name, c.domain, c.path, c.hostOnly ? 'host' : 'domain'].join('|');
@@ -626,6 +821,26 @@ async function looksSignedIn(contents) {
 
 async function promptForSignInLink() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  // Arena refuses the email route for an account it has linked to Google, with its own
+  // toast: "Please sign in with Google for this account". Asking for an email link in that
+  // state would send the user to wait for mail that changes nothing, so say it here.
+  const refusal = await emailRouteRefused(mainWindow.webContents);
+  if (refusal) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'This account needs Google',
+      message: 'arena.ai says this account must sign in with Google.',
+      detail: 'Its message: "' + refusal + '"\n\nAn emailed link cannot sign this account '
+        + 'in, because arena has linked it to Google. That is arena\'s rule for the '
+        + 'account, not something Agon can change.\n\nWhat can work:\n'
+        + '  - sign in on your phone, where Google allows the app\'s browser\n'
+        + '  - or use an arena account created with the email link (a different address '
+        + 'makes a different account)\n\nNothing was changed.',
+      buttons: ['OK'],
+    });
+    return;
+  }
   // A tiny window instead of a text dialog: Electron has no built-in prompt, and the user
   // has to paste a long URL, which needs a real input and Ctrl+V.
   const win = new BrowserWindow({
@@ -756,6 +971,12 @@ function buildMenu() {
         { label: 'Leaderboard', accelerator: 'CmdOrCtrl+2', click: () => runCommand('leaderboard') },
         { label: 'Sign in', click: () => runCommand('sign-in') },
         { label: 'Use the sign-in link from my browser', click: () => runCommand('sign-in-browser') },
+        {
+          label: 'Hide "Continue with Google" on the sign-in panel',
+          type: 'checkbox',
+          checked: readSettings().hideGoogleSignIn,
+          click: (item) => runCommand(item.checked ? 'hide-google-on' : 'hide-google-off'),
+        },
         { type: 'separator' },
         { label: 'Check for updates…', click: () => checkForUpdates(true) },
         { label: 'Open the release page', click: () => runCommand('release-page') },

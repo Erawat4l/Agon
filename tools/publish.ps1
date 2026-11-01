@@ -97,6 +97,53 @@ if ($null -ne $python -and (Test-Path $secretCheck)) {
     if ($LASTEXITCODE -ne 0) { Fail "A secret or personal path is in the repository. Nothing was published." }
 }
 
+# ---------------------------------------------------------------- Android SDK
+# Gradle needs to be TOLD where the SDK is; it does not inherit build.bat's search. On a
+# fresh machine (no local.properties, no ANDROID_HOME) it fails with "SDK location not
+# found" after the APK build has already started, which reads like a broken project rather
+# than a missing environment variable. Find it here, before the build, and write the same
+# local.properties that build.bat would - it is git-ignored, so it is a local file only.
+#
+# Candidate folders, in the same order build.bat tries them, so the two commands agree.
+$sdkCandidates = @(
+    $env:ANDROID_HOME,
+    $env:ANDROID_SDK_ROOT,
+    (Join-Path $env:LOCALAPPDATA "Android\Sdk"),
+    (Join-Path $env:USERPROFILE "AppData\Local\Android\Sdk"),
+    (Join-Path $env:ProgramFiles "Android\Android Studio\Sdk")
+)
+$androidSdk = $null
+foreach ($candidate in $sdkCandidates) {
+    if ($candidate -and (Test-Path (Join-Path $candidate "platforms"))) {
+        $androidSdk = (Resolve-Path $candidate).Path
+        break
+    }
+}
+if (-not $androidSdk) {
+    Write-Host ""
+    Write-Host "[X] The Android SDK was not found, so nothing was built or published." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Install it once (~5 min), all inside cmd:" -ForegroundColor Yellow
+    Write-Host "     mkdir %LOCALAPPDATA%\Android\Sdk\cmdline-tools" -ForegroundColor Yellow
+    Write-Host "     curl -L -o %TEMP%\cmdtools.zip https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip" -ForegroundColor Yellow
+    Write-Host "     tar -xf %TEMP%\cmdtools.zip -C %LOCALAPPDATA%\Android\Sdk\cmdline-tools" -ForegroundColor Yellow
+    Write-Host "     ren %LOCALAPPDATA%\Android\Sdk\cmdline-tools\cmdline-tools latest" -ForegroundColor Yellow
+    Write-Host "     (for /l %i in (1,1,30) do @echo y) | %LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat --licenses" -ForegroundColor Yellow
+    Write-Host "     %LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat platform-tools platforms;android-35 build-tools;35.0.0" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  SDK already somewhere else? Tell Windows, then reopen cmd:" -ForegroundColor Yellow
+    Write-Host "     setx ANDROID_HOME \"the\folder\holding\platforms\"" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  SETUP.md, Step 3 has the same commands with the full explanation." -ForegroundColor Red
+    exit 1
+}
+# Java properties treats a backslash as an escape sequence, so the SDK path is written with
+# forward slashes instead ("sdk.dir=C:/Android/Sdk"). Gradle accepts that form on Windows,
+# and it is the one spelling the escaping rules cannot mangle.
+$sdkDir = $androidSdk -replace '\\', '/'
+Set-Content -Path (Join-Path $root "local.properties") -Value "sdk.dir=$sdkDir" -Encoding ascii
+Write-Host "      Android SDK: $androidSdk"
+
 Write-Host "[1/3] Building..."
 & (Join-Path $root "gradlew.bat") --no-daemon assembleDebug `
     "-PVERSION_NAME=$Version" "-PVERSION_CODE=$code" | Out-Host

@@ -9,6 +9,9 @@ REM  Usage (in cmd, from this folder):
 REM     publish.bat                 auto-bump patch:  1.1.0 -> 1.1.1
 REM     publish.bat 1.2.0           publish an exact version
 REM     publish.bat 1.2.0 beta      publish as a pre-release (Beta channel)
+REM     publish.bat local           build the APK + installers and STOP - no release,
+REM                                 no upload, GitHub never contacted
+REM     publish.bat 1.2.0 local     same, at a version you choose
 REM     publish.bat --token ghp_xx  remember a GitHub token for next time
 REM
 REM  Result: a GitHub Release with Agon-<version>.apk attached. Every
@@ -18,9 +21,23 @@ REM ===========================================================================
 
 set "VERSION=%~1"
 set "CHANNEL=%~2"
+set "LOCAL=0"
 
 if /i "%VERSION%"=="--token" goto :save_token
 if /i "%VERSION%"=="-t" goto :save_token
+
+REM "local" is a mode, not a version. Accepted in either position, so both
+REM `publish.bat local` and `publish.bat 1.4.45 local` mean the same thing.
+if /i "%VERSION%"=="local" (
+    set "LOCAL=1"
+    REM `publish.bat local 1.4.46` must mean the same as the other order.
+    set "VERSION=%CHANNEL%"
+    set "CHANNEL="
+)
+if /i "%CHANNEL%"=="local" (
+    set "LOCAL=1"
+    set "CHANNEL="
+)
 
 echo.
 echo =============================================
@@ -105,6 +122,7 @@ if not defined TOKEN (
         if defined TOKEN set "TOKENSRC=the GitHub CLI login (gh auth token)"
     )
 )
+if "!LOCAL!"=="1" goto :publish
 if not defined TOKEN goto :need_token
 echo [3/4] Token: from !TOKENSRC!
 if "!TOKENSRC!"=="gh-token.txt" echo       ^(delete gh-token.txt to use the GitHub CLI login instead^)
@@ -127,14 +145,26 @@ if "!TOKEN!"=="" exit /b 1
 
 :publish
 echo [4/4] Building and uploading...
-powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" ^
-    -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!"
+REM One line per call, on purpose: a "^" line continuation inside a parenthesised
+REM block is a documented cmd.exe trap (the block is parsed before the caret is honoured).
+if "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly
+if not "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!"
 if errorlevel 1 goto :failed
 
 echo.
+if "!LOCAL!"=="1" goto :local_done
 > version.txt echo !VERSION!
 echo Local copy: %~dp0Agon-!VERSION!.apk
 echo Apps already installed get it via Update -^> Check for updates.
+exit /b 0
+
+:local_done
+REM version.txt is NOT written: nothing was published, so the next real publish must not
+REM believe this number is already taken.
+echo Local build finished. Nothing was published and no release was created.
+echo   APK        : %~dp0Agon-!VERSION!.apk
+echo   Installers : %~dp0desktop\release\Agon-Setup-64.exe
+echo                %~dp0desktop\release\Agon-Setup-32.exe
 exit /b 0
 
 REM ---------- helpers -----------------------------------------------------

@@ -180,6 +180,49 @@ Nothing is published by this step. `build-all.bat` never touches GitHub.
 
 ---
 
+## Step 4b — Build without publishing at all
+
+If you only want the files on your own PC — to test, or to share by hand — do **not** use
+`publish.bat` on its own. That creates a release and uploads; interrupting it half way leaves
+a *draft* release behind on GitHub (harmless, but clutter).
+
+```bat
+publish.bat local
+```
+
+That builds the APK **and** both installers and stops. No release is created, nothing is
+uploaded, GitHub is never contacted. You get:
+
+```
+Agon-<version>.apk
+desktop\release\Agon-Setup-64.exe
+desktop\release\Agon-Setup-32.exe
+```
+
+Pick the version explicitly if you like: `publish.bat 1.4.46 local` (both argument orders
+work). Note this does **not** write `version.txt`, so a later real publish will not think the
+number is taken.
+
+`build-all.bat` also publishes nothing, but it leaves the installers with electron-builder's
+longer names (`Agon-Setup-1.4.46-x64.exe`). `publish.bat local` gives you the same
+`Agon-Setup-64.exe` / `Agon-Setup-32.exe` names a release would have.
+
+**If you ever interrupt a real `publish.bat`**, check whether it left a draft:
+
+```bat
+gh release list
+```
+
+A row marked *Draft* is invisible to everyone and to the updater. Delete it with its numeric
+id (a `gh release delete` on the tag would fail because a draft has no tag yet):
+
+```bat
+gh api repos/Erawat4l/Agon/releases --jq '.[] | select(.draft) | .id'
+gh api -X DELETE repos/Erawat4l/Agon/releases/<the-id-printed-above>
+```
+
+---
+
 ## Step 5 — Publish
 
 **Do this only when Step 4 produced all three files.**

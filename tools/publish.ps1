@@ -16,7 +16,10 @@ param(
     [string]$Notes = "",
     [string]$Channel = "stable",
     [string]$Owner = "Erawat4l",
-    [string]$Repo = "Agon"
+    [string]$Repo = "Agon",
+    # Build the APK and the installers and STOP. No release is created, nothing is uploaded,
+    # and GitHub is not contacted at all - so nothing can be left behind as a draft.
+    [switch]$LocalOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -163,8 +166,41 @@ if ($null -ne $python -and (Test-Path $abiCheck)) {
 }
 Write-Host "      $((Split-Path $asset -Leaf))  ($sizeMb MB)"
 
-if (-not $Token) {
+if (-not $Token -and -not $LocalOnly) {
     Fail "No GitHub token. Either run 'gh auth login' first (publish.bat then reuses it), or store one with: publish.bat --token github_pat_xxx"
+}
+if ($LocalOnly) {
+    # Same build a publish would do, then stop before any GitHub call. No release exists, so
+    # there is nothing for an interrupted run to leave behind as a draft.
+    Write-Host "Local build only: no release is created and nothing is uploaded." -ForegroundColor Cyan
+    $desktopDir = Join-Path $root "desktop"
+    $npm = Get-Command npm -ErrorAction SilentlyContinue
+    if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
+        Write-Host "[2/2] Building the Windows client..."
+        Push-Location $desktopDir
+        try {
+            & $npm.Source install --no-audit --no-fund | Out-Host
+            & $npm.Source run dist -- "-c.extraMetadata.version=$Version" | Out-Host
+            $distOk = ($LASTEXITCODE -eq 0)
+        } finally {
+            Pop-Location
+        }
+        if (-not $distOk) { Fail "The Windows build failed. The APK above is still good." }
+    } else {
+        Write-Host "[2/2] Windows client: skipped (Node.js/npm not found, or desktop/ missing)."
+    }
+    Write-Host ""
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "  [OK] Built locally - nothing published" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  APK      : $asset"
+    Write-Host "  Installers: desktop\release\Agon-Setup-64.exe"
+    Write-Host "              desktop\release\Agon-Setup-32.exe"
+    Write-Host ""
+    Write-Host "  Only this PC has them. Nothing was uploaded and no release exists."
+    Write-Host "  To publish:  publish.bat $Version"
+    exit 0
 }
 
 # ---------------------------------------------------------------- github api

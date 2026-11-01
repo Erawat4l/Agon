@@ -176,15 +176,23 @@ jobs:
           # electron-builder's error is otherwise buried in a log that is not always
           # fetchable; an annotation shows up on the run page and in the API.
           npm run dist -- --publish never 2>&1 | Tee-Object -FilePath dist.log
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host '--- last 30 lines of the electron-builder output ---'
-            $tail = (Get-Content dist.log -Tail 30) -join "`n"
-            Write-Host $tail
-            foreach ($line in ($tail -split "`n")) {
-              $text = $line.Trim()
-              if ($text) { Write-Host "::error::$text" }
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "electron-builder exited with $code"
+            # Only the lines that look like the failure: everything else is progress noise,
+            # and GitHub returns annotations in order, so a wall of noise hides the error.
+            $lines = Get-Content dist.log
+            $hits = @()
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -match '(?i)(error|⨯|failed|cannot|unable|missing|not found|EEXIST|EPERM|throw|exit code)') {
+                $hits += ("{0}: {1}" -f ($i + 1), $lines[$i].Trim())
+              }
             }
-            throw 'electron-builder failed - the error lines are annotated above'
+            $last = $lines | Where-Object { $_.Trim() } | Select-Object -Last 1
+            $report = @($hits | Select-Object -First 6)
+            $report += "LAST LINE: $($last -replace "`n", ' ')"
+            foreach ($line in $report) { Write-Host "::error::$(($line -replace "%", '%25') -replace "`r", '' -replace "`n", ' ')" }
+            throw "electron-builder failed (exit $code) - see the annotations"
           }
 
       # Fail here, not after the upload, if a target silently did not get built: 32-bit

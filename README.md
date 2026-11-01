@@ -2,6 +2,10 @@
 
 Agon puts arena.ai in a real Android app instead of a bookmark in Chrome.
 
+> **Starting from a fresh clone on a new PC?** Read **[SETUP.md](SETUP.md)** first: it covers
+> the two files the repository deliberately does not contain (the APK signing key and the
+> GitHub credential), the toolchain, and the publish-then-delete-the-old-release routine.
+
 One command in **cmd** builds a ready-to-install APK:
 
 ```bat
@@ -279,18 +283,6 @@ offer the same update forever. `1.4.26` is the last build with the broken number
 onwards is consistent.
 
 **Publishing a release (this is what makes the update appear)**
-
-Two ways — use whichever is available to you.
-
-### After every change: `commit.bat`
-
-```bat
-commit.bat "fixed the composer overlap"
-```
-
-Commits everything, pushes this branch, builds, and publishes a new release with the APK
-attached. Installed apps then see it on their next check. Run it after every update you
-make; that is the whole workflow.
 
 ### After every change: `commit.bat` (the all-in-one command)
 

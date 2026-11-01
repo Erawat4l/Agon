@@ -289,35 +289,38 @@ if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
     Write-Host "[3b] Building the Windows client..."
     Push-Location $desktopDir
     try {
-        # Keep package.json in step with the tag that was just published, so the Windows
-        # build carries the same version number as the APK in the same release.
-        $desktopPkg = Join-Path $desktopDir "package.json"
-        # Read with the BOM stripped, so the comparison is against the real version.
-        $pkg = (Get-Content $desktopPkg -Raw) -replace "^\uFEFF", "" | ConvertFrom-Json
-        if ($pkg.version -ne $Version) {
-            $pkg.version = $Version
-            # No BOM. `Set-Content -Encoding UTF8` on Windows PowerShell 5.1 writes one, and
-            # JSON.parse then rejects the file inside electron-builder's beforePack hook -
-            # which failed the whole Windows build with
-            #   Unexpected token '﻿', "﻿{ ... is not valid JSON"
-            # UTF8Encoding($false) = UTF-8 without a BOM.
-            $json = $pkg | ConvertTo-Json -Depth 20
-            [System.IO.File]::WriteAllText($desktopPkg, $json,
-                (New-Object System.Text.UTF8Encoding($false)))
-        }
+        # The version is passed to electron-builder instead of being written into
+        # package.json. Writing it there modified a tracked file on every run, which made
+        # `git pull` refuse to merge ("Your local changes to desktop/package.json would be
+        # overwritten"), and it was what put the UTF-8 BOM into the file in the first place.
+        # A clean working tree means a pull always works.
         & $npm.Source install --no-audit --no-fund | Out-Host
         # Force "never publish" on the command line as well as in the npm script: with a
         # publish config in package.json but no GH_TOKEN in the environment, electron-builder
         # finishes building both installers and then fails with
         #   "⨯ GitHub Personal Access Token is not set ... using env \"GH_TOKEN\""
         # The upload is this script's job, not electron-builder's.
-        & $npm.Source run dist -- --publish never | Out-Host
+        & $npm.Source run dist -- --publish never "-c.extraMetadata.version=$Version" | Out-Host
         $distOk = ($LASTEXITCODE -eq 0)
     } finally {
         Pop-Location
     }
     if (-not $distOk) {
-        Write-Host "      [i] Windows build failed - the APK release is still published." -ForegroundColor Yellow
+        # A release with the APK but no installer is worse than no release: phones are told
+        # about a version Windows users cannot download, and the desktop updater finds a
+        # latest.yml that is not there. This used to publish anyway, which is exactly how
+        # 1.4.34 - 1.4.40 all shipped as APK-only.
+        Write-Host ""
+        Write-Host "[X] The Windows build failed, so nothing was published." -ForegroundColor Red
+        Write-Host "    The release $tag was left as a DRAFT (invisible to installed apps)." -ForegroundColor Red
+        Write-Host "    The APK is built and sitting at: $asset" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "    Fix the error above, then run publish.bat again - it reuses the same" -ForegroundColor Yellow
+        Write-Host "    draft instead of creating another version." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "    To publish the APK on its own anyway:" -ForegroundColor Yellow
+        Write-Host "      powershell -NoProfile -ExecutionPolicy Bypass -File tools\upload-apk.ps1 $Version" -ForegroundColor Yellow
+        exit 1
     } else {
         $releaseDir = Join-Path $desktopDir "release"
         # Exactly two executables, the way they are published: Agon-Setup-64.exe and

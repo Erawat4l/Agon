@@ -326,11 +326,16 @@ function openProviderWindow(url) {
   child.webContents.on('did-finish-load', async () => {
     const url = child.webContents.getURL();
     if (warned || !/accounts\.google\.com/.test(url)) return;
+    // Only Google's specific refusal counts. The old test also matched "not secure", which
+    // appears on an ordinary Google password form ("Not secure" / help text), so a page that
+    // was perfectly usable was reported as refused and closed - and the email route was
+    // recommended for a wall that was not there.
     const blocked = await child.webContents.executeJavaScript(`(function(){
       var t = (document.body && document.body.innerText || '').toLowerCase();
       return t.indexOf('browser or app may not be secure') >= 0
           || t.indexOf('couldn.t sign you in') >= 0
-          || t.indexOf('not secure') >= 0;
+          || t.indexOf('secure browsers policy') >= 0
+          || t.indexOf('this browser is not secure') >= 0;
     })()`, true).catch(() => false);
     if (!blocked) return;
     warned = true;
@@ -339,12 +344,16 @@ function openProviderWindow(url) {
       type: 'warning',
       title: 'Google refused this window',
       message: 'Google does not allow its sign-in inside an embedded browser.',
-      detail: 'That is Google\'s policy for apps like this one, and no setting here can '
-        + 'override it. The email route works inside Agon (Agon menu -> "Use the sign-in link '
-        + 'from my browser"), or sign in with Google in your normal browser.',
-      buttons: ['OK'],
+      detail: 'That is Google\'s policy for apps like this, and nothing in Agon can override '
+        + 'it.\n\nUse the email link instead - it is the route that works: choose "Continue '
+        + 'with email" on arena.ai, then copy the link out of the email WITHOUT clicking it '
+        + 'and paste it into the next window.\n\nSigning in with Google in your normal '
+        + 'browser does not help: that signs the browser in, not Agon.',
+      buttons: ['Use the email link', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
     });
-    if (answer.response === 0) { /* nothing to do */ }
+    if (answer.response === 0) promptForSignInLink();
   });
   // The redirect that carries the session lands on arena.ai inside THIS window, while the
   // app window behind it still shows the signed-out page it loaded minutes ago. Without

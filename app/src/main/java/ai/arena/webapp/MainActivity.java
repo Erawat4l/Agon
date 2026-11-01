@@ -554,7 +554,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         }
         if (tab == AppUi.TAB_MORE) {
             // More is a sheet, not a page: keep the page (and its nav highlight).
-            AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
+            AppUi.styleNav(this, nav, currentTab, updateDotWanted(),
                     navExpanded, true);
             showMenuSheet();
             return;
@@ -571,7 +571,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         tabs.show(tab);
         TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
         applyChromeInsets();
-        AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
+        AppUi.styleNav(this, nav, currentTab, updateDotWanted(),
                 navExpanded, true);
         if (!firstVisit) {
             // Warm tab: already painted, just confirm freshness in the background.
@@ -980,7 +980,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         updateSheet = null;
         AppUi.slideDownAndRemove(v, window);
         if (currentTab == AppUi.TAB_UPDATE) currentTab = tabBeforeUpdate;
-        AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
+        AppUi.styleNav(this, nav, currentTab, updateDotWanted(),
                 navExpanded, true);
     }
 
@@ -1235,7 +1235,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT));
         navArea.setVisibility(Settings.showNav(this) ? View.VISIBLE : View.GONE);
-        AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
+        AppUi.styleNav(this, nav, currentTab, updateDotWanted(),
                 false, false);
         applyChromeInsets();
     }
@@ -1267,20 +1267,31 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         refreshUpdateUi();
     }
 
+    /**
+     * Whether the bar should mark More as having an update.
+     *
+     * Every build is published to GitHub, so this used to be lit almost permanently and
+     * read as a notification that could not be cleared. It is now a Settings switch
+     * (Settings -> "Dot on the More icon", off by default) and the update itself is still
+     * found inside More either way.
+     */
+    private boolean updateDotWanted() {
+        return Settings.showUpdateDot(this) && UpdateManager.isUpdateAvailable(this);
+    }
+
     private void refreshUpdateUi() {
         boolean available = UpdateManager.isUpdateAvailable(this);
         // No chip in a top bar (there is no top bar): the More icon carries a dot and
         // the More sheet spells the version out.
         if (nav != null) {
-            AppUi.styleNav(this, nav, currentTab, available, navExpanded, false);
+            AppUi.styleNav(this, nav, currentTab, updateDotWanted(), navExpanded, false);
         }
         if (updateSheet != null) updateSheet.refresh();
     }
 
     private void refreshUi() {
         if (nav != null) {
-            AppUi.styleNav(this, nav, currentTab, UpdateManager.isUpdateAvailable(this),
-                    navExpanded, false);
+            AppUi.styleNav(this, nav, currentTab, updateDotWanted(), navExpanded, false);
         }
     }
 

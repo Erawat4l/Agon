@@ -210,7 +210,9 @@ public final class TabWebViews {
                     + "if(b){b.style.removeProperty('padding-bottom');"
                     + "b.style.removeProperty('min-height');"
                     + "b.style.removeProperty('height');}"
-                    + "})();";
+                    + "})();"
+                    // Nothing is reserved, but arena's own menus still have to fit the window.
+                    + "(function(){" + JS_POPUP_FIT + "})();";
             web.evaluateJavascript(clear, null);
             return;
         }
@@ -357,6 +359,68 @@ public final class TabWebViews {
             + "[class*=\"page-header\" i]" + GUARD + ","
             + "[class*=\"navbar\" i]" + GUARD + ","
             + "[class*=\"nav-bar\" i]" + GUARD + "{display:none !important;}";
+
+    /**
+     * Keeps arena's popovers inside the visible area.
+     *
+     * Its model menu ("Auto", "Battle", "Web Search", ...) is positioned against the
+     * composer and opens upward. On a short or landscape window - a phone in landscape, a
+     * small resized desktop window - it is taller than the space above the composer, so the
+     * top of the list is cut off by the window edge and those choices cannot be picked:
+     * "can't see all the options".
+     *
+     * A popup that has already been positioned can be corrected without knowing anything
+     * about arena's markup: if its own rect is clipped by the top or bottom of the viewport,
+     * cap its height to the room that is actually left on ONE side and scroll inside it. The
+     * first option stays reachable and nothing is hidden behind the edge.
+     *
+     * Deliberately narrow, so it can never touch the page itself:
+     *  - only elements that are position:fixed or absolute (normal content is not a popup);
+     *  - never html/body/main/form/input/textarea, and never anything holding the composer;
+     *  - only when the element is genuinely clipped AND scrollable content overflows it;
+     *  - only when it is list-like (several buttons/options/links inside);
+     *  - the original inline height/max-height/overflow are remembered and restored as soon
+     *    as the element is no longer clipped, so nothing is left permanently stretched.
+     */
+    private static final String JS_POPUP_FIT =
+            "var fitted=new WeakMap();"
+            + "function fixPopups(){"
+            + "var vh=window.innerHeight||document.documentElement.clientHeight;"
+            + "var all=document.querySelectorAll('div,ul,section,article');"
+            + "for(var i=0;i<all.length;i++){var el=all[i];"
+            + "if(el===document.body||el===document.documentElement)continue;"
+            + "var r=el.getBoundingClientRect();"
+            + "if(r.width<120||r.height<80)continue;"
+            + "if(r.height>=vh-24)continue;"                      // a panel, not a menu
+            + "var cs=getComputedStyle(el);"
+            + "if(cs.position!=='fixed'&&cs.position!=='absolute')continue;"
+            + "if(el.querySelector('main,form,textarea,[contenteditable=\"true\"]'))continue;"
+            + "var opts=el.querySelectorAll('button,[role=\"option\"],[role=\"menuitem\"],li,a');"
+            + "if(opts.length<3)continue;"
+            + "var overTop=r.top<4,overBottom=r.bottom>vh-4;"
+            + "if(!overTop&&!overBottom){"
+            + "if(fitted.has(el)){var saved=fitted.get(el);fitted.delete(el);"
+            + "el.style.maxHeight=saved.mh;el.style.height=saved.h;el.style.overflowY=saved.oy;}"
+            + "continue;}"
+            + "if(!fitted.has(el))fitted.set(el,{mh:el.style.maxHeight,h:el.style.height,"
+            + "oy:el.style.overflowY});"
+            // Room on the side it is clipped from: below the top edge, or above the bottom.
+            + "var room=overTop?Math.floor(r.bottom-8):Math.floor(vh-r.top-8);"
+            + "if(room<120)continue;"
+            + "el.style.maxHeight=room+'px';el.style.overflowY='auto';"
+            + "el.style.setProperty('overscroll-behavior','contain');"
+            + "}}"
+            // A menu is rendered when it is opened, so run on every frame-batch cheaply and
+            // pick it up right after each click/tap as well.
+            + "fixPopups();"
+            + "document.addEventListener('click',function(){"
+            + "setTimeout(fixPopups,0);setTimeout(fixPopups,120);},true);"
+            + "window.addEventListener('resize',function(){fixPopups();},true);"
+            + "if(window.visualViewport)window.visualViewport.addEventListener('resize',"
+            + "function(){fixPopups();});"
+            + "var fitPasses=0;var fitTimer=setInterval(function(){"
+            + "if(++fitPasses>15){clearInterval(fitTimer);return;}"
+            + "if(document.hidden)return;fixPopups();},400);";
 
     /** Text-based fallback for a sidebar whose class names say nothing. */
     private static final String JS_SIDEBAR =

@@ -30,6 +30,15 @@ public final class Settings {
     public static final String K_DESKTOP_UA = "chrome_user_agent";
     /** Notification when an update is published. */
     public static final String K_NOTIFY_UPDATES = "notify_updates";
+    /**
+     * Show a dot / "update" tint on the More icon when a new build exists.
+     *
+     * Off by default. Every build is uploaded to GitHub, so the dot was lit almost
+     * permanently - it read as a notification the user could never clear, and it made the
+     * More icon look like the app was nagging. The Update screen inside More still checks
+     * on its own, so nothing is lost: this only controls the permanent marker.
+     */
+    public static final String K_SHOW_UPDATE_DOT = "show_update_dot";
     /** Silent 6-hourly update checks. */
     public static final String K_AUTO_CHECK = "auto_check";
     /** Multi-tap gestures on the Chat icon. */
@@ -66,6 +75,10 @@ public final class Settings {
     }
 
     // ------------------------------------------------------------------ defaults
+
+    public static boolean showUpdateDot(Context c) {
+        return get(c, K_SHOW_UPDATE_DOT, false);
+    }
 
     public static boolean showNav(Context c) {
         return get(c, K_SHOW_NAV, true);

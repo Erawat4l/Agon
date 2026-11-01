@@ -270,11 +270,40 @@ nothing is broken by having two releases for a while.
 1. **On the PC**: double-click `Agon-Setup-64.exe`, install, open Agon. Then
    **Agon menu → Use the sign-in link from my browser** and follow the window. This is the
    part that was just fixed; it is the first thing worth testing.
+
+   The steps that window shows, matching arena's panel exactly:
+
+   1. On arena's **Log In or Create Account** panel, type your address into **Your email**
+      — the field must not be empty.
+   2. Click **Continue with email**. With the field empty this only shows
+      *Email is required*; that is not a failure.
+   3. Open the email and **do not click the link** — it works once, and clicking uses it up
+      in your mail app.
+   4. Right-click the link and choose **Copy Link Address**, paste it into Agon's window.
+
+   Google's button cannot work on the PC: Google refuses its sign-in inside any embedded
+   browser, which is Google's policy, not a setting in Agon. The email route avoids that
+   entirely because the account is confirmed by the mail.
 2. **On the phone**: install `Agon-1.4.43.apk` (uninstall the old Agon first if the
    signing key changed — see Step 2b). Open it, sign in, then
    **More → Update → Check for updates** to confirm the updater sees 1.4.43.
 
 ---
+
+## If you make the repository private
+
+Making it private is fine, and it hides the releases and the source from everyone else. Three
+consequences, so nothing surprises you later:
+
+| Effect | Detail |
+| --- | --- |
+| **The in-app updater stops finding releases** | `UpdateManager` and the desktop updater ask GitHub anonymously. A private repo answers `404`, so both report *"no release found"*. Fix: give the app a **read-only** token (Contents: Read) and have it send that, or keep the repo public and just stop publishing releases. |
+| **Only accounts with access can download** | Anyone you send an installer to needs to be signed in to GitHub and have access. The APK/EXE you built locally still installs fine — the restriction is the download, not the file. |
+| **`publish.bat` keeps working** | The token from `gh auth login` belongs to your account, which owns the repo, so publishing is unaffected. |
+
+Nothing needs changing in the code to make the repo private. The update check is the only
+part that quietly stops working, and it fails **silently as "nothing new"**, which is easy to
+mistake for being up to date.
 
 ## Your routine from now on
 

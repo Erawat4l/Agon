@@ -60,6 +60,20 @@
     <string name="webwindow_failed">This page did not load. Tap the address to retry.</string>
     <string name="dialog_cancel">Cancel</string>
     <string name="upload_failed">Could not open a file picker</string>
+    <!-- tab strip: <- [ ] -> + above the page -->
+    <string name="strip_back">Back</string>
+    <string name="strip_forward">Forward</string>
+    <string name="strip_new_tab">New tab</string>
+    <string name="strip_reload_tab">Reload this tab</string>
+    <string name="strip_tab_chat">Chat</string>
+    <string name="strip_tab_leaderboard">Leaderboard</string>
+    <string name="strip_tab_search">Search</string>
+    <string name="strip_tab_window">Window %1$d</string>
+    <string name="strip_new_tab_loading">New tab is loading</string>
+    <string name="strip_tab_limit">Four extra tabs is the limit on a phone - close one first</string>
+    <string name="strip_close_tab">Close this tab</string>
+    <string name="strip_at_start">This tab has nothing before it</string>
+    <string name="strip_window_gone">That window had closed - dropped it</string>
     <string name="reload">Reload</string>
     <string name="clear_data">Clear app data</string>
     <string name="clear_data_sub">Signs out and clears the cache</string>

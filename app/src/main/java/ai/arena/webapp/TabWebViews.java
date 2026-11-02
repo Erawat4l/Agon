@@ -47,7 +47,6 @@ public final class TabWebViews {
         android.webkit.WebChromeClient create();
     }
 
-    private static final int MAX_WARM = 5;
 
     /**
      * Extra arena windows start here.
@@ -123,9 +122,13 @@ public final class TabWebViews {
      */
     public int openWindow() {
         // A window that is already warm (preload() makes one) is handed over instead of
-        // building a second one: the point is a page that is already loaded.
-        for (Integer id : windows()) {
-            if (!usedWindows.contains(id)) {
+        // building a second one: the point is a page that is already loaded. windows()
+        // lists only the ones the user opened, so a preloaded window would never be found
+        // there - the warm views are what to look at.
+        java.util.List<Integer> warm = new java.util.ArrayList<>(views.keySet());
+        java.util.Collections.sort(warm);
+        for (Integer id : warm) {
+            if (isWindow(id) && !usedWindows.contains(id)) {
                 usedWindows.add(id);
                 return id;
             }
@@ -341,6 +344,13 @@ public final class TabWebViews {
             // leaving arena's page alone is the only safe thing to do here: an injected
             // margin/height on html or body at this point can only fight the page's own
             // layout, and that is what made it look mashed together.
+            //
+            // The two *element-level* rules still have to run here, and this is why they
+            // are separate from the frame CSS: they hide or fix things inside the page, not
+            // the size of the page. Skipping them in this branch is exactly the bug that
+            // kept the sidebar on screen for three builds - the app stopped reserving space
+            // for its own bar, so applyChromeInsets() took this branch and never injected
+            // the sidebar rule at all, no matter what Settings said.
             String clear = "(function(){var a=document.getElementById('arena-app-insets');"
                     + "if(a)a.remove();"
                     + "var h=document.documentElement,b=document.body;"
@@ -351,8 +361,22 @@ public final class TabWebViews {
                     + "b.style.removeProperty('min-height');"
                     + "b.style.removeProperty('height');}"
                     + "})();"
-                    // Nothing is reserved, but arena's own menus still have to fit the window.
-                    + "(function(){" + JS_POPUP_FIT + "})();";
+                    // Arena's own menus still have to fit the window...
+                    + "(function(){" + JS_POPUP_FIT + "})();"
+                    // ...and the page's own panel still has to go, if that is what was asked.
+                    + (hideSidebar || hideHeader ? "(function(){try{"
+                    + "var undo=[];"
+                    + "function hide(el){undo.push(el);"
+                    + "el.style.setProperty('display','none','important');}"
+                    + "function shown(el){var r=el.getBoundingClientRect();"
+                    + "return r.width>0&&r.height>0;}"
+                    + "function empty(el){return !el.querySelector("
+                    + "'main,textarea,form,[contenteditable=\"true\"]');}"
+                    + "function text(el){return ((el.innerText||'')+' '+"
+                    + "(el.getAttribute&&el.getAttribute('aria-label')||'')).toLowerCase();}"
+                    + (hideSidebar ? JS_SIDEBAR : "")
+                    + (hideHeader ? JS_HEADER : "")
+                    + "}catch(e){}})();" : "");
             web.evaluateJavascript(clear, null);
             return;
         }
@@ -585,6 +609,105 @@ public final class TabWebViews {
             + "if(++fitPasses>15){clearInterval(fitTimer);return;}"
             + "if(document.hidden)return;fixPopups();},400);";
 
+    /**
+     * The page-side half of the Enter key.
+     *
+     * Why this exists, and why it is in the page rather than in the activity: on a phone
+     * with a hardware keyboard, Enter inside arena's composer does not send. Escape does
+     * work, and Escape is handled by the page itself (pressEscape() proves that), so the
+     * key arrives at the document - it is the page's own send handler that does not see it.
+     * The likely reason is that the composer's handler listens for a keydown that never
+     * reaches it, or only acts when the edit state happens to be settled.
+     *
+     * The app cannot fix that from Java: a WebView delivers a hardware Enter to the input
+     * as an ordinary character, there is no "the page ignored it" callback, and swallowing
+     * the key in the activity would break every text field on the page (including newline
+     * in a multi-line box). So the page gets a listener of its own that does what the
+     * composer should have done: find the send control next to the focused field and press
+     * it.
+     *
+     * Deliberately narrow, because this runs on every keystroke of every page:
+     *  - Enter with Shift or with IME composition in progress is never touched (a newline
+     *    and an in-progress word are both legitimate);
+     *  - only inside an editable field, and never inside a <form> with its own submit -
+     *    that form already applies the browser's own rule;
+     *  - the send control has to be visible and enabled and within the composer, and it is
+     *    only pressed when the field actually holds text;
+     *  - a press that the page does not act on is not repeated: one attempt per keystroke,
+     *    plus a re-entrancy guard and a short cooldown, so a held key cannot fire twice.
+     */
+    private static final String JS_ENTER_SEND =
+            "(function(){"
+            + "if(window.__arenaEnterSend)return;window.__arenaEnterSend=1;"
+            + "function editable(el){"
+            + "if(!el)return false;"
+            + "if(el.tagName==='TEXTAREA')return true;"
+            + "return !!(el.isContentEditable||el.getAttribute&&"
+            + "el.getAttribute('contenteditable')==='true');}"
+            + "function value(el){"
+            + "if(!el)return '';"
+            + "if(el.tagName==='TEXTAREA')return (el.value||'');"
+            + "return (el.innerText||el.textContent||'');}"
+            + "function visible(el){var r=el.getBoundingClientRect();"
+            + "return r.width>0&&r.height>0;}"
+            + "function enabled(el){"
+            + "if(!el)return false;"
+            + "if(el.disabled)return false;"
+            + "if(el.getAttribute&&el.getAttribute('aria-disabled')==='true')return false;"
+            + "return visible(el);}"
+            + "function isSend(el){"
+            + "var label=((el.getAttribute&&(el.getAttribute('aria-label')||"
+            + "el.getAttribute('title')||el.getAttribute('data-testid'))||'')+' '+"
+            // The element's own type is not part of this string: a plain button reports
+            // type submit, so including it made every button in the composer - the model
+            // picker, the attach clip - look like the send control.
+            + "String(el.className||'')"
+            + ").toLowerCase();"
+            + "if(/send|submit|arrow-up|arrowup|paper|prompt/.test(label))return true;"
+            // A plain type=submit button is only a send button inside a real form: an
+            // ordinary <button> outside one still reports type "submit", which would make
+            // every button beside the composer - the model picker, the attach clip - look
+            // like the send control and get clicked instead.
+            + "return el.tagName==='BUTTON'&&el.type==='submit'&&!!el.form;}"
+            + "function findSend(from){"
+            + "var node=from;"
+            + "for(var up=0;up<8&&node;up++,node=node.parentElement){"
+            + "var bs=node.querySelectorAll?node.querySelectorAll('button,[role=\"button\"]'):[];"
+            + "var best=null;"
+            + "for(var i=0;i<bs.length;i++){var b=bs[i];"
+            + "if(!enabled(b)||!isSend(b))continue;"
+            + "if(b.querySelector('textarea,input,[contenteditable=\"true\"]'))continue;"
+            // the last matching control in the composer is the one at the right-hand end
+            + "best=b;}"
+            + "if(best)return best;"
+            + "if(node.tagName==='FORM')break;}"
+            + "return null;}"
+            + "var busy=false,lastMs=0;"
+            + "function send(field){"
+            + "var now=Date.now();"
+            + "if(busy||now-lastMs<600)return;"
+            + "if(!value(field).trim())return;"
+            + "var target=findSend(field);"
+            + "if(!target)return;"
+            + "busy=true;lastMs=now;"
+            + "try{target.click();}catch(e){try{target.dispatchEvent("
+            + "new MouseEvent('click',{bubbles:true,cancelable:true}));}catch(x){}}"
+            + "setTimeout(function(){busy=false;},260);}"
+            + "document.addEventListener('keydown',function(e){"
+            + "if(e.key!=='Enter'||e.shiftKey||e.altKey||e.ctrlKey||e.metaKey)return;"
+            + "if(e.isComposing||e.keyCode===229)return;"
+            + "var field=e.target;"
+            + "if(!editable(field))return;"
+            + "if(field.closest&&field.closest('form'))return;"
+            + "send(field);},true);"
+            + "})();";
+
+    /** Injects the Enter-to-send listener once per document. */
+    public static void installEnterSend(WebView web) {
+        if (web == null) return;
+        web.evaluateJavascript(JS_ENTER_SEND, null);
+    }
+
     /** Text-based fallback for a sidebar whose class names say nothing. */
     private static final String JS_SIDEBAR =
             "var cands=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
@@ -593,13 +716,18 @@ public final class TabWebViews {
             + "var r=el.getBoundingClientRect();"
             + "if(r.width>420||r.height<0.5*r.width)continue;"
             + "var t=text(el);if(t.length>600)continue;"
-            + "var words=['new chat','leaderboard','search','sign in'];"
+            // The three fixed entries, then the account row, which is an email address once
+            // signed in and a sign-in label before that. Requiring all four terms, including
+            // the literal sign-in text, is why the sidebar was never hidden on a signed-in
+            // phone: the recording shows the account email where that text was expected, so
+            // the count could only ever reach three. A landing page does not carry three nav
+            // words plus an email address, so this is no looser than it was.
+            + "var words=['new chat','leaderboard','search'];"
             + "var hits=0;"
             + "for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0)hits++;}"
-            // Four words, not three: a landing page can easily contain three of them by
-            // coincidence, and hiding a content container is exactly the bug this must not
-            // repeat. A real nav panel has all four.
-            + "if(hits<4)continue;"
+            + "var account=/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/.test(t)||t.indexOf('sign in')>=0"
+            + "||t.indexOf('log in')>=0;"
+            + "if(hits<3||!account)continue;"
             + "if(el.querySelectorAll('a,button').length<4)continue;"
             // ...and never hide anything that contains the composer or the main region.
             + "if(el.querySelector('main,textarea,form,[contenteditable]'))continue;"
@@ -788,6 +916,9 @@ public final class TabWebViews {
                 delegate.onPageFinished(view, url);
                 loaded.add(tab);
                 applyChromeInsets(view, lastTopInset, lastBottomInset);
+                // Re-installed per document: a navigation replaces the page, and with it
+                // every listener the previous document had. The script is idempotent.
+                installEnterSend(view);
                 // The page made it: if the "stuck" bar is up for this tab, drop it.
                 if (activity instanceof MainActivity) ((MainActivity) activity).clearStalledLoad();
             }
@@ -853,31 +984,20 @@ public final class TabWebViews {
         }
     }
 
-    /** Keeps at most MAX_WARM WebViews; drops the least recently used background tab. */
+    /**
+     * Nothing is ever evicted any more - every tab stays loaded.
+     *
+     * This used to drop the least recently used background tab once there were more than
+     * MAX_WARM, which meant switching back to a tab threw its WebView away and rebuilt it
+     * from scratch. On a phone that is a long blank page, and in the recording it looked
+     * like the app had frozen. The whole point of the tabs is that they are warm, so the
+     * memory cost is accepted instead: there are five tabs, each one page, and the user
+     * asked for all of them to stay.
+     */
     private void trim() {
-        while (views.size() > MAX_WARM + Math.min(MAX_WINDOWS, windows().size() + 1)) {
-            // A window is only ever reclaimed when there is nothing else to reclaim: it is
-            // the page the user deliberately opened and expects to find still there.
-            Integer victim = null;
-            Integer windowVictim = null;
-            for (Integer key : views.keySet()) {
-                if (key == currentTab) continue;
-                if (isWindow(key)) {
-                    if (windowVictim == null) windowVictim = key;
-                } else {
-                    victim = key;
-                    break;
-                }
-            }
-            if (victim == null) victim = windowVictim;
-            if (victim == null) return;
-            WebView w = views.remove(victim);
-            if (w != null) {
-                container.removeView(w);
-                w.destroy();
-            }
-        }
+        // Intentionally empty: every tab stays loaded. See the comment above.
     }
+
 
     /** Removes a dead WebView (renderer crash) so the next visit recreates it. */
     public void drop(WebView view) {

@@ -758,6 +758,9 @@ public final class TabWebViews {
         CookieManager.getInstance().setAcceptThirdPartyCookies(w, true);
 
         w.addJavascriptInterface(new WebBridge(activity, w), "ArenaNative");
+        // Answers pressEscape(): "did that close anything?" Only that one boolean crosses
+        // the bridge, and it is read back on the UI thread.
+        w.addJavascriptInterface(new EscapeBridge(), "AgonEscape");
         w.setWebChromeClient(host.chromeFactory().create());
         w.setDownloadListener(host.downloadListener());
 
@@ -826,6 +829,18 @@ public final class TabWebViews {
                 applyChromeInsets(view, lastTopInset, lastBottomInset);
             }
         };
+    }
+
+    /** The one answer pressEscape() needs: whether the page closed something. */
+    private final class EscapeBridge {
+        @android.webkit.JavascriptInterface
+        public void report(final boolean dismissed) {
+            main.post(() -> {
+                if (activity instanceof MainActivity) {
+                    ((MainActivity) activity).onEscapeReport(dismissed);
+                }
+            });
+        }
     }
 
     /** Keeps at most MAX_WARM WebViews; drops the least recently used background tab. */
@@ -936,6 +951,246 @@ public final class TabWebViews {
         WebView w = current();
         if (w != null) w.goBack();
     }
+
+    /**
+     * JS that closes whatever overlay the page has put on top of itself.
+     *
+     * Arena's own panels - the feedback card ("Was this task successful?"), the model
+     * menu, the file rail - are drawn inside the page, so the app cannot close them the
+     * way it closes its own sheets. They all, however, answer Escape, which is why that
+     * card prints "Esc" in its corner: the page has a keyboard listener for it.
+     *
+     * This does not press Escape on an element; it dispatches the same key events a
+     * keyboard would, at whatever holds focus and at the document. `keyCode`/`which` are
+     * included because plenty of handlers in the wild still read those and ignore `key`.
+     *
+     * It reports `true` if anything on the page was actually dismissed, so the caller
+     * knows whether to consume the Back press or let it do its normal job.
+     */
+    public void pressEscape() {
+        WebView w = current();
+        if (w == null) return;
+        w.evaluateJavascript(JS_ESCAPE, null);
+    }
+
+    /**
+     * Escape, dispatched at the page.
+     *
+     * Arena's overlays are drawn inside the page, so the app cannot close them the way it
+     * closes its own sheets. They all answer Escape - the "Was this task successful?" card
+     * prints "Esc" in its corner precisely because the page listens for that key. A phone
+     * has no such key, so Back dispatches it.
+     *
+     * The events carry `key` and the legacy `keyCode`/`which`, because real handlers in
+     * the wild read either. A `<dialog open>` is closed explicitly, since the browser's own
+     * Escape handling does not run for a synthetic event.
+     *
+     * It answers one boolean through AgonEscape.report(): whether something that was
+     * covering the top of the screen is gone now. That is the only thing the activity
+     * needs to know to decide whether Back has done its job or should behave as before.
+     * Tested in jsdom against window, document and legacy-keyCode handlers.
+     */
+    private static final String JS_ESCAPE =
+            "(function () {"
+            + "  try {"
+            + "    function overlays() {"
+            + "      var n = 0, els = document.querySelectorAll('body *');"
+            + "      for (var i = 0; i < els.length && i < 1500; i++) {"
+            + "        var el = els[i], r = el.getBoundingClientRect();"
+            + "        if (r.width < 200 || r.height < 120) continue;"
+            + "        var cs = getComputedStyle(el);"
+            + "        if (cs.position !== 'fixed' && cs.position !== 'absolute') continue;"
+            + "        if (cs.display === 'none' || cs.visibility === 'hidden') continue;"
+            + "        if (r.top > window.innerHeight * 0.25) continue;"
+            + "        n++;"
+            + "      }"
+            + "      return n;"
+            + "    }"
+            + "    var before = overlays();"
+            + "    function press(node) {"
+            + "      if (!node || !node.dispatchEvent) return;"
+            + "      var init = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27,"
+            + "                   bubbles: true, cancelable: true, composed: true };"
+            + "      try {"
+            + "        node.dispatchEvent(new KeyboardEvent('keydown', init));"
+            + "        node.dispatchEvent(new KeyboardEvent('keyup', init));"
+            + "      } catch (e) {"
+            + "        var ev = document.createEvent('Event');"
+            + "        ev.initEvent('keydown', true, true);"
+            + "        ev.keyCode = 27; ev.which = 27;"
+            + "        node.dispatchEvent(ev);"
+            + "      }"
+            + "    }"
+            + "    press(document.activeElement || document.body);"
+            + "    press(document.body);"
+            + "    press(document);"
+            + "    var dlg = document.querySelector('dialog[open]');"
+            + "    if (dlg) { try { dlg.close(); } catch (e) {} }"
+            + "    setTimeout(function () {"
+            + "      try { AgonEscape.report(overlays() < before); } catch (e) {}"
+            + "    }, 140);"
+            + "  } catch (e) {"
+            + "    try { AgonEscape.report(false); } catch (x) {}"
+            + "  }"
+            + "})();";
+
+    /** Keeps at most MAX_WARM WebViews; drops the least recently used background tab. */
+    private void trim() {
+        while (views.size() > MAX_WARM + Math.min(MAX_WINDOWS, windows().size() + 1)) {
+            // A window is only ever reclaimed when there is nothing else to reclaim: it is
+            // the page the user deliberately opened and expects to find still there.
+            Integer victim = null;
+            Integer windowVictim = null;
+            for (Integer key : views.keySet()) {
+                if (key == currentTab) continue;
+                if (isWindow(key)) {
+                    if (windowVictim == null) windowVictim = key;
+                } else {
+                    victim = key;
+                    break;
+                }
+            }
+            if (victim == null) victim = windowVictim;
+            if (victim == null) return;
+            WebView w = views.remove(victim);
+            if (w != null) {
+                container.removeView(w);
+                w.destroy();
+            }
+        }
+    }
+
+    /** Removes a dead WebView (renderer crash) so the next visit recreates it. */
+    public void drop(WebView view) {
+        loaded.clear();
+        Integer key = null;
+        for (java.util.Map.Entry<Integer, WebView> e : views.entrySet()) {
+            if (e.getValue() == view) {
+                key = e.getKey();
+                break;
+            }
+        }
+        if (key != null) {
+            views.remove(key);
+            loaded.remove(key);
+        }
+        if (view.getParent() != null) container.removeView(view);
+        view.destroy();
+    }
+
+    public void destroyAll() {
+        for (WebView w : views.values()) {
+            container.removeView(w);
+            w.removeJavascriptInterface("ArenaNative");
+            w.destroy();
+        }
+        views.clear();
+    }
+
+    /** Wipes cookies/cache for the signed-in session and reloads the current tab. */
+    public void clearAndReload() {
+        android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();
+        cm.removeAllCookies(null);
+        cm.flush();
+        for (WebView w : views.values()) {
+            w.clearCache(true);
+            w.clearHistory();
+            w.clearFormData();
+        }
+        reloadCurrent();
+    }
+
+    /**
+     * Re-applies the user-agent choice to every warm tab.
+     *
+     * A WebView keeps the UA it was created with, so flipping "Chrome user agent" in
+     * Settings has to push the new string into the settings object and reload the page
+     * for arena to see it.
+     */
+    public void applyUserAgentToAll() {
+        for (WebView w : views.values()) {
+            WebSettings s = w.getSettings();
+            s.setUserAgentString(Settings.chromeUserAgent(activity)
+                    ? AppChrome.userAgent(activity, s.getUserAgentString())
+                    : AppChrome.defaultUserAgent(activity));
+            w.reload();
+        }
+    }
+
+    /** Reloads every warm tab (page-hiding rules changed, so a repaint is needed). */
+    public void reloadAll() {
+        for (WebView w : views.values()) w.reload();
+    }
+
+    public void reloadCurrent() {
+        WebView w = current();
+        if (w != null) w.reload();
+    }
+
+    /** Silent refresh used when returning to the app (keeps scroll position). */
+    public void refreshInPlace(int tab) {
+        WebView w = views.get(tab);
+        if (w != null) w.evaluateJavascript("window.dispatchEvent(new Event('focus'));", null);
+    }
+
+    public boolean canGoBack() {
+        WebView w = current();
+        return w != null && w.canGoBack();
+    }
+
+    public void goBack() {
+        WebView w = current();
+        if (w != null) w.goBack();
+    }
+
+    /**
+     * JS that closes whatever overlay the page has put on top of itself.
+     *
+     * Arena's own panels - the feedback card ("Was this task successful?"), the model
+     * menu, the file rail - are drawn inside the page, so the app cannot close them the
+     * way it closes its own sheets. They all, however, answer Escape, which is why that
+     * card prints "Esc" in its corner: the page has a keyboard listener for it.
+     *
+     * This does not press Escape on an element; it dispatches the same key events a
+     * keyboard would, at whatever holds focus and at the document. `keyCode`/`which` are
+     * included because plenty of handlers in the wild still read those and ignore `key`.
+     *
+     * It reports `true` if anything on the page was actually dismissed, so the caller
+     * knows whether to consume the Back press or let it do its normal job.
+     */
+    public void pressEscape() {
+        WebView w = current();
+        if (w == null) return;
+        w.evaluateJavascript(JS_ESCAPE, null);
+    }
+
+    private static final String JS_ESCAPE =
+            "(function(){try{"
+            // A best-effort count of "things covering the top of the screen" - used only
+            // to decide whether the Back press should be kept by the page or passed on.
+            + "function dismissedCount(){var n=0;var els=document.querySelectorAll('body *');"
+            + "for(var i=0;i<els.length&&i<1500;i++){var el=els[i];"
+            + "var r=el.getBoundingClientRect();if(r.width<200||r.height<120)continue;"
+            + "var cs=getComputedStyle(el);"
+            + "if(cs.position!=='fixed'&&cs.position!=='absolute')continue;"
+            + "if(cs.display==='none'||cs.visibility==='hidden')continue;"
+            + "if(r.top>window.innerHeight*0.25)continue;n++;}return n;}"
+            + "var before=dismissedCount();"
+            + "var t=document.activeElement||document.body;"
+            + "function go(node){if(!node||!node.dispatchEvent)return;"
+            + "var o={key:'Escape',code:'Escape',keyCode:27,which:27,bubbles:true,"
+            + "cancelable:true,composed:true};"
+            + "try{node.dispatchEvent(new KeyboardEvent('keydown',o));"
+            + "node.dispatchEvent(new KeyboardEvent('keyup',o));}catch(e){"
+            + "var ev=document.createEvent('Event');ev.initEvent('keydown',true,true);"
+            + "ev.keyCode=27;ev.which=27;node.dispatchEvent(ev);}}"
+            + "go(t);go(document.body);go(document);"
+            // A dialog element, if the page used one, also closes on Escape - but only
+            // through the browser's own handling, so it is closed explicitly here too.
+            + "var d=document.querySelector('dialog[open]');if(d){try{d.close();}catch(e){}}"
+            + "setTimeout(function(){try{AgonEscape.report(dismissedCount()<before);}"
+            + "catch(e){}},140);"
+            + "}catch(e){try{AgonEscape.report(false);}catch(x){}}}})();";
 
     public void loadInCurrent(String url) {
         WebView w = current();

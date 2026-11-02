@@ -104,6 +104,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private File pendingInstallApk;
 
     private ValueCallback<Uri[]> pendingFileCallback;
+    /** The page whose Escape was last attempted, so Back is only spent once per screen. */
+    private int escapeUsedFor = -1;
+    /** True once the page has answered the current Escape attempt (or timed out). */
+    private boolean escapeSettled = false;
+
     /** A window the page opened for a non-arena address (a preview, a docs link). */
     private WebWindow webWindow;
     private PermissionRequest pendingPermissionRequest;
@@ -1575,6 +1580,22 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             menuSheet = null;
             return;
         }
+        // Before leaving the page: arena's own overlays draw an "Esc" in their corner
+        // (the "Was this task successful?" card does), because on a desktop that key
+        // closes them. A phone has no Escape key, so Back is the key - and it is tried
+        // once, here, before it is used for navigation. If the page reports that nothing
+        // was covering the screen, the next Back behaves exactly as it always did.
+        if (tabs != null && escapeUsedFor != pageId()) {
+            final int askingPage = pageId();
+            escapeUsedFor = askingPage;
+            escapeSettled = false;
+            // A page that never answers must not swallow the press for ever.
+            window.postDelayed(() -> {
+                if (!escapeSettled) escapeSettled = true;
+            }, 500);
+            tabs.pressEscape();
+            return;
+        }
         if (tabs != null && tabs.canGoBack()) {
             tabs.goBack();
             return;
@@ -1708,6 +1729,24 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         closeWebWindow();
         if (tabs != null) tabs.destroyAll();
         super.onDestroy();
+    }
+
+    /**
+     * Called by the page after a Back press was turned into an Escape.
+     *
+     * `dismissed` is the page's own answer to "was something covering the screen, and is
+     * it gone now". When it says yes the press has done its job - the overlay is closed,
+     * the chat is usable, and the user is exactly where they were. When it says no the
+     * press is spent and the next one falls through to navigation, which is the old
+     * behaviour: Back still leaves the page rather than being swallowed.
+     */
+    void onEscapeReport(boolean dismissed) {
+        escapeSettled = true;
+        if (!dismissed) {
+            // Nothing was closed, so Back is what it always was. Doing it now means a
+            // single press never becomes a no-op.
+            escapeUsedFor = -1;
+        }
     }
 
     // ------------------------------------------------------------------ results

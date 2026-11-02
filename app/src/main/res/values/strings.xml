@@ -27,7 +27,7 @@
     <string name="signin_email_note">No password is ever stored by this app. If you have no Arena account yet, Arena\'s page offers sign-up with the same address.</string>
     <string name="signin_step_email_continue">Continuing as %1$s - finish on Arena\'s page</string>
     <string name="signin_step_email_sent">Address entered - enter the password or use the link Arena sends to %1$s</string>
-    <string name="signin_step_nothing_found">This page has no Log in button to press - use the email sign-in below</string>
+    <string name="signin_step_nothing_found">This %1$s page has no Log in button to press - use the email sign-in below</string>
     <string name="signin_offer_email">Use the email sign-in instead</string>
     <string name="signin_step_password">Address accepted - enter your Arena password on this page</string>
     <string name="signin_step_email_manual">Type the address in Arena\'s field, then press Continue with email</string>

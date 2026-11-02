@@ -763,6 +763,49 @@ def check_android_api(paths):
 
 
 
+def check_overload_calls(java_paths, string_names):
+    """Calls that look plausible but cannot compile, because the argument types differ.
+
+    What this catches, from a real build failure on a phone:
+
+        toast(getString(R.string.window_switched, windowName(id)));
+
+    ...where `toast` is declared `toast(int resId)`. A formatted string is a String, not
+    an int, so javac rejects it - and the only way anyone found out was a 40-minute
+    Gradle round trip on the device. Two cheap rules cover the case:
+
+      1. a helper that exists in exactly one arity taking `int`, called with a String;
+      2. getString() called with arguments on a string that has no format placeholders.
+    """
+    for path in java_paths:
+        src = _strip_java_noise(open(path, encoding="utf-8", errors="replace").read())
+
+        # 1. int-only helper called with a String expression.
+        for m in re.finditer(r"(?:private|public|protected)[\w\s]*?\bvoid\s+(\w+)\s*\(\s*int\s+\w+\s*\)", src):
+            helper = m.group(1)
+            for call in re.finditer(r"\b" + helper + r"\s*\(([^;]*)\)\s*;", src):
+                arg = call.group(1).strip()
+                looks_textual = (
+                    arg.startswith("getString(") or arg.startswith('"') or
+                    arg.startswith("String.valueOf(") or " + \"" in arg or
+                    re.match(r"^\w+\s*\(.*\)$", arg) is not None
+                    and not re.match(r"^(R\.|\d)", arg))
+                # A plain int variable, a resource int, or a literal number is fine.
+                if re.match(r"^(R\.string\.\w+|\d+|\w+)$", arg):
+                    continue
+                if looks_textual and arg.startswith(("getString(", '"', "String.valueOf(")):
+                    problems.append(f"{path}: {helper}(...) takes an int but is called with "
+                                    f"text: {arg[:60]}")
+                    break
+
+        # 2. getString(id, args...) on a string with no placeholders.
+        for call in re.finditer(r"getString\(\s*R\.string\.(\w+)\s*,", src):
+            name = call.group(1)
+            if name in string_names and "%" not in string_names[name]:
+                problems.append(f"{path}: getString(R.string.{name}, ...) passes arguments "
+                                f"but that string has no %1$s-style placeholder")
+
+
 def check_colour_names(java_paths):
     """Every R.color.foo used from Java must exist in values/ and values-night/."""
     def names(path):
@@ -1123,6 +1166,14 @@ def main():
     check_tab_api(java_paths)
     check_java_cross_class(java_paths)
     check_android_api(java_paths)
+    string_names = {}
+    try:
+        raw = open("app/src/main/res/values/strings.xml", encoding="utf-8").read()
+        for m in re.finditer(r'<string name="([^"]+)"[^>]*>(.*?)</string>', raw, re.S):
+            string_names[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    check_overload_calls(java_paths, string_names)
     check_colour_names(java_paths)
     check_resource_refs(java_paths)
     check_injected_js(java_paths)

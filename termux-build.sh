@@ -190,28 +190,50 @@ echo '  ... building (this is the slow part; a phone can take half an hour)'
 }
 "
 
-APK="app/build/outputs/apk/debug/app-debug.apk"
-if [ ! -f "$APK" ]; then
-  echo "[X] The build finished but $APK is not there." >&2
+# Gradle ran INSIDE the container, so its output is in the container's filesystem.
+# The old code checked for the APK relative to Termux's own working directory, where
+# it can never be - the build had succeeded and the script still said "not there".
+ROOTFS_DIR="$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu"
+APK_IN_CONTAINER="/root/agon/app/build/outputs/apk/debug/app-debug.apk"
+OUT="$ROOTFS_DIR$APK_IN_CONTAINER"
+
+echo
+if [ ! -f "$OUT" ]; then
+  # Gradle reported success, so the file has to be somewhere: find it rather than
+  # declare the build broken.
+  echo "[!] Not at the usual path - looking for it..."
+  OUT=$(find "$ROOTFS_DIR" -name '*.apk' -newermt '-2 hours' 2>/dev/null | head -1)
+fi
+
+if [ -z "$OUT" ] || [ ! -f "$OUT" ]; then
+  echo "[X] The build reported success but no APK could be found." >&2
+  echo "    Look inside the container with:" >&2
+  echo "      proot-distro login ubuntu -- find /root -name '*.apk'" >&2
   exit 1
 fi
 
-# The container's filesystem is reachable from Termux, so the APK is copied out
-# of it into the phone's own Download folder, where the installer can see it.
-ROOTFS="$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu/root/agon/$APK"
-echo
-echo "[4/4] $APK ($(du -h "$ROOTFS" 2>/dev/null | cut -f1))"
-mkdir -p "$HOME/storage/downloads" 2>/dev/null || true
-if [ -f "$ROOTFS" ]; then
-  cp "$ROOTFS" "$HOME/Agon-$VERSION.apk"
-  if [ -d "$HOME/storage/downloads" ]; then
-    cp "$ROOTFS" "$HOME/storage/downloads/Agon-$VERSION.apk" && \
-      echo "      copied to your Download folder: Agon-$VERSION.apk"
-  fi
-  echo "      also at: $HOME/Agon-$VERSION.apk"
-else
-  echo "      it is inside the container at /root/agon/$APK"
+echo "[4/4] Built: $(basename "$OUT")  ($(du -h "$OUT" | cut -f1))"
+
+# Into a place the installer can actually see. Termux's HOME is private to the app,
+# so the system file picker / package installer cannot read it - Download can.
+DEST_DIRS=""
+[ -d "$HOME/storage/downloads" ] && DEST_DIRS="$HOME/storage/downloads"
+[ -d "/sdcard/Download" ] && DEST_DIRS="$DEST_DIRS
+/sdcard/Download"
+
+if [ -z "$DEST_DIRS" ]; then
+  echo "      Termux cannot see Download yet. Run:  termux-setup-storage"
+  echo "      Until then the APK is at: $HOME/Agon-$VERSION.apk"
 fi
+
+for d in $DEST_DIRS; do
+  if cp "$OUT" "$d/Agon-$VERSION.apk" 2>/dev/null; then
+    echo "      copied to: $d/Agon-$VERSION.apk"
+  fi
+done
+# Always keep one copy Termux itself can reach, even if the copy above failed.
+cp "$OUT" "$HOME/Agon-$VERSION.apk" 2>/dev/null || true
+[ -f "$HOME/Agon-$VERSION.apk" ] && echo "      also at : $HOME/Agon-$VERSION.apk"
 
 cat <<'NOTE'
 

@@ -806,6 +806,99 @@ def check_overload_calls(java_paths, string_names):
                                 f"but that string has no %1$s-style placeholder")
 
 
+def check_duplicate_members(java_paths):
+    """A method defined twice as a member of the SAME class - a javac error.
+
+    Found the hard way: an edit appended a block that duplicated a 160-line region, and
+    the phone build answered with twelve "method is already defined" errors at once.
+
+    Only member methods of a class body are compared, and only against others at the
+    same nesting depth. Anything shallower or deeper - an anonymous WebViewClient's
+    onPageFinished, a lambda, a local method reference - is legitimately allowed to
+    repeat, and an earlier version of this check that ignored depth reported 150
+    problems in code that compiles perfectly.
+    """
+    for path in java_paths:
+        src = open(path, encoding="utf-8", errors="replace").read()
+        # Walk the file, tracking depth with strings and comments skipped, and note the
+        # depth each method signature sits at.
+        depth = 0
+        i = 0
+        n = len(src)
+        line = 1
+        sig = re.compile(
+            r"(?:public|private|protected|static|final|synchronized|abstract|native|strictfp)\s+"
+            r"(?:(?:[\w.<>\[\],?]+)\s+)?(\w+)\s*\(([^)]*)\)\s*(?:throws[^{;]*)?[{;]")
+        members = {}
+        while i < n:
+            c = src[i]
+            if c == "\n":
+                line += 1
+                i += 1
+                continue
+            if c == "/" and i + 1 < n and src[i + 1] == "/":
+                while i < n and src[i] != "\n":
+                    i += 1
+                continue
+            if c == "/" and i + 1 < n and src[i + 1] == "*":
+                i += 2
+                while i + 1 < n and not (src[i] == "*" and src[i + 1] == "/"):
+                    if src[i] == "\n":
+                        line += 1
+                    i += 1
+                i += 2
+                continue
+            if c in ("\"", "'"):
+                q = c
+                i += 1
+                while i < n:
+                    if src[i] == "\\":
+                        i += 2
+                        continue
+                    if src[i] == q:
+                        i += 1
+                        break
+                    if src[i] == "\n":
+                        line += 1
+                    i += 1
+                continue
+            if c == "{":
+                depth += 1
+                i += 1
+                continue
+            if c == "}":
+                depth -= 1
+                i += 1
+                continue
+            # Only attempt a signature match on a real word boundary at member depth,
+            # otherwise the expensive regex runs at every character and, more importantly,
+            # a signature that begins mid-token is never seen at all.
+            m = None
+            if depth == 1 and (c.isalpha() or c == "_"):
+                m = sig.match(src, i)
+            if m:
+                name, params = m.group(1), m.group(2)
+                # Members of the file's outer class sit at depth 1.
+                if depth == 1:
+                    types = ",".join(pt.strip().split()[0]
+                                     for pt in params.split(",") if pt.strip())
+                    key = name + "(" + types + ")"
+                    if key in members:
+                        problems.append(f"{path}:{line}: {name}() is already defined "
+                                        f"as a member (first on line {members[key]})")
+                    else:
+                        members[key] = line
+                # The signature regex ends by consuming the body's opening brace (or a
+                # `;` for an abstract/interface method). That brace has already been eaten,
+                # so it must be counted here - otherwise every matched method loses one
+                # level and depth drifts to 0, hiding all members further down the file.
+                if m.group(0).endswith("{"):
+                    depth += 1
+                i = m.end()
+                continue
+            i += 1
+
+
 def check_brace_depth(java_paths):
     """Brace balance with strings and comments stripped - as a compiler sees it.
 
@@ -1238,6 +1331,7 @@ def main():
         pass
     check_overload_calls(java_paths, string_names)
     check_brace_depth(java_paths)
+    check_duplicate_members(java_paths)
     check_colour_names(java_paths)
     check_resource_refs(java_paths)
     check_injected_js(java_paths)

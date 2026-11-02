@@ -624,7 +624,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         applyChromeInsets();
         // The nav keeps Chat lit: a window is another chat, not another destination.
         AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
-        toast(getString(R.string.window_switched, windowName(id)));
+        toastText(getString(R.string.window_switched, windowName(id)));
     }
 
     /** What a window is called: its page title, or its number in the list. */
@@ -1538,6 +1538,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     private void toast(int resId) {
         Toast.makeText(this, resId, Toast.LENGTH_SHORT).show();
+    }
+
+    /** A toast whose text is already built (a format string that needs arguments). */
+    private void toastText(CharSequence text) {
+        if (text == null) return;
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
 
     // ------------------------------------------------------------------ navigation

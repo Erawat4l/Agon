@@ -55,16 +55,23 @@ pkg update -y >/dev/null 2>&1 || true
 pkg install -y proot-distro >/dev/null 2>&1 || true
 
 echo "[2/4] Ubuntu container (skipped if already installed)..."
-# The installation is tested by looking for its root filesystem, not by parsing
-# `proot-distro list --installed`: that flag is not the same in every
-# proot-distro version, and when it silently printed nothing this ran `install`
-# on a container that already existed - which proot-distro reports as
-# "container 'ubuntu' is busy (PID ...: login)" and which reads like a failure.
-ROOTFS_UBUNTU="$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu"
-if [ ! -d "$ROOTFS_UBUNTU" ]; then
-  proot-distro install ubuntu
-else
+# The only reliable test is the one that matters: can we log in?
+#
+# Three attempts at predicting this from the outside all failed on a real phone -
+# `list --installed`, then the rootfs path, then the os-release file. So the
+# script stops guessing: it asks proot-distro to run `true` inside the container.
+# Success means the container exists AND is usable, which is exactly the question.
+if proot-distro login ubuntu -- true >/dev/null 2>&1; then
   echo "      already installed - reusing it"
+else
+  echo "      not usable yet - installing"
+  if ! proot-distro install ubuntu; then
+    echo ""
+    echo "  [X] proot-distro could not install the container."
+    echo "      If it mentions another session, go back to Termux and type: exit"
+    echo "      ...or open a NEW Termux session and run this script there."
+    exit 3
+  fi
 fi
 
 # A login session left behind by an interrupted run does block install/remove.

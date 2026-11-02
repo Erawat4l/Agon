@@ -213,22 +213,29 @@ if [ -f \"\$SHARED/ADOPT.md\" ] && [ ! -f arena-release.jks ]; then
     rm -f arena-release.jks
     exit 5
   fi
-  printf 'storeFile=arena-release.jks\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' > keystore.properties
+  printf 'storeFile=arena-release.jks\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' > agon-build.properties
   rm -f \"\$SHARED/ADOPT.md\"
 fi
-if [ ! -f arena-release.jks ] || [ ! -f keystore.properties ]; then
+# One key for both machines. Older builds recorded the key in keystore.properties;
+# adopting that file is what lets the PC sign for this phone later, and it means an
+# existing phone build never has to be re-installed just because a file was renamed.
+if [ ! -f agon-build.properties ] && [ -f keystore.properties ] && [ -f arena-release.jks ]; then
+  cp keystore.properties agon-build.properties
+  echo '  ... reusing the signing key this phone already has'
+fi
+if [ ! -f arena-release.jks ] || [ ! -f agon-build.properties ]; then
   echo ''
   echo '  [!] No key from the PC yet, so a key is being created for THIS phone only.'
   echo '      That APK will be refused over the installed app. To update instead:'
   echo '        PC:    copy \"%USERPROFILE%\\.android\\debug.keystore\" to a USB/Download'
   echo '        phone: rename that copy to ADOPT.md, put it in Download/, run again.'
   echo ''
-  rm -f arena-release.jks keystore.properties
+  rm -f arena-release.jks agon-build.properties
   keytool -genkeypair -v -keystore arena-release.jks \
     -alias arena -keyalg RSA -keysize 2048 -validity 10000 \
     -storepass agonphone -keypass agonphone \
     -dname 'CN=Agon Phone Build, OU=Mobile, O=Arena, C=IN' >/dev/null 2>&1
-  printf 'storeFile=arena-release.jks\nstorePassword=agonphone\nkeyAlias=arena\nkeyPassword=agonphone\n' > keystore.properties
+  printf 'storeFile=arena-release.jks\nstorePassword=agonphone\nkeyAlias=arena\nkeyPassword=agonphone\n' > agon-build.properties
 fi
 # The key fingerprint is printed after the build instead of inside this quoted
 # block, where a command substitution would be parsed by Termux, not the container.

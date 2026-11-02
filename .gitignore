@@ -24,6 +24,11 @@ release/
 
 # Signing secrets — never commit these
 keystore.properties
+# The one signing key shared by the PC and the phone (tools/publish.ps1 and
+# termux-build.sh both write it). Never committed, and never delete it: losing it means
+# every installed copy has to be uninstalled once.
+agon-build.jks
+agon-build.properties
 gh-token.txt
 *.jks
 *.keystore

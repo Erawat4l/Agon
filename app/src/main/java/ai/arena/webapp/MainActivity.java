@@ -108,6 +108,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private int escapeUsedFor = -1;
     /** True once the page has answered the current Escape attempt (or timed out). */
     private boolean escapeSettled = false;
+    /** The page whose stuck-overlay repair was last attempted, so it happens once. */
+    private int unstuckTriedFor = -1;
+    /** True once the page has answered the un-stick attempt (or timed out). */
+    private boolean stuckSettled = false;
 
     /** A window the page opened for a non-arena address (a preview, a docs link). */
     private WebWindow webWindow;
@@ -1596,6 +1600,22 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             tabs.pressEscape();
             return;
         }
+        // Still stuck after the first attempt (the recording shows exactly this: a
+        // toolbar parked over the sidebar and nothing responding). One press is allowed
+        // to do the heavier thing rather than leaving the user with a page they cannot
+        // use: drop the page's floats and focus, and if that does not help either, reload
+        // the tab. The reload is the same thing the menu's Reload does, so it loses
+        // nothing that a normal Reload would not - and a page in that state has no
+        // unsent work worth protecting.
+        if (tabs != null && unstuckTriedFor != pageId()) {
+            unstuckTriedFor = pageId();
+            stuckSettled = false;
+            window.postDelayed(() -> {
+                if (!stuckSettled) stuckSettled = true;
+            }, 700);
+            tabs.unstickPage();
+            return;
+        }
         if (tabs != null && tabs.canGoBack()) {
             tabs.goBack();
             return;
@@ -1740,6 +1760,17 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * press is spent and the next one falls through to navigation, which is the old
      * behaviour: Back still leaves the page rather than being swallowed.
      */
+    /** The page's answer to unstickPage(): false means it is still stuck. */
+    void onStuckReport(boolean stillStuck) {
+        stuckSettled = true;
+        if (stillStuck && tabs != null) {
+            // Last resort, on the same press: a reload is the only thing that reliably
+            // rebuilds a page whose own floating controls have stopped responding.
+            tabs.reloadCurrent();
+        }
+        unstuckTriedFor = -1;
+    }
+
     void onEscapeReport(boolean dismissed) {
         escapeSettled = true;
         if (!dismissed) {

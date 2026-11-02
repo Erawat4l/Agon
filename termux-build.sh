@@ -202,7 +202,13 @@ if [ ! -f "$OUT" ]; then
   # Gradle reported success, so the file has to be somewhere: find it rather than
   # declare the build broken.
   echo "[!] Not at the usual path - looking for it..."
-  OUT=$(find "$ROOTFS_DIR" -name '*.apk' -newermt '-2 hours' 2>/dev/null | head -1)
+  # `|| true` is not decoration: this script runs with `set -e`, and a command
+  # substitution that finds nothing makes the assignment itself exit non-zero -
+  # which killed the script silently right here, two lines after "BUILD
+  # SUCCESSFUL", with no error message at all. A search that finds nothing is a
+  # normal outcome here, not a fatal one.
+  FOUND=$(find "$ROOTFS_DIR" -name '*.apk' 2>/dev/null | head -1) || true
+  OUT="$FOUND"
 fi
 
 if [ -z "$OUT" ] || [ ! -f "$OUT" ]; then

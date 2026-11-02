@@ -19,7 +19,10 @@ param(
     [string]$Repo = "Agon",
     # Build the APK and the installers and STOP. No release is created, nothing is uploaded,
     # and GitHub is not contacted at all - so nothing can be left behind as a draft.
-    [switch]$LocalOnly
+    [switch]$LocalOnly,
+    # Build ONLY the APK and stop. The Windows installers are 140 MB and several minutes of
+    # electron-builder for a file that is not being asked for; this is the APK iteration loop.
+    [switch]$ApkOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -165,6 +168,20 @@ if ($null -ne $python -and (Test-Path $abiCheck)) {
     if ($LASTEXITCODE -ne 0) { Fail "The APK does not cover both 32-bit and 64-bit (see above). Nothing was published." }
 }
 Write-Host "      $((Split-Path $asset -Leaf))  ($sizeMb MB)"
+
+if ($ApkOnly) {
+    Write-Host ""
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "  [OK] APK built - nothing else was built" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  APK: $asset"
+    Write-Host ""
+    Write-Host "  Installers: not built (that is what 'apk' means)."
+    Write-Host "  To build them too:  publish.bat $Version local"
+    Write-Host "  To publish this APK to GitHub:  publish.bat $Version"
+    exit 0
+}
 
 if (-not $Token -and -not $LocalOnly) {
     Fail "No GitHub token. Either run 'gh auth login' first (publish.bat then reuses it), or store one with: publish.bat --token github_pat_xxx"

@@ -11,6 +11,7 @@ REM     publish.bat 1.2.0           publish an exact version
 REM     publish.bat 1.2.0 beta      publish as a pre-release (Beta channel)
 REM     publish.bat local           build the APK + installers and STOP - no release,
 REM                                 no upload, GitHub never contacted
+REM     publish.bat 1.4.49 apk      build ONLY the APK and stop (no installers, no upload)
 REM     publish.bat 1.2.0 local     same, at a version you choose
 REM     publish.bat --token ghp_xx  remember a GitHub token for next time
 REM
@@ -22,6 +23,7 @@ REM ===========================================================================
 set "VERSION=%~1"
 set "CHANNEL=%~2"
 set "LOCAL=0"
+set "APKONLY=0"
 
 if /i "%VERSION%"=="--token" goto :save_token
 if /i "%VERSION%"=="-t" goto :save_token
@@ -36,6 +38,18 @@ if /i "%VERSION%"=="local" (
 )
 if /i "%CHANNEL%"=="local" (
     set "LOCAL=1"
+    set "CHANNEL="
+)
+
+REM "apk" is the APK-only mode: the same build a publish does, then stop before the
+REM Windows installers. Accepted in either position, like "local".
+if /i "%VERSION%"=="apk" (
+    set "APKONLY=1"
+    set "VERSION=%CHANNEL%"
+    set "CHANNEL="
+)
+if /i "%CHANNEL%"=="apk" (
+    set "APKONLY=1"
     set "CHANNEL="
 )
 
@@ -174,11 +188,13 @@ if "!TOKEN!"=="" exit /b 1
 echo [4/4] Building and uploading...
 REM One line per call, on purpose: a "^" line continuation inside a parenthesised
 REM block is a documented cmd.exe trap (the block is parsed before the caret is honoured).
-if "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly
-if not "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!"
+if "!APKONLY!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly -ApkOnly
+if "!APKONLY!"=="0" if "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly
+if "!APKONLY!"=="0" if not "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!"
 if errorlevel 1 goto :failed
 
 echo.
+if "!APKONLY!"=="1" goto :apk_done
 if "!LOCAL!"=="1" goto :local_done
 > version.txt echo !VERSION!
 echo Local copy: %~dp0Agon-!VERSION!.apk
@@ -187,6 +203,14 @@ echo.
 echo   Release: https://github.com/Erawat4l/Agon/releases/tag/v!VERSION!
 REM Not "start": opening the page is a convenience, but launching a browser from a batch
 REM job that was pasted into a console is noise. The URL is printed instead.
+exit /b 0
+
+:apk_done
+REM version.txt is NOT written here either: nothing was published, so the next real
+REM publish must not believe this number is already taken.
+echo APK build finished. No installers, no release, nothing published.
+echo   APK : %~dp0Agon-!VERSION!.apk
+echo   Windows installers are built by:  publish.bat !VERSION! local
 exit /b 0
 
 :local_done

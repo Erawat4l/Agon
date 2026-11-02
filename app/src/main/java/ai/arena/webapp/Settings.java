@@ -100,7 +100,16 @@ public final class Settings {
      * Settings -> For developers for anyone who wants it.
      */
     public static boolean hideWebSidebar(Context c) {
-        return get(c, K_HIDE_WEB_SIDEBAR, false);
+        // ON by default, and that is a deliberate reversal.
+        //
+        // It was turned off while the hiding rule was broad enough to remove content
+        // containers - a page that fits was worth more than a hidden duplicate menu. The
+        // rule is narrow now: one nav-like element, matching four separate panel words and
+        // holding at least four links, and never anything that contains a <main>, a
+        // textarea, a form or an editable area. With the rule safe, the default belongs
+        // back on: an app whose page draws its own navigation beside the app's navigation
+        // is the thing users report as "the sidebar isn't hiding".
+        return get(c, K_HIDE_WEB_SIDEBAR, true);
     }
 
     /** True when the app may draw the page's own panel again (only if asked for). */

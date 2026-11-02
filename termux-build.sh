@@ -201,20 +201,36 @@ chmod +x gradlew
 # this phone: the first install still has to replace the old app (one uninstall, one
 # sign-in). Either file is git-ignored, so `git pull` cannot remove it.
 SHARED=/sdcard/Download
-if [ -f \"\$SHARED/ADOPT.md\" ] && [ ! -f arena-release.jks ]; then
-  echo '  ... using the PC key from ADOPT.md'
-  cp \"\$SHARED/ADOPT.md\" arena-release.jks
-  if ! keytool -list -keystore arena-release.jks -storepass android >/dev/null 2>&1; then
+# Two names are accepted for the incoming key, because both workflows exist:
+#   ADOPT.md  - the PC's old %USERPROFILE%\.android\debug.keystore (password "android")
+#   AGON-KEY.md - the shared key the PC now makes (agon-build.jks, password "agonbuild")
+# The second is the one that makes every later PC and phone build interchangeable, so it
+# is preferred when both are present.
+if [ ! -f agon-build.jks ]; then
+  for cand in AGON-KEY.md ADOPT.md; do
+    [ -f \"\$SHARED/\$cand\" ] || continue
+    for pass in agonbuild android; do
+      cp \"\$SHARED/\$cand\" /tmp/incoming.jks
+      if keytool -list -keystore /tmp/incoming.jks -storepass \"\$pass\" >/dev/null 2>&1; then
+        # The alias, read from the key entry line rather than guessed: keytool prints
+        # "alias, date, PrivateKeyEntry," and nothing else in that list has a comma.
+        alias=\$(keytool -list -keystore /tmp/incoming.jks -storepass \"\$pass\" 2>/dev/null \
+          | grep 'PrivateKeyEntry' | head -1 | cut -d, -f1 | tr -d ' ')
+        [ -n \"\$alias\" ] || alias=agon
+        mv /tmp/incoming.jks agon-build.jks
+        printf 'storeFile=agon-build.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+          \"\$pass\" \"\$alias\" \"\$pass\" > agon-build.properties
+        rm -f \"\$SHARED/\$cand\"
+        echo \"  ... using the key from \$cand\"
+        break 2
+      fi
+      rm -f /tmp/incoming.jks
+    done
     echo ''
-    echo '  [X] ADOPT.md is not the PC debug key - it did not open with the standard'
-    echo '      debug password. Nothing was built. Remove it from Download/ and retry.'
-    # Leave nothing behind: a rejected copy would otherwise sit in the way of the
-    # next run's adoption and be used as if it were a key.
-    rm -f arena-release.jks
+    echo \"  [X] \$SHARED/\$cand did not open with either known password.\"
+    echo '      Nothing was built. Remove it from Download/ and run again.'
     exit 5
-  fi
-  printf 'storeFile=arena-release.jks\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' > agon-build.properties
-  rm -f \"\$SHARED/ADOPT.md\"
+  done
 fi
 # One key for both machines. Older builds recorded the key in keystore.properties;
 # adopting that file is what lets the PC sign for this phone later, and it means an

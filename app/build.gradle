@@ -80,6 +80,18 @@ android {
             // No ".debug" id suffix: the package name is app.erawat.agon for both build
             // types, which is what shows in the installer. Installing a debug build over
             // a release build then behaves like a normal update.
+            //
+            // A plain debug build is signed with ~/.android/debug.keystore, which is a
+            // different file on every machine - so a phone build and a PC build of the
+            // same code cannot install over each other ("App not installed as package
+            // conflicts with an existing package"). termux-build.sh therefore passes
+            // -PAGON_DEBUG_KEY=1 with a keystore.properties holding the SAME key the
+            // installed APK was signed with. Gated on the property, not on the file
+            // existing, so a PC that has a release keystore keeps signing debug builds
+            // exactly as it did before.
+            if (project.hasProperty('AGON_DEBUG_KEY') && rootProject.file('keystore.properties').exists()) {
+                signingConfig signingConfigs.release
+            }
         }
         release {
             // Same installer-permission rule for release builds (sideload installs).

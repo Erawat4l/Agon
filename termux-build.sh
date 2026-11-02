@@ -50,11 +50,11 @@ if [ ! -d /data/data/com.termux ]; then
   exit 1
 fi
 
-echo "[1/4] Termux packages..."
+echo "[1/5] Termux packages..."
 pkg update -y >/dev/null 2>&1 || true
 pkg install -y proot-distro >/dev/null 2>&1 || true
 
-echo "[2/4] Ubuntu container (skipped if already installed)..."
+echo "[2/5] Ubuntu container (skipped if already installed)..."
 # The only reliable test is the one that matters: can we log in?
 #
 # Three attempts at predicting this from the outside all failed on a real phone -
@@ -78,7 +78,7 @@ fi
 # It does not block a new login, so nothing is killed here: a build that shares
 # this container with another ssh session is fine.
 
-echo "[3/4] Toolchain, arm64 build-tools, and the build itself..."
+echo "[3/5] Toolchain, arm64 build-tools, and the build itself..."
 proot-distro login ubuntu -- bash -lc "
 set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -180,8 +180,61 @@ cd agon
 printf 'sdk.dir=%s\n' \"\$ANDROID_HOME\" > local.properties
 chmod +x gradlew
 
+# ---- 3a. sign with the key the installed app already has
+#
+# Android installs an update only over an app signed with the SAME key. It is not a
+# build setting that can be swapped later: with key A installed, an APK signed with
+# key B is refused with App not installed / package conflicts with an existing
+# package, and the only cures are uninstalling (which wipes the arena session) or
+# keeping one key forever.
+#
+# The app already on the phone was published by publish.bat, which runs
+# `gradlew assembleDebug` on Windows. AGP signs a debug build with the account's
+# ~/.android/debug.keystore, so THAT is the key the installed app carries. No build
+# on the phone can invent it - it has to be copied across, once:
+#
+#   ADOPT.md, placed in the shared Download folder, is a copy of that PC file. It
+#   becomes this build's key, and every APK afterwards carries the same signature as
+#   the installed app - so every later build is a normal update.
+#
+# Without ADOPT.md a key is generated and reused forever. That only helps builds from
+# this phone: the first install still has to replace the old app (one uninstall, one
+# sign-in). Either file is git-ignored, so `git pull` cannot remove it.
+SHARED=/sdcard/Download
+if [ -f \"\$SHARED/ADOPT.md\" ] && [ ! -f arena-release.jks ]; then
+  echo '  ... using the PC key from ADOPT.md'
+  cp \"\$SHARED/ADOPT.md\" arena-release.jks
+  if ! keytool -list -keystore arena-release.jks -storepass android >/dev/null 2>&1; then
+    echo ''
+    echo '  [X] ADOPT.md is not the PC debug key - it did not open with the standard'
+    echo '      debug password. Nothing was built. Remove it from Download/ and retry.'
+    # Leave nothing behind: a rejected copy would otherwise sit in the way of the
+    # next run's adoption and be used as if it were a key.
+    rm -f arena-release.jks
+    exit 5
+  fi
+  printf 'storeFile=arena-release.jks\nstorePassword=android\nkeyAlias=androiddebugkey\nkeyPassword=android\n' > keystore.properties
+  rm -f \"\$SHARED/ADOPT.md\"
+fi
+if [ ! -f arena-release.jks ] || [ ! -f keystore.properties ]; then
+  echo ''
+  echo '  [!] No key from the PC yet, so a key is being created for THIS phone only.'
+  echo '      That APK will be refused over the installed app. To update instead:'
+  echo '        PC:    copy \"%USERPROFILE%\\.android\\debug.keystore\" to a USB/Download'
+  echo '        phone: rename that copy to ADOPT.md, put it in Download/, run again.'
+  echo ''
+  rm -f arena-release.jks keystore.properties
+  keytool -genkeypair -v -keystore arena-release.jks \
+    -alias arena -keyalg RSA -keysize 2048 -validity 10000 \
+    -storepass agonphone -keypass agonphone \
+    -dname 'CN=Agon Phone Build, OU=Mobile, O=Arena, C=IN' >/dev/null 2>&1
+  printf 'storeFile=arena-release.jks\nstorePassword=agonphone\nkeyAlias=arena\nkeyPassword=agonphone\n' > keystore.properties
+fi
+# The key fingerprint is printed after the build instead of inside this quoted
+# block, where a command substitution would be parsed by Termux, not the container.
+
 echo '  ... building (this is the slow part; a phone can take half an hour)'
-./gradlew --no-daemon --stacktrace assembleDebug -PVERSION_NAME=$VERSION || {
+./gradlew --no-daemon --stacktrace assembleDebug -PVERSION_NAME=$VERSION -PAGON_DEBUG_KEY=1 || {
   echo ''
   echo '  [X] The build failed. The two usual causes on a phone:'
   echo '      - \"AAPT2 ... Daemon startup failed\": the arm64 aapt2 was not used.'
@@ -189,6 +242,12 @@ echo '  ... building (this is the slow part; a phone can take half an hour)'
   exit 4
 }
 "
+
+# The signing key's fingerprint, so two builds can be compared. If a future APK is
+# refused with "package conflicts with an existing package", this line is the answer:
+# a different fingerprint than the installed app means a different key.
+KEYHASH=$(proot-distro login ubuntu -- sh -c "keytool -list -v -keystore /root/agon/arena-release.jks -alias arena -storepass agonphone 2>/dev/null | sed -n 's/.*SHA256: //p' | head -1" 2>/dev/null | tr -d '\r' | head -1) || true
+[ -n "${KEYHASH:-}" ] && echo "      signing key: $KEYHASH"
 
 # Getting the APK out of the container.
 #
@@ -212,7 +271,7 @@ if [ -z "${IN_CONTAINER:-}" ]; then
   exit 1
 fi
 echo
-echo "[4/4] Built: $(basename "$IN_CONTAINER")"
+echo "[4/5] Built: $(basename "$IN_CONTAINER")"
 
 # Where the package installer can actually see it. Termux's own HOME is private to
 # Termux, so a copy there is not installable from a file manager.
@@ -239,15 +298,26 @@ else
   exit 1
 fi
 
+echo
+echo "[5/5] Done"
 cat <<'NOTE'
 
-Signing, which matters on the FIRST install from this machine:
+Signing - read this once, then it stops mattering.
 
-  Android only installs an update over an app signed with the same key. The key
-  publish.bat uses is the Windows account's debug key
-  (%USERPROFILE%\.android\debug.keystore); this build uses the container's own.
+  Android only installs an update over an app signed with the SAME key as the one
+  already on the phone. The app you have was built on the PC by publish.bat, so it
+  carries the PC's debug key (%USERPROFILE%\.android\debug.keystore).
 
-  If Android says "App not installed": uninstall Agon once (that clears the
-  arena session, so sign in again), then install this APK. After that, updates
-  from this same setup install normally.
+  Two ways forward, both one-time:
+
+  1. UPDATE, no uninstall (needs the PC once):
+       copy "%USERPROFILE%\.android\debug.keystore" to the phone as ADOPT.md
+       in Download/, then run this script again. It picks the file up, signs with
+       it, and every future build updates the installed app normally.
+
+  2. Uninstall once: install this APK over the old app fails, so remove Agon,
+     install this one. The arena session clears, so sign in again. Builds from
+     this phone then update each other - but an APK from the PC will not fit this
+     one, so keep building in one place.
+
 NOTE

@@ -55,9 +55,21 @@ pkg update -y >/dev/null 2>&1 || true
 pkg install -y proot-distro >/dev/null 2>&1 || true
 
 echo "[2/4] Ubuntu container (skipped if already installed)..."
-if ! proot-distro list --installed 2>/dev/null | grep -q ubuntu; then
+# The installation is tested by looking for its root filesystem, not by parsing
+# `proot-distro list --installed`: that flag is not the same in every
+# proot-distro version, and when it silently printed nothing this ran `install`
+# on a container that already existed - which proot-distro reports as
+# "container 'ubuntu' is busy (PID ...: login)" and which reads like a failure.
+ROOTFS_UBUNTU="$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu"
+if [ ! -d "$ROOTFS_UBUNTU" ]; then
   proot-distro install ubuntu
+else
+  echo "      already installed - reusing it"
 fi
+
+# A login session left behind by an interrupted run does block install/remove.
+# It does not block a new login, so nothing is killed here: a build that shares
+# this container with another ssh session is fine.
 
 echo "[3/4] Toolchain, arm64 build-tools, and the build itself..."
 proot-distro login ubuntu -- bash -lc "

@@ -150,9 +150,52 @@ $sdkDir = $androidSdk -replace '\\', '/'
 Set-Content -Path (Join-Path $root "local.properties") -Value "sdk.dir=$sdkDir" -Encoding ascii
 Write-Host "      Android SDK: $androidSdk"
 
+# ---- one signing key shared by the PC and the phone
+#
+# Android installs an update only over an app signed with the SAME key. Until now a PC
+# build was signed with %USERPROFILE%\.android\debug.keystore and a phone build with the
+# phone's own - so an APK made here was refused by a phone that had been updated from
+# Termux ("App not installed as package conflicts with an existing package"), with no
+# way out except uninstalling, which wipes the arena session.
+#
+# So both build paths now use ONE key file, agon-build.jks, described by the
+# git-ignored agon-build.properties:
+#
+#   - made here if it does not exist yet, and KEPT (unlike the debug key, it is not
+#     disposable - losing it means the installed app has to be uninstalled once);
+#   - termux-build.sh uses the same file, and can adopt this one by copying it over;
+#   - its SHA-256 is printed by both builds, so a mismatch is visible before an install
+#     is attempted rather than after it is refused.
+$sharedJks = Join-Path $root "agon-build.jks"
+$sharedProps = Join-Path $root "agon-build.properties"
+if (-not (Test-Path $sharedJks) -or -not (Test-Path $sharedProps)) {
+    $keytool = Join-Path (Split-Path -Parent $env:JAVA_HOME) "bin\keytool.exe"
+    if (-not (Test-Path $keytool)) { $keytool = (Get-Command keytool -ErrorAction SilentlyContinue).Source }
+    if (-not $keytool) {
+        Write-Host "      [i] keytool not found - using Gradle's default debug key (phone builds will not install over this APK)." -ForegroundColor Yellow
+    } else {
+        Write-Host "      creating the shared signing key (agon-build.jks) - one time only"
+        & $keytool -genkeypair -keystore $sharedJks -alias agon `
+            -keyalg RSA -keysize 2048 -validity 10000 `
+            -storepass agonbuild -keypass agonbuild `
+            -dname "CN=Agon Build, OU=Mobile, O=Agon, C=IN" | Out-Null
+        Set-Content -Path $sharedProps -Encoding ascii -Value @(
+            "storeFile=agon-build.jks",
+            "storePassword=agonbuild",
+            "keyAlias=agon",
+            "keyPassword=agonbuild"
+        )
+    }
+}
+if ((Test-Path $sharedJks) -and (Get-Command keytool -ErrorAction SilentlyContinue)) {
+    $sha = & keytool -list -v -keystore $sharedJks -alias agon -storepass agonbuild 2>$null |
+        Select-String -Pattern 'SHA256:' | Select-Object -First 1
+    if ($sha) { Write-Host ("      signing key: " + (($sha.Line -split 'SHA256:')[1]).Trim() -replace '\s', '') }
+}
+
 Write-Host "[1/3] Building..."
 & (Join-Path $root "gradlew.bat") --no-daemon assembleDebug `
-    "-PVERSION_NAME=$Version" "-PVERSION_CODE=$code" | Out-Host
+    "-PVERSION_NAME=$Version" "-PVERSION_CODE=$code" "-PAGON_DEBUG_KEY=1" | Out-Host
 if ($LASTEXITCODE -ne 0) { Fail "Gradle build failed." }
 if (-not (Test-Path $apk)) { Fail "APK not found at $apk" }
 

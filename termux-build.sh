@@ -1,25 +1,41 @@
 #!/usr/bin/env bash
-# Build Agon's APK on a phone, in Termux, with no PC involved.
+# Build Agon's APK on the phone, in Termux, with no PC involved.
 #
 #   bash termux-build.sh 1.4.49
 #
-# What it does: installs an Ubuntu container with proot-distro (Termux alone cannot run
-# Gradle - the Android toolchain expects a normal Linux userland), installs JDK 17 and the
-# Android SDK there, and runs the same Gradle task publish.bat runs on Windows
-# (assembleDebug), stamping the version the same way.
+# ---------------------------------------------------------------------------
+# This script only ever CREATES things (a container, an SDK, a build). It never
+# deletes a container, never uninstalls a package, and never touches anything
+# outside the two folders it names. Cleanup is deliberately a separate command
+# the user runs by hand: a script that lives on GitHub must not remove anything
+# from somebody else's phone because they happened to run it.
 #
-# READ THIS FIRST, because it is not a sure thing:
+# To undo everything this does (paste in Termux, NOT inside the container):
 #
-#  1. aapt2, the resource compiler, ships as x86_64 Linux binaries only - there is no
-#     official ARM build. On an arm64 phone it either runs under box64 (slow, needs
-#     installing) or fails with "Syntax error" / "cannot execute binary file". This script
-#     detects that and says so instead of failing obscurely.
-#  2. It downloads roughly 3-4 GB and can take 1-2 hours on a phone.
-#  3. It needs ~5 GB free and a good charger; Gradle is the most power-hungry thing most
-#     phones ever run.
+#   proot-distro remove ubuntu
+#   pkg uninstall proot-distro
+#   rm -rf ~/Agon ~/storage/downloads/Agon-*.apk
 #
-# The APK it produces is equivalent to what publish.bat produces: assembled debug, so it is
-# signed with THAT machine's debug key. See the signing note at the end of this file.
+# ---------------------------------------------------------------------------
+# Why this can work at all
+#
+# Google ships aapt2 (and zipalign, aidl) as x86-64 binaries only, so a normal
+# Android build dies on an ARM phone with "cannot execute binary file". The
+# Android-on-Android community solved this, and the fix is two parts:
+#
+#   1. android.aapt2FromMavenOverride - a Gradle property that makes the build
+#      use a different aapt2 than the one it downloads from Maven. (This is how
+#      AndroidIDE builds APKs on a phone.)
+#   2. arm64 builds of the build-tools, published on GitHub by third parties:
+#        - HomuHomu833/android-sdk-custom  (aarch64-linux-gnu: for this container)
+#        - ReVanced/aapt2                  (single arm64 aapt2, as a fallback)
+#
+# So this script installs an Ubuntu container, drops arm64 build-tools over the
+# SDK's x86_64 ones, points Gradle at them with the override, and builds.
+#
+# It is still unofficial and slow: expect 30-90 minutes and ~4 GB. A real PC is
+# faster. But it is not blocked any more.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -27,8 +43,6 @@ if [ -z "$VERSION" ]; then
   echo "usage: bash termux-build.sh 1.4.49" >&2
   exit 1
 fi
-# versionCode is derived from versionName by the build itself, so only the name is passed.
-TAG="v$VERSION"
 
 if [ ! -d /data/data/com.termux ]; then
   echo "[!] This looks like a normal Linux shell, not Termux."
@@ -36,62 +50,125 @@ if [ ! -d /data/data/com.termux ]; then
   exit 1
 fi
 
-echo "[1/5] Termux packages..."
-pkg update -y >/dev/null
-pkg install -y proot-distro >/dev/null
+echo "[1/4] Termux packages..."
+pkg update -y >/dev/null 2>&1 || true
+pkg install -y proot-distro >/dev/null 2>&1 || true
 
-echo "[2/5] Ubuntu container (first run downloads ~100 MB)..."
+echo "[2/4] Ubuntu container (skipped if already installed)..."
 if ! proot-distro list --installed 2>/dev/null | grep -q ubuntu; then
   proot-distro install ubuntu
 fi
 
-echo "[3/5] Toolchain + source + build inside the container..."
-# Everything runs in one proot session: the container's filesystem and the working copy
-# live there, so nothing depends on Termux's own prefixes.
+echo "[3/4] Toolchain, arm64 build-tools, and the build itself..."
 proot-distro login ubuntu -- bash -lc "
 set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq openjdk-17-jdk unzip curl git python3 >/dev/null
+apt-get install -y -qq openjdk-17-jdk unzip curl git python3 xz-utils file >/dev/null
 
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
+export PATH=\"\$JAVA_HOME/bin:\$PATH\"
 export ANDROID_HOME=/root/android-sdk
-if [ ! -x \"\$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" ]; then
+SDKMANAGER=\"\$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"
+
+# ---- 1. the SDK itself (the tools inside are the x86_64 ones we replace next)
+if [ ! -x \"\$SDKMANAGER\" ]; then
+  echo '  ... downloading Android command-line tools'
   curl -fL -o /tmp/cmdtools.zip \
     https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
   mkdir -p \"\$ANDROID_HOME/cmdline-tools\"
   unzip -q -o /tmp/cmdtools.zip -d \"\$ANDROID_HOME/cmdline-tools\"
+  rm -rf \"\$ANDROID_HOME/cmdline-tools/latest\"
   mv \"\$ANDROID_HOME/cmdline-tools/cmdline-tools\" \"\$ANDROID_HOME/cmdline-tools/latest\"
 fi
-
 if [ ! -d \"\$ANDROID_HOME/platforms/android-35\" ]; then
-  yes | \"\$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" --licenses >/dev/null || true
-  \"\$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" \
-    'platforms;android-35' 'build-tools;35.0.0' platform-tools
+  echo '  ... accepting licences and installing platform 35 + build-tools'
+  yes | \"\$SDKMANAGER\" --licenses >/dev/null 2>&1 || true
+  \"\$SDKMANAGER\" 'platforms;android-35' 'build-tools;35.0.0' platform-tools >/dev/null
 fi
 
-# ---- the one thing that really decides whether this works
-if ! \"\$ANDROID_HOME/build-tools/35.0.0/aapt2\" version >/dev/null 2>&1; then
+# ---- 2. arm64 build-tools, dropped over the x86_64 ones
+#
+# android-sdk-custom publishes the same tools compiled for aarch64-linux-gnu,
+# which is exactly what this container is. The x86_64 originals are kept as
+# *.x86_64 so nothing is destroyed and the swap can be undone.
+TOOLS=/opt/arm64-tools
+mkdir -p \"\$TOOLS\"
+if [ ! -x \"\$TOOLS/aapt2\" ]; then
+  echo '  ... downloading arm64 build-tools'
+  curl -fL -o /tmp/armtools.tar.xz \
+    https://github.com/HomuHomu833/android-sdk-custom/releases/download/37.0.0/android-sdk-aarch64-linux-gnu.tar.xz
+  tar -xJf /tmp/armtools.tar.xz -C \"\$TOOLS\" --strip-components=1 2>/dev/null \
+    || tar -xJf /tmp/armtools.tar.xz -C \"\$TOOLS\"
+  # The archive layout is not guaranteed: find the binaries wherever they landed.
+  for tool in aapt2 zipalign aidl; do
+    found=\$(find \"\$TOOLS\" -name \"\$tool\" -type f | head -1)
+    if [ -n \"\$found\" ] && [ \"\$found\" != \"\$TOOLS/\$tool\" ]; then
+      cp \"\$found\" \"\$TOOLS/\$tool\"
+    fi
+    [ -f \"\$TOOLS/\$tool\" ] && chmod +x \"\$TOOLS/\$tool\"
+  done
+fi
+
+# Fallback for aapt2 alone: ReVanced publishes one current arm64 binary. It is
+# used only if the archive above did not yield a working aapt2.
+if ! \"\$TOOLS/aapt2\" version >/dev/null 2>&1; then
+  echo '  ... archive aapt2 unusable, using the ReVanced arm64 build'
+  curl -fL -o \"\$TOOLS/aapt2\" \
+    https://github.com/ReVanced/aapt2/releases/download/v1.1.0/aapt2-arm64-v8a
+  chmod +x \"\$TOOLS/aapt2\"
+fi
+if ! \"\$TOOLS/aapt2\" version >/dev/null 2>&1; then
   echo ''
-  echo '  [X] aapt2 will not run on this CPU.'
-  echo '      Google ships aapt2 as an x86_64 Linux binary and there is no ARM build,'
-  echo '      so Gradle cannot compile resources on an arm64 phone without an emulator'
-  echo '      (box64) or a third-party arm64 build of aapt2.'
-  echo ''
-  echo '      Nothing was built. A PC, or any x86_64 Linux machine, is the short path.'
+  echo '  [X] No arm64 aapt2 would run on this CPU.'
+  echo '      That is unusual - the two known sources are both in this script.'
+  echo '      Nothing was built.'
   exit 3
 fi
+echo \"  arm64 aapt2: \$(\"\$TOOLS/aapt2\" version 2>&1 | head -1)\"
 
+BT=\"\$ANDROID_HOME/build-tools/35.0.0\"
+for tool in aapt2 zipalign aidl; do
+  if [ -f \"\$TOOLS/\$tool\" ] && [ -f \"\$BT/\$tool\" ]; then
+    # Keep the original once, then replace it with the arm64 build.
+    [ -f \"\$BT/\$tool.x86_64\" ] || mv \"\$BT/\$tool\" \"\$BT/\$tool.x86_64\"
+    cp -f \"\$TOOLS/\$tool\" \"\$BT/\$tool\"
+    chmod +x \"\$BT/\$tool\"
+  fi
+done
+
+# ---- 3. tell Gradle to use it
+#
+# Written to the USER's gradle.properties, not the project's: the path is about
+# this phone, and machine-specific paths must not end up in the repository.
+mkdir -p /root/.gradle
+cat > /root/.gradle/gradle.properties <<EOF
+android.aapt2FromMavenOverride=\$TOOLS/aapt2
+org.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=512m
+org.gradle.parallel=false
+org.gradle.daemon=false
+android.useAndroidX=true
+EOF
+
+# ---- 4. the source, and the build
 cd /root
 if [ ! -d agon ]; then
   git clone https://github.com/Erawat4l/Agon.git agon
 else
-  cd agon && git pull --ff-only && cd ..
+  cd agon && git fetch --all --quiet && git checkout --quiet main && git pull --ff-only --quiet && cd ..
 fi
 cd agon
-
 printf 'sdk.dir=%s\n' \"\$ANDROID_HOME\" > local.properties
 chmod +x gradlew
-./gradlew --no-daemon assembleDebug -PVERSION_NAME=$VERSION
+
+echo '  ... building (this is the slow part; a phone can take half an hour)'
+./gradlew --no-daemon --stacktrace assembleDebug -PVERSION_NAME=$VERSION || {
+  echo ''
+  echo '  [X] The build failed. The two usual causes on a phone:'
+  echo '      - \"AAPT2 ... Daemon startup failed\": the arm64 aapt2 was not used.'
+  echo '      - OutOfMemoryError: lower org.gradle.jvmargs in /root/.gradle/gradle.properties.'
+  exit 4
+}
 "
 
 APK="app/build/outputs/apk/debug/app-debug.apk"
@@ -99,23 +176,33 @@ if [ ! -f "$APK" ]; then
   echo "[X] The build finished but $APK is not there." >&2
   exit 1
 fi
+
+# The container's filesystem is reachable from Termux, so the APK is copied out
+# of it into the phone's own Download folder, where the installer can see it.
+ROOTFS="$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu/root/agon/$APK"
 echo
-echo "[4/5] Built: $APK  ($(du -h "$APK" | cut -f1))"
-cp "$APK" "$HOME/Agon-$VERSION.apk"
-echo "[5/5] Copied to $HOME/Agon-$VERSION.apk - open it with a file manager to install."
-echo
+echo "[4/4] $APK ($(du -h "$ROOTFS" 2>/dev/null | cut -f1))"
+mkdir -p "$HOME/storage/downloads" 2>/dev/null || true
+if [ -f "$ROOTFS" ]; then
+  cp "$ROOTFS" "$HOME/Agon-$VERSION.apk"
+  if [ -d "$HOME/storage/downloads" ]; then
+    cp "$ROOTFS" "$HOME/storage/downloads/Agon-$VERSION.apk" && \
+      echo "      copied to your Download folder: Agon-$VERSION.apk"
+  fi
+  echo "      also at: $HOME/Agon-$VERSION.apk"
+else
+  echo "      it is inside the container at /root/agon/$APK"
+fi
+
 cat <<'NOTE'
-Signing, which matters on the FIRST install from a new machine:
 
-  Android only installs an update over an app that was signed with the same key. The key
-  used by publish.bat is the *debug* key of that Windows account
-  (%USERPROFILE%\.android\debug.keystore). A build made here is signed with this phone's
-  own debug key, so installing it over the copy that is already on your phone will fail
-  with "App not installed".
+Signing, which matters on the FIRST install from this machine:
 
-  If that happens: uninstall Agon once (it clears the arena session, so sign in again),
-  then install this APK. From then on, updates from this same source install normally.
+  Android only installs an update over an app signed with the same key. The key
+  publish.bat uses is the Windows account's debug key
+  (%USERPROFILE%\.android\debug.keystore); this build uses the container's own.
 
-  Do not delete anything on the laptop's disk: if that debug.keystore is recovered later,
-  keeping one key for every build is the cleanest long-term fix.
+  If Android says "App not installed": uninstall Agon once (that clears the
+  arena session, so sign in again), then install this APK. After that, updates
+  from this same setup install normally.
 NOTE

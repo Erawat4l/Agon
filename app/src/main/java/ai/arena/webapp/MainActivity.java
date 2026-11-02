@@ -59,6 +59,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private TabWebViews tabs;
     private AppUi.Nav nav;
     private View navArea;
+    /** The browser strip above the page: back, the open tabs, forward, and a new tab. */
+    private TabStrip tabStrip;
     /** Real system navigation-bar / gesture inset, read from the window, never assumed. */
     private int systemNavInset = 0;
     /** The bar the page must stay clear of: the app's own bar plus the system gesture area. */
@@ -178,6 +180,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         errorView.setVisibility(View.GONE);
         contentHost.addView(errorView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // The strip is built before the tabs exist, so its first refresh() happens from
+        // refreshChrome() once buildShell has finished wiring everything up.
+        tabStrip = buildTabStrip();
+        column.addView(tabStrip.view(), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         column.addView(contentHost, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -205,6 +213,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 // onPageStarted/onPageFinished; recalculate when the bar heights change
                 // (expander toggles, pill appearing).
                 applyChromeInsets();
+                // A finished load is where canGoBack/canGoForward settle (a redirect, a
+                // pushState), so the arrows are re-read here rather than polled.
+                refreshStrip();
                 // Only now is the network free: warm the other tabs in the background so
                 // the first tap on them is still instant, without competing with the
                 // first paint (which used to make startup feel slow).
@@ -282,6 +293,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             tabs.current().restoreState(savedInstanceState);
         }
         applyChromeInsets();
+        refreshStrip();
         refreshUi();
         handleIntent(getIntent());
 
@@ -446,6 +458,139 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     /**
+     * Builds the browser strip and points it at the real tab model.
+     *
+     * The strip is deliberately thin: it asks which tab is in front, which ones exist and
+     * what they are called, and reports taps back here. Selecting, closing and the arrows
+     * all go through the same methods the nav and the More sheet use, so the strip cannot
+     * disagree with them about what is on screen.
+     */
+    private TabStrip buildTabStrip() {
+        return new TabStrip(this, new TabStrip.Host() {
+            @Override
+            public int currentTabId() {
+                return pageId();
+            }
+
+            @Override
+            public java.util.List<Integer> tabIds() {
+                // The three pages first, in nav order, then every extra window the user
+                // opened - the same order the More sheet lists them in. They are listed
+                // even when the bottom bar is hidden: then the strip is the only way to
+                // reach them.
+                java.util.List<Integer> ids = new java.util.ArrayList<>();
+                ids.add(AppUi.TAB_CHAT);
+                ids.add(AppUi.TAB_LEADERBOARD);
+                ids.add(AppUi.TAB_SEARCH);
+                if (tabs != null) ids.addAll(tabs.windows());
+                return ids;
+            }
+
+            @Override
+            public String tabName(int tabId) {
+                switch (tabId) {
+                    case AppUi.TAB_CHAT:
+                        return getString(R.string.strip_tab_chat);
+                    case AppUi.TAB_LEADERBOARD:
+                        return getString(R.string.strip_tab_leaderboard);
+                    case AppUi.TAB_SEARCH:
+                        return getString(R.string.strip_tab_search);
+                    default:
+                        return windowName(tabId);
+                }
+            }
+
+            @Override
+            public boolean canCloseTab(int tabId) {
+                return TabWebViews.isWindow(tabId);
+            }
+
+            @Override
+            public boolean canOpenTab() {
+                return tabs != null && tabs.windows().size() < TabWebViews.MAX_WINDOWS;
+            }
+
+            @Override
+            public void onSelectTab(int tabId) {
+                if (TabWebViews.isWindow(tabId)) {
+                    switchWindow(tabId);
+                } else {
+                    showTab(tabId);
+                }
+            }
+
+            @Override
+            public void onCloseTab(int tabId) {
+                closeWindowById(tabId);
+            }
+
+            @Override
+            public void onBack() {
+                goBackInPage();
+            }
+
+            @Override
+            public void onForward() {
+                goForwardInPage();
+            }
+
+            @Override
+            public void onNewTab() {
+                newWindow();
+            }
+        });
+    }
+
+    /** Redraws the strip and its arrows; cheap and safe to call from any callback. */
+    void refreshStrip() {
+        if (tabStrip == null) return;
+        tabStrip.refresh();
+        WebView page = tabs == null ? null : tabs.current();
+        boolean canBack = page != null && page.canGoBack();
+        boolean canForward = page != null && page.canGoForward();
+        tabStrip.setArrowsEnabled(canBack, canForward);
+    }
+
+    /** Back *inside* the page, which is what the left arrow means in a browser. */
+    private void goBackInPage() {
+        WebView page = tabs == null ? null : tabs.current();
+        if (page == null) return;
+        if (page.canGoBack()) {
+            page.goBack();
+        } else {
+            toast(R.string.strip_at_start);
+        }
+        refreshStrip();
+    }
+
+    private void goForwardInPage() {
+        WebView page = tabs == null ? null : tabs.current();
+        if (page == null) return;
+        if (page.canGoForward()) page.goForward();
+        refreshStrip();
+    }
+
+    /** Closes an extra window and keeps the strip, nav and page in step afterwards. */
+    private void closeWindowById(int id) {
+        if (tabs == null || !TabWebViews.isWindow(id)) return;
+        boolean wasCurrent = pageId() == id;
+        tabs.closeWindow(id);
+        if (menuSheet != null) {
+            // The More sheet lists the windows by name; one of them just went away.
+            AppUi.slideDownAndRemove(menuSheet, window);
+            menuSheet = null;
+        }
+        if (wasCurrent) {
+            currentTab = AppUi.TAB_CHAT;
+            tabs.show(AppUi.TAB_CHAT);
+            applyChromeInsets();
+            AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(),
+                    navExpanded, true);
+        }
+        refreshStrip();
+    }
+
+    /**
      * Tells the page how much space the app's own chrome takes.
      *
      * The nav is drawn over the page (an overlay, not a row), so both the top bar and
@@ -455,7 +600,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      */
     void applyChromeInsets() {
         if (tabs == null) return;
-        // Nothing is drawn over the top of the page any more.
+        // Nothing is drawn over the top of the page any more. The strip *is* drawn above
+        // the page, but as a row of the column, so the WebView already ends below it; the
+        // page must not be padded for it as well.
         final int top = 0;
         // Measured once laid out; the first pass uses the known bar height. The nav is an
         // overlay over the page, so its height has to be reserved inside the page -
@@ -618,6 +765,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             return;
         }
         switchWindow(id);
+        refreshStrip();
         toast(R.string.window_opened);
     }
 
@@ -627,13 +775,53 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (tabs.get(id) == null) return;
         hideError();
         closeWebWindow();
-        WebView page = tabs.show(id);
+        closeSettingsNow();
+        WebView page;
+        try {
+            page = tabs.show(id);
+        } catch (RuntimeException gone) {
+            // The window's renderer died between the tap and now. A dead WebView cannot be
+            // brought to front, and letting the exception escape left the whole app frozen
+            // on the old page - the "switch sticks" report. Drop the dead window and say so.
+            CrashLog.write(this, gone);
+            tabs.closeWindow(id);
+            refreshStrip();
+            toast(R.string.strip_window_gone);
+            return;
+        }
         if (page == null) return;
+        if (page.getParent() == null) {
+            // Same situation one step earlier: the view exists but is not in the layout,
+            // so bringing it to front would leave a blank frame.
+            tabs.closeWindow(id);
+            refreshStrip();
+            toast(R.string.strip_window_gone);
+            return;
+        }
         TabWebViews.applyTheme(page, AppUi.isDark(this));
         applyChromeInsets();
         // The nav keeps Chat lit: a window is another chat, not another destination.
         AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
+        refreshStrip();
+        // A popup raised by the page (a preview, a doc) covers the window just switched to,
+        // and leaving it up reads as the switch having done nothing.
+        dismissOverPageSheets();
         toastText(getString(R.string.window_switched, windowName(id)));
+    }
+
+    /**
+     * Closes anything the app has floated over the page, leaving the page itself alone.
+     *
+     * Sheets are built over a snapshot of what the user was looking at; once the page
+     * underneath is a different one, they belong to a page that is no longer on screen.
+     */
+    private void dismissOverPageSheets() {
+        if (historySheet != null && historySheet.isShowing()) historySheet.dismiss();
+        if (updateSheet != null) closeUpdateSheet();
+        if (menuSheet != null) {
+            AppUi.slideDownAndRemove(menuSheet, window);
+            menuSheet = null;
+        }
     }
 
     /** What a window is called: its page title, or its number in the list. */
@@ -677,6 +865,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             tabs.get(tab).evaluateJavascript(
                     "window.dispatchEvent(new Event('focus'))", null);
         }
+        refreshStrip();
     }
 
     // ------------------------------------------------------------------ web clients
@@ -700,6 +889,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 if (activity.isOnline()) activity.hideError();
+                // Navigating forward drops the forward history, and the strip has to show
+                // that immediately or the arrow would point at a page that no longer exists.
+                activity.refreshStrip();
             }
 
             @Override
@@ -1240,16 +1432,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public void onCloseWindow(int windowId) {
-                if (tabs == null) return;
-                boolean wasCurrent = tabs.current() != null && windowId == pageId();
-                tabs.closeWindow(windowId);
-                if (wasCurrent) {
-                    // The page the user was looking at is gone: fall back to the chat tab
-                    // and put the nav (and the content area) back in step with it.
-                    currentTab = AppUi.TAB_CHAT;
-                    tabs.show(AppUi.TAB_CHAT);
-                    applyChromeInsets();
-                }
+                // One path for closing, so the strip and the page can never disagree about
+                // which windows exist.
+                closeWindowById(windowId);
             }
 
             @Override
@@ -1353,6 +1538,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             case Settings.K_SHOW_NAV:
                 applyNavVisibility();
                 break;
+            case Settings.K_KEEP_SCROLL:
+                // The strip names the open tabs, and a renamed/closed window changes that
+                // list - so it is refreshed after every settings pass below as well.
+                refreshStrip();
+                break;
             case Settings.K_HIDE_WEB_SIDEBAR:
             case Settings.K_HIDE_WEB_HEADER:
                 // The rules are a <style> element that is replaced on every pass, so the
@@ -1369,8 +1559,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 break;
             case Settings.K_NO_SELECT:
                 applyChromeInsets();   // the CSS is replaced in place, no reload needed
-                break;
-            case Settings.K_KEEP_SCROLL:
                 break;
             case Settings.K_SHOW_VERSION:
                 rebuildNavArea();
@@ -1470,6 +1658,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (nav != null) {
             AppUi.styleNav(this, nav, currentTab, updateDotWanted(), navExpanded, false);
         }
+        refreshStrip();
     }
 
     // ------------------------------------------------------------------ error view
@@ -1731,6 +1920,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         super.onResume();
         UpdateCenter.maybeAutoCheck(this, this::onCheckFinished);
         refreshUpdateUi();
+        // The page may have navigated while the app was in the background (a sign-in
+        // redirect, a link handed back by another app): the arrows would otherwise still
+        // describe the page as it was when the user left.
+        refreshStrip();
         if (errorView != null && errorView.getVisibility() == View.VISIBLE && isOnline()) {
             hideError();
             if (tabs != null) tabs.reloadCurrent();
@@ -1742,6 +1935,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         super.onConfigurationChanged(newConfig);
         setStatusBarColors();
         refreshUpdateUi();
+        // The system theme can switch under the app (day/night) and the strip builds its
+        // chip colours from resources, so it has to be repainted, not just re-measured.
+        if (tabStrip != null) tabStrip.onThemeChanged();
     }
 
     @Override

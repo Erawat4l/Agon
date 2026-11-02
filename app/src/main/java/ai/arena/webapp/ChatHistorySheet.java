@@ -198,7 +198,9 @@ public final class ChatHistorySheet {
             + "catch(e){bs=[];}"
             + "for(var b=0;b<bs.length&&b<400;b++){var el=bs[b];"
             + "var t=(el.innerText||el.textContent||'').replace(/\\s+/g,' ').trim();"
-            + "if(!t||t.length>120)continue;"
+            // A row with no text would be dropped by the sheet anyway, and "/c/<id>" is
+            // not a name - it is the same id the header below produces.
+            + "if(!t||t.length>120||/^\\/c\\//.test(t))continue;"
             + "var id2=el.getAttribute('data-id')||el.getAttribute('value')||'';"
             + "var href=el.getAttribute('data-href')||el.getAttribute('href')||'';"
             + "if(href)add(href,t);"
@@ -220,7 +222,9 @@ public final class ChatHistorySheet {
             + "var m=v.match(/[\\w-]{8,}/g);if(!m)continue;"
             + "for(var j=0;j<m.length&&out.length<60;j++){"
             + "if(/(chat|conv|thread)/i.test(k)&&/^[0-9a-f-]{8,}$/i.test(m[j])){"
-            + "add('/c/'+m[j],k.replace(/[:._-]+/g,' ').trim()+' '+m[j].slice(0,8));}}"
+            // The key names the store, not the conversation: "arena chats" repeated once
+            // per row told the user nothing. The short id is what distinguishes them.
+            + "add('/c/'+m[j],'Conversation '+m[j].slice(0,8));}}"
             + "}"
             + "}"
             + "function collect(){out=[];seen={};"

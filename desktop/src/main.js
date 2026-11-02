@@ -352,6 +352,85 @@ const HIDE_GOOGLE_CSS = `
   }
 `;
 
+/**
+ * Clears the leftovers of a page rewrite that went wrong, in place.
+ *
+ * Why this exists: the app rewrites arena's page (hidden Google button, hidden sidebar/
+ * header, adjusted fixed elements). Every one of those changes lives in the page's own
+ * DOM and inline styles. When arena changes its markup, a guess can hide the wrong thing,
+ * and the scrim or panel it hid stays hidden because those styles are inline and nothing
+ * resets them - a reload is not always possible once the UI is covered.
+ *
+ * This does not reload (the menu already has View -> Reload for that). It removes only
+ * what this app added, so the page is left as arena rendered it - which is the state the
+ * user needs to reach in order to press anything at all.
+ */
+/**
+ * Counts the elements that could still be pressed on the page.
+ *
+ * A page with a redrawn, frozen UI is not always blank: a full-screen overlay leaves
+ * thousands of elements in the document while every one of them is covered by something
+ * that does not respond. So this reports both numbers, and the caller shows them. It is
+ * deliberately a measurement, not a guess about arena's markup.
+ */
+const DIAGNOSE_PAGE_JS = `(function () {
+  try {
+    var all = document.querySelectorAll('*');
+    var visible = 0;
+    for (var i = 0; i < all.length && i < 4000; i++) {
+      var r = all[i].getBoundingClientRect();
+      if (r.width > 1 && r.height > 1) visible++;
+    }
+    var overlay = null;
+    var fixed = document.querySelectorAll('body *');
+    for (var j = 0; j < fixed.length && j < 4000; j++) {
+      var cs = getComputedStyle(fixed[j]);
+      if (cs.position !== 'fixed' && cs.position !== 'absolute') continue;
+      if (cs.pointerEvents === 'none' || cs.visibility === 'hidden') continue;
+      var b = fixed[j].getBoundingClientRect();
+      if (b.width >= window.innerWidth * 0.9 && b.height >= window.innerHeight * 0.9) {
+        var z = parseInt(cs.zIndex, 10) || 0;
+        if (!overlay || z > overlay.z) {
+          overlay = { z: z, cls: (fixed[j].className || '').toString().slice(0, 60),
+                      op: cs.opacity || '1' };
+        }
+      }
+    }
+    return JSON.stringify({
+      url: location.href,
+      total: all.length,
+      visible: visible,
+      w: window.innerWidth,
+      h: window.innerHeight,
+      overlays: overlay,
+    });
+  } catch (e) { return '{}'; }
+}());`;
+
+const REPAIR_PAGE_JS = `(function () {
+  var removed = 0;
+  // Everything this app marks. data-agon-* is this app's own namespace: arena never
+  // renders it, so nothing that belongs to the page can match.
+  var marked = document.querySelectorAll('[data-agon-hidden-google],[data-agon-hidden]');
+  for (var i = 0; i < marked.length; i++) {
+    marked[i].removeAttribute('data-agon-hidden-google');
+    marked[i].removeAttribute('data-agon-hidden');
+    removed++;
+  }
+  // The style element applyChromeInsets injects, and the inline sizing it leaves behind.
+  var insets = document.getElementById('arena-app-insets');
+  if (insets) { insets.remove(); removed++; }
+  var root = document.documentElement;
+  if (root) {
+    root.style.removeProperty('margin-top');
+    root.style.removeProperty('margin-bottom');
+  }
+  if (document.body) {
+    document.body.style.removeProperty('padding-bottom');
+  }
+  return removed;
+}());`;
+
 const HIDE_GOOGLE_JS = `(function () {
   if (window.__agonHideGoogle) return;
   window.__agonHideGoogle = true;
@@ -447,6 +526,9 @@ const HIDE_GOOGLE_JS = `(function () {
  */
 function applyGoogleSignInRule(contents) {
   const wanted = readSettings().hideGoogleSignIn;
+  // Always injected, even when nothing is being hidden: the CSS is what makes the marker
+  // attribute mean "hidden". Without it a repair would strip the attribute and leave the
+  // element hidden by nothing, but a stale rule could never be undone either.
   contents.insertCSS(HIDE_GOOGLE_CSS).catch(() => {});
   if (wanted) {
     contents.executeJavaScript(HIDE_GOOGLE_JS, true).catch(() => {});
@@ -664,6 +746,38 @@ function runCommand(command) {
       break;
     case 'devtools':
       mainWindow.webContents.toggleDevTools();
+      break;
+    case 'repair-page':
+      // The UI is frozen behind something: strip this app's own edits first, then say
+      // plainly whether the page still offers anything to press. Reloading is one menu
+      // item away (View -> Reload), so this does not throw away the user's page for them.
+      mainWindow.webContents.executeJavaScript(REPAIR_PAGE_JS, true).catch(() => {});
+      mainWindow.webContents.executeJavaScript(DIAGNOSE_PAGE_JS, true).catch(() => '{}')
+        .then((raw) => {
+          let info = {};
+          try { info = JSON.parse(raw || '{}'); } catch (ignored) {}
+          const stuck = info.overlays
+            ? 'A full-window layer is still covering the page:\n  '
+              + (info.overlays.cls || '(no class)') + '  z-index ' + info.overlays.z
+              + ', opacity ' + info.overlays.op + '\n\n'
+              + 'That layer belongs to arena, not to this app, so a reload is the way past it: '
+              + 'View -> Reload (Ctrl+R).\n\n'
+            : 'No full-window layer was found on top of the page.\n\n';
+          dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'Repair this page',
+            message: 'This app\'s own changes have been removed.',
+            detail: 'What the page reports now:\n  '
+              + (info.url || '(unknown)') + '\n  '
+              + (info.visible || 0) + ' of ' + (info.total || 0)
+              + ' elements visible in ' + (info.w || 0) + 'x' + (info.h || 0) + '\n\n'
+              + stuck
+              + 'If nothing on the page responds, View -> Reload (Ctrl+R) rebuilds it. '
+              + 'Close and reopen the app if the window itself stops answering.',
+            buttons: ['OK'],
+          });
+        })
+        .catch(() => {});
       break;
     case 'sign-in':
       // No dialog. The old one was a modal with a "Continue" button that only reloaded the
@@ -1011,6 +1125,12 @@ function buildMenu() {
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
+        {
+          // For a page that has been redrawn into a state where nothing can be pressed:
+          // removes this app's own in-page edits and reports what is covering it.
+          label: 'Repair this page (undo the app\'s page changes)',
+          click: () => runCommand('repair-page'),
+        },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },

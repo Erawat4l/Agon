@@ -806,6 +806,69 @@ def check_overload_calls(java_paths, string_names):
                                 f"but that string has no %1$s-style placeholder")
 
 
+def check_brace_depth(java_paths):
+    """Brace balance with strings and comments stripped - as a compiler sees it.
+
+    Counting `{` and `}` in the raw text is not a check: this app has thousands of
+    braces inside injected JavaScript string literals, so the totals never match and
+    the real answer is hidden in the noise. Two edits in a row were "verified" that
+    way, which verifies nothing.
+    """
+    for path in java_paths:
+        src = open(path, encoding="utf-8", errors="replace").read()
+        depth = 0
+        opened = []
+        line = 1
+        i = 0
+        n = len(src)
+        while i < n:
+            c = src[i]
+            if c == "\n":
+                line += 1
+                i += 1
+                continue
+            if c == "/" and i + 1 < n and src[i + 1] == "/":
+                while i < n and src[i] != "\n":
+                    i += 1
+                continue
+            if c == "/" and i + 1 < n and src[i + 1] == "*":
+                i += 2
+                while i + 1 < n and not (src[i] == "*" and src[i + 1] == "/"):
+                    if src[i] == "\n":
+                        line += 1
+                    i += 1
+                i += 2
+                continue
+            if c in ("\"", "'"):
+                quote = c
+                i += 1
+                while i < n:
+                    if src[i] == "\\":
+                        i += 2
+                        continue
+                    if src[i] == quote:
+                        i += 1
+                        break
+                    if src[i] == "\n":
+                        line += 1
+                    i += 1
+                continue
+            if c == "{":
+                depth += 1
+                opened.append(line)
+            elif c == "}":
+                depth -= 1
+                if depth < 0:
+                    problems.append(f"{path}:{line}: extra closing brace")
+                    break
+                if opened:
+                    opened.pop()
+            i += 1
+        if depth > 0:
+            problems.append(f"{path}: {depth} unclosed brace(s), last opened on "
+                            f"line {opened[-1] if opened else '?'}")
+
+
 def check_colour_names(java_paths):
     """Every R.color.foo used from Java must exist in values/ and values-night/."""
     def names(path):
@@ -1174,6 +1237,7 @@ def main():
     except OSError:
         pass
     check_overload_calls(java_paths, string_names)
+    check_brace_depth(java_paths)
     check_colour_names(java_paths)
     check_resource_refs(java_paths)
     check_injected_js(java_paths)

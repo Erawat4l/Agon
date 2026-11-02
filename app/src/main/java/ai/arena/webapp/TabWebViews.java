@@ -831,13 +831,23 @@ public final class TabWebViews {
         };
     }
 
-    /** The one answer pressEscape() needs: whether the page closed something. */
+    /** The answers pressEscape() and unstickPage() need, and nothing else. */
     private final class EscapeBridge {
         @android.webkit.JavascriptInterface
         public void report(final boolean dismissed) {
             main.post(() -> {
                 if (activity instanceof MainActivity) {
                     ((MainActivity) activity).onEscapeReport(dismissed);
+                }
+            });
+        }
+
+        /** unstickPage(): true means the floating toolbar is still there. */
+        @android.webkit.JavascriptInterface
+        public void stuck(final boolean stillStuck) {
+            main.post(() -> {
+                if (activity instanceof MainActivity) {
+                    ((MainActivity) activity).onStuckReport(stillStuck);
                 }
             });
         }
@@ -974,6 +984,34 @@ public final class TabWebViews {
     }
 
     /**
+     * Un-sticks whatever the page has floated over itself.
+     *
+     * From the screen recording: after typing into the composer, a small toolbar of
+     * icons (grid / smiley / hamburger) comes to rest over the sidebar, the composer stays
+     * in its "editing" state, and from then on the page ignores taps. Those floating
+     * controls are children of the document, positioned by the page itself, so nothing
+     * the app draws can cover or remove them - the page has to let go of them.
+     *
+     * Three things make an overlay like that let go, and none of them can damage a page
+     * that is behaving normally, which is why this is safe to run on any Back press:
+     *
+     *  1. blur: a floating toolbar is usually attached to the focused field. Taking focus
+     *     away is the same thing as tapping somewhere else, without the tap.
+     *  2. a pointerdown/pointerup pair on the nearest empty area: some menus (and any
+     *     "click outside to close" handler) only listen for that.
+     *  3. Escape, at the focused element and the document.
+     *
+     * It then reports whether a wide, short, floating strip of controls is still on
+     * screen. `false` means the page is still stuck, and the caller is expected to do
+     * something heavier than this.
+     */
+    public void unstickPage() {
+        WebView w = current();
+        if (w == null) return;
+        w.evaluateJavascript(JS_UNSTICK, null);
+    }
+
+    /**
      * Escape, dispatched at the page.
      *
      * Arena's overlays are drawn inside the page, so the app cannot close them the way it
@@ -990,6 +1028,74 @@ public final class TabWebViews {
      * needs to know to decide whether Back has done its job or should behave as before.
      * Tested in jsdom against window, document and legacy-keyCode handlers.
      */
+    /**
+     * The page-side half of {@link #unstickPage()}.
+     *
+     * Only the toolbar *shape* is matched, never a class name or a piece of arena's
+     * markup: a floating palette of three or more controls, wide-and-short or
+     * tall-and-narrow, that is neither the page's own bottom bar nor anything holding an
+     * editable field. That is what was left on screen in the recording - measured there
+     * as a vertical pill of about 55x250 CSS px - and it is a shape rather than an
+     * identifier because arena renames its classes freely.
+     */
+    private static final String JS_UNSTICK =
+            "(function(){try{"
+            + "function strip(el){"
+            + "var cs=getComputedStyle(el);"
+            + "if(cs.position!=='fixed'&&cs.position!=='absolute'&&"
+            + "cs.position!=='sticky')return false;"
+            + "if(cs.visibility==='hidden'||cs.display==='none')return false;"
+            + "var r=el.getBoundingClientRect();"
+            // Measured from the recording, not guessed: the float that got stuck is a
+            // VERTICAL pill (keyboard / emoji / menu) about 55x250 CSS px over the left
+            // edge. A first version only accepted a wide, short strip and therefore
+            // matched nothing at all. A palette of controls can be either way round, so
+            // both are accepted and neither is anchored to a class name.
+            + "var wide=r.width>=110&&r.width<=620&&r.height>=30&&r.height<=110;"
+            + "var tall=r.width>=28&&r.width<=130&&r.height>=110&&r.height<=420;"
+            + "if(!wide&&!tall)return false;"
+            // not the page's own bottom bar
+            + "if(r.bottom>window.innerHeight-40)return false;"
+            // not the page's main content region, and not a panel that holds an editable
+            // field - an emoji picker with a search box is content, not a stray toolbar
+            + "if(el.querySelector('main,textarea,form,[contenteditable],input'))return false;"
+            // three or more separate controls: a byline or a chip has one or two
+            + "var n=el.querySelectorAll('button,[role=\"button\"],a,svg').length;"
+            + "return n>=3;}"
+            + "function find(){"
+            + "var els=document.querySelectorAll('body *');"
+            + "for(var i=0;i<els.length;i++){"
+            + "var el=els[i];"
+            + "if(strip(el))return el;}"
+            + "return null;}"
+            // 1. let go of the focused field
+            + "var ae=document.activeElement;"
+            + "if(ae&&ae!==document.body&&ae.blur)try{ae.blur();}catch(e){}"
+            // 2. a pointer press on an empty area: what closes a click-outside menu
+            + "try{"
+            + "var target=document.elementFromPoint?"
+            + "document.elementFromPoint(8,Math.round(window.innerHeight*0.5)):document.body;"
+            + "if(!target)target=document.body;"
+            + "var p={bubbles:true,cancelable:true,composed:true,clientX:8,"
+            + "clientY:Math.round(window.innerHeight*0.5),pointerId:1,pointerType:'touch',"
+            + "isPrimary:true};"
+            + "if(window.PointerEvent){"
+            + "target.dispatchEvent(new PointerEvent('pointerdown',p));"
+            + "target.dispatchEvent(new PointerEvent('pointerup',p));}"
+            + "target.dispatchEvent(new MouseEvent('mousedown',p));"
+            + "target.dispatchEvent(new MouseEvent('mouseup',p));"
+            + "}catch(e){}"
+            // 3. Escape, at whatever has focus and at the document
+            + "try{"
+            + "var k={key:'Escape',code:'Escape',keyCode:27,which:27,bubbles:true,"
+            + "cancelable:true,composed:true};"
+            + "(document.activeElement||document.body).dispatchEvent("
+            + "new KeyboardEvent('keydown',k));"
+            + "document.dispatchEvent(new KeyboardEvent('keydown',k));"
+            + "}catch(e){}"
+            + "AgonEscape.stuck(!!find());"
+            + "}catch(e){try{AgonEscape.stuck(false);}catch(x){}}})();";
+
     private static final String JS_ESCAPE =
             "(function () {"
             + "  try {"

@@ -46,3 +46,7 @@ desktop/out/
 artwork/mark.png
 artwork/app-icon-preview.png
 artwork/app/
+
+# Frame dumps extracted from screen recordings (evidence, not source)
+google_drive/
+frames/

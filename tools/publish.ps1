@@ -191,6 +191,21 @@ if ((Test-Path $sharedJks) -and (Get-Command keytool -ErrorAction SilentlyContin
     $sha = & keytool -list -v -keystore $sharedJks -alias agon -storepass agonbuild 2>$null |
         Select-String -Pattern 'SHA256:' | Select-Object -First 1
     if ($sha) { Write-Host ("      signing key: " + (($sha.Line -split 'SHA256:')[1]).Trim() -replace '\s', '') }
+
+    # A copy of the key the phone can pick up, so the two machines cannot drift apart.
+    # The phone looks for AGON-KEY.md in its shared Download folder and signs with it.
+    # The .jks itself cannot be renamed to something the Download folder shows - it can,
+    # but a raw binary is awkward to move by hand, and this script can simply put the
+    # copy somewhere the user's own file manager already syncs.
+    $portable = Join-Path $root "AGON-KEY.md"
+    if (-not [string]::Equals(
+            (Get-FileHash $sharedJks).Hash, (Get-FileHash $portable -ErrorAction SilentlyContinue).Hash)) {
+        Copy-Item $sharedJks $portable -Force
+    }
+    Write-Host ""
+    Write-Host "      For the phone: copy AGON-KEY.md (in this folder) into Download/ on the"
+    Write-Host "      phone, then run termux-build.sh there. It adopts the key and signs with it."
+    Write-Host "      Until it does, an APK from this PC will not install over a phone build."
 }
 
 Write-Host "[1/3] Building..."

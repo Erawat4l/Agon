@@ -29,6 +29,8 @@ keystore.properties
 # every installed copy has to be uninstalled once.
 agon-build.jks
 agon-build.properties
+# A copy of that key for the phone to pick up. Same rules: never committed.
+AGON-KEY.md
 gh-token.txt
 *.jks
 *.keystore

@@ -190,56 +190,54 @@ echo '  ... building (this is the slow part; a phone can take half an hour)'
 }
 "
 
-# Gradle ran INSIDE the container, so its output is in the container's filesystem.
-# The old code checked for the APK relative to Termux's own working directory, where
-# it can never be - the build had succeeded and the script still said "not there".
-ROOTFS_DIR="$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu"
-APK_IN_CONTAINER="/root/agon/app/build/outputs/apk/debug/app-debug.apk"
-OUT="$ROOTFS_DIR$APK_IN_CONTAINER"
+# Getting the APK out of the container.
+#
+# Three attempts at naming the file from the outside all failed on a real phone:
+# the path relative to Termux, then $PREFIX/var/lib/proot-distro/installed-rootfs/...,
+# then a search of that rootfs. proot-distro's on-disk layout is not something this
+# script should be predicting.
+#
+# So it never names the file. It asks the CONTAINER where the APK is, then streams
+# the bytes out through stdout - `cat` works no matter where the rootfs lives.
+IN_CONTAINER=$(proot-distro login ubuntu -- sh -c "
+  if [ -f /root/agon/app/build/outputs/apk/debug/app-debug.apk ]; then
+    echo /root/agon/app/build/outputs/apk/debug/app-debug.apk
+  else
+    find /root /home -name '*.apk' 2>/dev/null | head -1
+  fi" 2>/dev/null | tr -d '\r' | head -1) || true
 
-echo
-if [ ! -f "$OUT" ]; then
-  # Gradle reported success, so the file has to be somewhere: find it rather than
-  # declare the build broken.
-  echo "[!] Not at the usual path - looking for it..."
-  # `|| true` is not decoration: this script runs with `set -e`, and a command
-  # substitution that finds nothing makes the assignment itself exit non-zero -
-  # which killed the script silently right here, two lines after "BUILD
-  # SUCCESSFUL", with no error message at all. A search that finds nothing is a
-  # normal outcome here, not a fatal one.
-  FOUND=$(find "$ROOTFS_DIR" -name '*.apk' 2>/dev/null | head -1) || true
-  OUT="$FOUND"
-fi
-
-if [ -z "$OUT" ] || [ ! -f "$OUT" ]; then
-  echo "[X] The build reported success but no APK could be found." >&2
-  echo "    Look inside the container with:" >&2
-  echo "      proot-distro login ubuntu -- find /root -name '*.apk'" >&2
+if [ -z "${IN_CONTAINER:-}" ]; then
+  echo "[X] The build reported success but no APK is inside the container." >&2
+  echo "    Find it with:  proot-distro login ubuntu -- find / -name '*.apk'" >&2
   exit 1
 fi
+echo
+echo "[4/4] Built: $(basename "$IN_CONTAINER")"
 
-echo "[4/4] Built: $(basename "$OUT")  ($(du -h "$OUT" | cut -f1))"
+# Where the package installer can actually see it. Termux's own HOME is private to
+# Termux, so a copy there is not installable from a file manager.
+mkdir -p "$HOME/storage/downloads" 2>/dev/null || true
+DEST=""
+for d in "$HOME/storage/downloads" /sdcard/Download /storage/emulated/0/Download; do
+  if [ -d "$d" ] && [ -w "$d" ]; then DEST="$d"; break; fi
+done
 
-# Into a place the installer can actually see. Termux's HOME is private to the app,
-# so the system file picker / package installer cannot read it - Download can.
-DEST_DIRS=""
-[ -d "$HOME/storage/downloads" ] && DEST_DIRS="$HOME/storage/downloads"
-[ -d "/sdcard/Download" ] && DEST_DIRS="$DEST_DIRS
-/sdcard/Download"
-
-if [ -z "$DEST_DIRS" ]; then
-  echo "      Termux cannot see Download yet. Run:  termux-setup-storage"
-  echo "      Until then the APK is at: $HOME/Agon-$VERSION.apk"
+if [ -z "$DEST" ]; then
+  echo "      Termux cannot write to a shared folder yet."
+  echo "      Run  termux-setup-storage  (allow the prompt), then run this script again."
+  echo "      It will not rebuild - Gradle is up to date."
+  DEST="$HOME"
 fi
 
-for d in $DEST_DIRS; do
-  if cp "$OUT" "$d/Agon-$VERSION.apk" 2>/dev/null; then
-    echo "      copied to: $d/Agon-$VERSION.apk"
-  fi
-done
-# Always keep one copy Termux itself can reach, even if the copy above failed.
-cp "$OUT" "$HOME/Agon-$VERSION.apk" 2>/dev/null || true
-[ -f "$HOME/Agon-$VERSION.apk" ] && echo "      also at : $HOME/Agon-$VERSION.apk"
+OUT="$DEST/Agon-$VERSION.apk"
+if proot-distro login ubuntu -- cat "$IN_CONTAINER" > "$OUT" 2>/dev/null && [ -s "$OUT" ]; then
+  echo "      saved to: $OUT  ($(du -h "$OUT" | cut -f1))"
+else
+  echo "[X] Could not copy the APK out of the container." >&2
+  echo "    It is at $IN_CONTAINER inside the container. Copy it with:" >&2
+  echo "      proot-distro login ubuntu -- cat $IN_CONTAINER > $OUT" >&2
+  exit 1
+fi
 
 cat <<'NOTE'
 

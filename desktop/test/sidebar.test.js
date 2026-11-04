@@ -49,6 +49,27 @@ const SIDEBAR = constant('JS_SIDEBAR');
 const HEADER = constant('JS_HEADER');
 
 /**
+ * The re-check loop, `watchHelpers(...)`, pulled out of the Java the same way.
+ *
+ * It is a method rather than a constant because it has to know whether the sidebar, the
+ * header or both were asked for. The two ternaries are dropped and both rules are kept:
+ * every fixture below supplies the sidebar rule, and none of them has a top header band
+ * that the header rule would take.
+ */
+function watchSource() {
+  const start = SRC.indexOf('private static String watchHelpers(');
+  if (start < 0) throw new Error('watchHelpers not found');
+  const end = SRC.indexOf('\n    }', start);
+  const body = SRC.slice(start, end)
+    .replace(/\(hideSidebar \? "([^"]*)" : ""\)/g, '"$1"')
+    .replace(/\(hideHeader \? "([^"]*)" : ""\)/g, '"$1"');
+  let js = '';
+  for (const m of body.matchAll(/"((?:[^"\\]|\\.)*)"/g)) js += m[1];
+  return js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+}
+const WATCH = watchSource();
+
+/**
  * Builds the same helper block applyChromeInsets() injects, then the rules. jsdom has no
  * layout, so a test chooses which elements "have size" by tagging them with a class the
  * stubbed getBoundingClientRect() reads.
@@ -62,7 +83,7 @@ const HELPERS = `
     (el.getAttribute&&el.getAttribute('aria-label')||'')).toLowerCase();}
 `;
 
-function run(html, { size = {} } = {}) {
+function makeDom(html, { size = {} } = {}) {
   const dom = new JSDOM('<!doctype html><html><body>' + html + '</body></html>',
     { runScripts: 'outside-only', url: 'https://arena.ai/' });
   const w = dom.window;
@@ -84,7 +105,12 @@ function run(html, { size = {} } = {}) {
       : { width: box.w, height: box.h, top: box.top || 0, bottom: box.top || 0,
           left: 0, right: box.w };
   };
-  w.eval('(function(){try{' + HELPERS + SIDEBAR + '}catch(e){}})();');
+  return w;
+}
+
+function run(html, opts) {
+  const w = makeDom(html, opts);
+  w.eval('(function(){try{' + HELPERS + WATCH + SIDEBAR + 'scanNow();}catch(e){}})();');
   return w.document;
 }
 
@@ -199,13 +225,63 @@ check('a hidden panel stays hidden and nothing else is touched',
     return { width: 1000, height: 600, top: 60, bottom: 660, left: 0, right: 1000 };
   };
   Object.defineProperty(w, 'innerWidth', { value: 1000 });
-  w.eval('(function(){try{' + HELPERS + HEADER + '}catch(e){}})();');
+  w.eval('(function(){try{' + HELPERS + HEADER + 'scanHeader();}catch(e){}})();');
   const got = w.document.getElementById('h').style.getPropertyValue('display');
   const ok = got === 'none';
   if (!ok) bad++;
   console.log(`${ok ? 'PASS' : 'FAIL'}  the page's own top header is still hidden`);
 }
 
-const total = 14;
+// --- the reported bug: the panel is not there yet when the page starts -----------------
+//
+// Arena is a single-page app. On a cold start the document is an empty shell while the
+// Java runs its one-shot pass, so nothing was hidden and the panel appeared a moment
+// later - the panel is only hidden after toggling the setting twice, which re-runs the
+// pass once the panel exists. These two cases drive the actual fix: the watcher.
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const PANEL = `<div data-test="sidebar"><a>New chat</a><a>Leaderboard</a>
+  <a>Search</a><button>someone@example.com</button></div>`;
+
+async function watchCase(name, html, add, wantHidden) {
+  const w = makeDom(html);
+  // page start: the shell, no panel
+  w.eval('(function(){try{' + HELPERS + WATCH + SIDEBAR + 'watchForPanel();}'
+    + 'catch(e){}})();');
+  await sleep(20);
+  const before = hidden(w.document).sort();
+  if (add) {
+    // the app renders the panel after the page started
+    const holder = w.document.createElement('div');
+    holder.innerHTML = add;
+    // give the injected markup the same [data-test] hooks
+    [...holder.children].forEach(c => w.document.body.appendChild(c));
+  }
+  await sleep(900);
+  const got = hidden(w.document).sort();
+  const want = wantHidden.slice().sort();
+  const emptyAtStart = JSON.stringify(before) === '[]';
+  const ok = emptyAtStart && JSON.stringify(got) === JSON.stringify(want);
+  if (!ok) bad++;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}  at-start=${JSON.stringify(before)} ` +
+    `later=${JSON.stringify(got)}` + (ok ? '' : `  want=${JSON.stringify(want)}`));
+  w.close();
+}
+
+(async () => {
+  await watchCase('a panel rendered after page start is hidden without a toggle',
+    '<div data-test="shell">loading</div>', PANEL, ['sidebar']);
+
+  await watchCase('a page that never renders a panel is left alone',
+    '<div data-test="shell">the conversation</div>', null, []);
+
+  await watchCase('a page that renders the composer-laden shell later is left alone',
+    '<div data-test="shell">loading</div>',
+    `<div data-test="drawer"><a>New chat</a><a>Search</a>
+       <button>someone@example.com</button><textarea></textarea></div>`,
+    []);
+
+const total = 17;
 console.log(`\n${total - bad}/${total} PASS`);
 process.exit(bad === 0 ? 0 : 1);
+})();

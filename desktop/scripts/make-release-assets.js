@@ -49,23 +49,55 @@ exports.default = async function makeReleaseAssets(context) {
     throw new Error('no output directory; nothing to rename');
   }
 
-  // The version comes from the installers electron-builder just wrote, not from
-  // package.json: the release script passes the version on the command line
-  // (-c.extraMetadata.version=...) so that it never has to modify a tracked file, which
-  // means package.json still holds whatever version is committed. Reading the file would
-  // therefore look for installers under the wrong number and fail.
-  let version = null;
+  // The version comes from the installers THIS run just wrote, not from package.json.
+  //
+  // package.json holds whatever version is committed (1.4.22 today), and the release
+  // passes the real one on the command line (-c.extraMetadata.version=...), so reading
+  // package.json would look under the wrong number.
+  //
+  // It must also be the version of the *newest* installer here, not the first one in
+  // directory order. `release/` is not cleaned between builds, so it still held
+  // Agon-Setup-1.4.50-x64.exe from an old run; readdir handed that back first, and the
+  // script then demanded Agon-Setup-1.4.50-ia32.exe - which the 1.4.57 build had of
+  // course never produced. That is the "missing installer for ia32" failure.
+  const found = [];
   for (const name of fs.readdirSync(outDir)) {
-    const m = /^Agon-Setup-(\d+\.\d+\.\d+)-(?:x64|ia32)\.exe$/.exec(name);
-    if (m) { version = m[1]; break; }
+    const m = /^Agon-Setup-(\d+\.\d+\.\d+)-(x64|ia32)\.exe$/.exec(name);
+    if (!m) continue;
+    const stat = fs.statSync(path.join(outDir, name));
+    found.push({ version: m[1], arch: m[2], mtime: stat.mtimeMs, size: stat.size });
   }
-  if (!version) {
+  if (!found.length) {
     throw new Error('no Agon-Setup-<version>-<arch>.exe in ' + outDir
       + ' - electron-builder did not produce the installers');
   }
-  console.log('[release] version ' + version + ' (from the built installers)');
 
-  const found = {};
+  // Newest mtime wins, and the choice is logged with the timestamp so a stale installer
+  // sitting in the folder is visible instead of silent.
+  found.sort((a, b) => b.mtime - a.mtime);
+  const version = found[0].version;
+  const stale = found.filter(f => f.version !== version);
+  if (stale.length) {
+    console.log('[release] ignoring installers from another build already in release/: '
+      + stale.map(f => `${f.version}-${f.arch}`).join(', '));
+  }
+  console.log('[release] version ' + version + ' (newest installer in ' + outDir + ')');
+
+  // Every installer that is not from this build is removed before anything is copied.
+  //
+  // `release/` is never cleaned between builds, so old installers pile up there and the
+  // copies below (Agon-Setup-64.exe / -32.exe) can be silently replaced by a run that
+  // only half finished. Deleting the other versions first means what is published is
+  // always exactly the build that just succeeded.
+  for (const f of found) {
+    if (f.version === version) continue;
+    for (const suffix of ['', '.blockmap']) {
+      const victim = path.join(outDir, `Agon-Setup-${f.version}-${f.arch}.exe${suffix}`);
+      try { if (fs.existsSync(victim)) fs.unlinkSync(victim); } catch (ignored) { /* locked */ }
+    }
+  }
+
+  const picked = {};
   for (const [arch, suffix] of Object.entries(ARCH_NAMES)) {
     const built = path.join(outDir, `Agon-Setup-${version}-${arch}.exe`);
     if (!fs.existsSync(built)) {
@@ -79,7 +111,7 @@ exports.default = async function makeReleaseAssets(context) {
       const src = built + extra;
       if (fs.existsSync(src)) fs.copyFileSync(src, clean + extra);
     }
-    found[arch] = { clean, name: path.basename(clean) };
+    picked[arch] = { clean, name: path.basename(clean) };
     console.log(`[release] ${path.basename(clean)}  (${(fs.statSync(clean).size / 1048576).toFixed(1)} MB, from ${arch})`);
   }
 
@@ -88,9 +120,9 @@ exports.default = async function makeReleaseAssets(context) {
   const latest = [
     `version: ${version}`,
     'files:',
-    yamlFor(found.x64.name, found.x64.clean, version),
-    `path: ${found.x64.name}`,
-    `sha512: ${sha512Base64(found.x64.clean)}`,
+    yamlFor(picked.x64.name, picked.x64.clean, version),
+    `path: ${picked.x64.name}`,
+    `sha512: ${sha512Base64(picked.x64.clean)}`,
     `releaseDate: '${new Date().toISOString()}'`,
     '',
   ].join('\n');
@@ -110,8 +142,8 @@ exports.default = async function makeReleaseAssets(context) {
 
   // Everything the release should carry, and nothing else.
   return [
-    found.x64.clean,
-    found.ia32.clean,
+    picked.x64.clean,
+    picked.ia32.clean,
     path.join(outDir, 'latest.yml'),
   ];
 };

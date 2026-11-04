@@ -233,8 +233,25 @@ publish.bat 1.4.43
 
 `publish.bat` does the whole thing in the right order: pre-flight checks → Gradle build with
 version 1.4.43 → APK built and its architectures checked → release created as a **draft** →
-Windows installers built and attached → draft published. **A failure anywhere leaves it a
-draft**, so installed apps never see a half-empty release.
+Windows installers built and attached → draft published. **A failure anywhere leaves a new
+release a draft**, so installed apps never see a half-empty release.
+
+### Re-running a version that already exists
+
+If the version is already on GitHub, a rerun **adds what is missing to that same release** and
+never takes it away. `publish.bat 1.4.6x` after an APK-only publish is the normal way to add
+the Windows installers: the live release stays live the whole time the installers are being
+built, because only a *new* release starts as a draft. Asset names that are already there are
+replaced, not rejected.
+
+If the release already has both the APK and a `latest.yml` for that exact version, there is
+nothing to add: the run checks GitHub first, says *"`v1.4.6x` is already published and
+complete"* and stops **without** spending minutes on a rebuild. To build and upload again
+anyway:
+
+```bat
+publish.bat 1.4.6x rebuild
+```
 
 Wait for `[OK] Release live: v1.4.43`. The draft is invisible to every phone until that
 line prints.

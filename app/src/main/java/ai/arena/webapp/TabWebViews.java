@@ -424,8 +424,15 @@ public final class TabWebViews {
                     + "'main,textarea,form,[contenteditable=\"true\"]');}"
                     + "function text(el){return ((el.innerText||'')+' '+"
                     + "(el.getAttribute&&el.getAttribute('aria-label')||'')).toLowerCase();}"
+                    + watchHelpers(hideSidebar, hideHeader)
                     + (hideSidebar ? JS_SIDEBAR : "")
                     + (hideHeader ? JS_HEADER : "")
+                    // ...and keep looking. The page is a single-page app: at the moment
+                    // this runs the sidebar is often not in the DOM yet, so a one-shot pass
+                    // hid nothing and the panel appeared a moment later. Toggling the
+                    // setting re-ran this later in the page's life, which is exactly why
+                    // that worked and opening the app did not.
+                    + "watchForPanel();"
                     + "}catch(e){}})();" : "");
             web.evaluateJavascript(clear, null);
             return;
@@ -451,8 +458,12 @@ public final class TabWebViews {
                 + "'main,textarea,form,[contenteditable=\"true\"]');}"
                 + "function text(el){return ((el.innerText||'')+' '+"
                 + "(el.getAttribute&&el.getAttribute('aria-label')||'')).toLowerCase();}"
+                + watchHelpers(hideSidebar, hideHeader)
                 + (hideSidebar ? JS_SIDEBAR : "")
                 + (hideHeader ? JS_HEADER : "")
+                // Same watcher as the no-insets branch: the panel is drawn after the page
+                // starts, so one pass here hides nothing on a cold start.
+                + "watchForPanel();"
                 // Arena's composer and floating controls are `position:fixed`, so a margin on
                 // html/body cannot move them: they were pinned to the bottom of the *window*
                 // and the app's bar was drawn over them - the squashed look in the
@@ -962,9 +973,59 @@ public final class TabWebViews {
         }
     }
 
+    /**
+     * The re-check loop shared by the sidebar and header rules.
+     *
+     * A single pass at onPageStarted/onPageFinished is not enough: arena is a single-page
+     * app, so at that moment the document is an empty shell and the side panel is drawn
+     * some hundreds of milliseconds later - and again after every navigation inside the
+     * app. One pass found nothing, so nothing was hidden and the panel appeared afterwards.
+     * That is exactly the "it only hides after I toggle the switch off and on" report: the
+     * toggle re-ran the pass once the panel existed.
+     *
+     * So `watchForPanel()` keeps looking, in two phases:
+     *
+     *  - fast: every 500 ms for the first ten seconds, which covers the page's first paint;
+     *  - slow: every 2.5 s afterwards, which covers opening a conversation much later (that
+     *    draws a fresh panel) without costing anything noticeable.
+     *
+     * A pass is a handful of cheap DOM reads and the rules are idempotent - the one they
+     * hid is marked, and the stylesheet keeps it hidden - so extra passes are safe. The
+     * slow phase is skipped while the page is in the background.
+     */
+    private static String watchHelpers(boolean hideSidebar, boolean hideHeader) {
+        return "function scanNow(){"
+            + (hideSidebar ? "scanSidebar();" : "")
+            + (hideHeader ? "scanHeader();" : "")
+            + "}"
+            + "function panelGone(){"
+            // The rules record success here, so a page that has already been cleaned does
+            // not pay for the full scan on every pass.
+            + "return !!(window.__agonPanelHidden||window.__agonHeaderHidden);}"
+            + "function watchForPanel(){"
+            + "if(window.__agonWatch)return;window.__agonWatch=1;"
+            + "var fast=null,slow=null,left=20;"
+            + "function pass(){"
+            + "if(panelGone())return;"
+            + "try{scanNow();}catch(e){}}"
+            + "function tick(){"
+            + "pass();"
+            + "if(panelGone()||--left<=0){"
+            + "if(fast){clearInterval(fast);fast=null;}"
+            + "if(!slow){slow=setInterval(slowTick,2500);}}}"
+            + "function slowTick(){"
+            // Nothing to do while the page is in the background; the next foreground pass
+            // is a quarter of a second away at worst.
+            + "if(document.hidden)return;"
+            + "pass();}"
+            + "pass();"
+            + "if(!panelGone()){fast=setInterval(tick,500);}}";
+    }
+
     /** Text-based fallback for a sidebar whose class names say nothing. */
     private static final String JS_SIDEBAR =
-            "var cands=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
+            "function scanSidebar(){"
+            + "var cands=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
             + "for(var i=0;i<cands.length;i++){var el=cands[i];"
             + "if(!shown(el)||!empty(el))continue;"
             + "var r=el.getBoundingClientRect();"
@@ -972,34 +1033,31 @@ public final class TabWebViews {
             // and it sits against one edge of the window. The old rule also required
             // width <= 420 CSS px, which is a desktop figure; on a phone the panel is a
             // slide-over the full width of the screen, so the rule could never match there
-            // while it matched happily in a desktop-shaped emulator window. That is
-            // the it-hides-in-the-emulator-but-not-on-my-phone report.
+            // while it matched happily in a desktop-shaped emulator window. That is the
+            // it-hides-in-the-emulator-but-not-on-my-phone report.
             + "if(r.height<r.width*0.9)continue;"
             + "if(r.left>window.innerWidth*0.2&&"
             + "r.right<window.innerWidth*0.8)continue;"
             + "var t=text(el);if(t.length>700)continue;"
             // The three fixed entries, then the account row, which is an email address once
-            // signed in and a sign-in label before that. Requiring all four terms, including
-            // the literal sign-in text, is why the sidebar was never hidden on a signed-in
-            // phone.
+            // signed in and a sign-in label before that.
             + "var words=['new chat','leaderboard','search'];"
             + "var hits=0;"
             + "for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0)hits++;}"
             + "var account=/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/.test(t)||t.indexOf('sign in')>=0"
             + "||t.indexOf('sign up')>=0||t.indexOf('log in')>=0||t.indexOf('login')>=0;"
             // Two of the three words plus an account row is a navigation panel; the words
-            // alone are a start page and are left alone. On a narrow panel arena hides one
-            // of them behind its own overflow control often enough that requiring all
-            // three kept the panel on screen.
+            // alone are a start page and are left alone.
             + "if(hits<2||!account)continue;"
             + "if(el.querySelectorAll('a,button,[role=button],[role=link]').length<3)continue;"
             // ...and never hide anything that contains the composer or the main region.
             + "if(el.querySelector('main,textarea,form,[contenteditable]'))continue;"
-            + "hide(el);break;}";
+            + "hide(el);window.__agonPanelHidden=1;return;}}";
 
     /** Text/size based fallback for the page's own top header. */
     private static final String JS_HEADER =
-            "var tops=document.body?document.body.querySelectorAll('header,nav,div'):[];"
+            "function scanHeader(){"
+            + "var tops=document.body?document.body.querySelectorAll('header,nav,div'):[];"
             + "for(var i=0;i<tops.length;i++){var el=tops[i];"
             + "if(!shown(el)||!empty(el))continue;"
             + "var r=el.getBoundingClientRect();"
@@ -1007,7 +1065,7 @@ public final class TabWebViews {
             + "if(r.height<24||r.height>110)continue;"
             + "if(r.width<window.innerWidth*0.6)continue;"
             + "if(el.querySelectorAll('a,img,button').length<1)continue;"
-            + "hide(el);break;}";
+            + "hide(el);window.__agonHeaderHidden=1;return;}}";
 
 
     /** Starts a fresh conversation using arena's own "new chat" control. */

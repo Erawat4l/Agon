@@ -169,7 +169,15 @@ public final class Settings {
         return get(c, K_CRASH_SCREEN, true);
     }
 
-    /** True when text should behave like a web page (selection allowed). */
+    /**
+     * True when text should behave like a web page (selection allowed).
+     *
+     * The setting is stored as "selection is OFF" and defaults to on, because that is the
+     * app-like behaviour. A choice the user made is honoured; there was a while where this
+     * was not enough because the rule was only written on the branch that reserves space
+     * for the app's bars, so the page stayed selectable regardless - see selectCss() in
+     * TabWebViews.
+     */
     public static boolean selectText(Context c) {
         return !get(c, K_NO_SELECT, true);
     }

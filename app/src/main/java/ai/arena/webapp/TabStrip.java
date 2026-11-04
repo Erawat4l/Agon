@@ -13,7 +13,6 @@ import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -39,6 +38,11 @@ import android.widget.TextView;
  * There is deliberately no chip for Leaderboard or Search: those are the bottom bar's
  * destinations. The strip starts as just the arrows and a +, and the first + adds the
  * second tab beside the one that is already there.
+ *
+ * The tabs divide the width between the arrows evenly - one tab fills it, two split it -
+ * and each one carries a cross to close it. The whole strip can be switched off in
+ * Settings -> For developers ("Show the tab bar above the page"), which gives the page the
+ * screen back.
  *
  * Everything visual lives here so the strip matches the app's palette in both themes.
  */
@@ -83,7 +87,6 @@ public final class TabStrip {
 
     private static final float CHIP_RADIUS_DP = 9f;
     private static final float BUTTON_RADIUS_DP = 10f;
-    private static final int CHIP_MAX_WIDTH_DP = 132;
 
     private final Context context;
     private final Host host;
@@ -92,7 +95,6 @@ public final class TabStrip {
     private final ImageView back;
     private final ImageView forward;
     private final ImageView plus;
-    private final HorizontalScrollView scroller;
     private final LinearLayout tabsBox;
 
     /** What the row currently shows, so an unchanged strip is left alone (no flicker). */
@@ -105,6 +107,11 @@ public final class TabStrip {
         LinearLayout column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setBackground(AppUi.chromeBg(context));
+        // The whole strip is chrome. A WebView next door lets a long press select and copy,
+        // and inside the strip that would let a tab's name be highlighted like page text.
+        column.setLongClickable(false);
+        column.setHapticFeedbackEnabled(false);
+        column.setFocusable(false);
 
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -118,22 +125,17 @@ public final class TabStrip {
                 () -> host.onPreviousTab(), () -> host.onPageBack());
         row.addView(back, new LinearLayout.LayoutParams(buttonSize(), buttonSize()));
 
-        // Only the tab list scrolls. With five chips on a phone the arrows and the + would
-        // otherwise be pushed off the edge precisely when they are needed.
-        scroller = new HorizontalScrollView(context);
-        scroller.setHorizontalScrollBarEnabled(false);
-        scroller.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroller.setClipToPadding(false);
+        // The chips share the width between the arrows rather than scrolling: one tab fills
+        // the space, two split it, three thirds. A scroller made a tab's width depend on its
+        // name, which is what left a strip of one wide chip and one narrow one.
         tabsBox = new LinearLayout(context);
         tabsBox.setOrientation(LinearLayout.HORIZONTAL);
         tabsBox.setGravity(Gravity.CENTER_VERTICAL);
-        scroller.addView(tabsBox, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams tabsLp = new LinearLayout.LayoutParams(
                 0, buttonSize(), 1f);
-        scrollLp.leftMargin = dp(1);
-        scrollLp.rightMargin = dp(1);
-        row.addView(scroller, scrollLp);
+        tabsLp.leftMargin = dp(1);
+        tabsLp.rightMargin = dp(1);
+        row.addView(tabsBox, tabsLp);
 
         forward = arrowButton(R.drawable.ic_nav_forward, R.string.strip_forward, true,
                 () -> host.onNextTab(), () -> host.onPageForward());
@@ -209,46 +211,93 @@ public final class TabStrip {
             boolean first = signature.isEmpty();
             signature = next;
             buildChips(ids, current);
-            if (!first) AppUi.pop(tabsBox);
+            // A chip appearing gets a small settle, but the row itself is not scaled: a
+            // scale on the container fights the equal-width weights above.
+            if (!first) {
+                for (int i = 0; i < tabsBox.getChildCount(); i++) {
+                    View chip = tabsBox.getChildAt(i);
+                    if ((Integer) chip.getTag() == current) AppUi.fadeIn(chip);
+                }
+            }
         } else {
             paintSelection(current);
         }
-        scrollToCurrent(current);
         setCanOpenTab(host.canOpenTab());
         setArrowsEnabled(host.canSelectPrevious(), host.canSelectNext());
     }
 
+    /**
+     * Draws the chips.
+     *
+     * Every tab gets the same share of the row - one tab fills it, two split it, three
+     * thirds - because a tab strip whose chips are sized to their text leaves ragged gaps
+     * and makes a short name look like a different kind of thing from a long one. The text
+     * is the part that gives way (ellipsised), never the width.
+     *
+     * Each chip carries its own close cross, on the right, as a browser tab does. It is
+     * only offered while more than one tab is open: closing the last one would leave the
+     * app with no page.
+     */
     private void buildChips(java.util.List<Integer> ids, int current) {
         tabsBox.removeAllViews();
+        boolean closable = ids.size() > 1;
         for (Integer id : ids) {
-            TextView chip = new TextView(context);
-            chip.setText(host.tabName(id));
-            chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
-            chip.setSingleLine(true);
-            chip.setEllipsize(TextUtils.TruncateAt.END);
-            chip.setMaxWidth(dp(CHIP_MAX_WIDTH_DP));
-            chip.setIncludeFontPadding(false);
-            chip.setGravity(Gravity.CENTER);
-            chip.setTag(id);
-            chip.setPadding(dp(11), dp(6), dp(11), dp(6));
             final int tabId = id;
+            boolean active = tabId == current;
+
+            LinearLayout chip = new LinearLayout(context);
+            chip.setOrientation(LinearLayout.HORIZONTAL);
+            chip.setGravity(Gravity.CENTER_VERTICAL);
+            chip.setTag(tabId);
+            chip.setPadding(dp(9), dp(5), closable ? dp(2) : dp(9), dp(5));
+            chip.setBackground(chipBackground(active));
+            chip.setContentDescription(host.tabName(tabId));
             chip.setOnClickListener(v -> {
                 tap(v);
                 host.onSelectTab(tabId);
             });
-            // Long press closes a tab. Never the last one: an empty strip with no page
-            // behind it is a state the app cannot show.
-            if (ids.size() > 1) {
-                chip.setOnLongClickListener(v -> {
+
+            TextView label = new TextView(context);
+            // Browser chrome, not page content: a long press must never start a text
+            // selection or the copy callout over the strip.
+            label.setTextIsSelectable(false);
+            label.setLongClickable(false);
+            label.setText(host.tabName(tabId));
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+            label.setSingleLine(true);
+            label.setEllipsize(TextUtils.TruncateAt.END);
+            label.setIncludeFontPadding(false);
+            label.setGravity(Gravity.CENTER_VERTICAL);
+            label.setTextColor(AppUi.color(context, active ? R.color.on_bg : R.color.on_bg_muted));
+            label.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
+                    active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL));
+            // The label must not swallow the tap: the whole chip is the target.
+            label.setClickable(false);
+            label.setFocusable(false);
+            chip.addView(label, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            if (closable) {
+                ImageView close = new ImageView(context);
+                close.setImageResource(R.drawable.ic_tab_close);
+                close.setColorFilter(AppUi.color(context, R.color.on_bg_muted));
+                close.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                close.setContentDescription(context.getString(R.string.strip_close_tab));
+                int pad = dp(4);
+                close.setPadding(pad, pad, pad, pad);
+                close.setBackground(AppUi.pressable(context, Color.TRANSPARENT, 7f));
+                close.setOnClickListener(v -> {
                     tap(v);
                     host.onCloseTab(tabId);
-                    return true;
                 });
-                chip.setContentDescription(context.getString(
-                        R.string.strip_close_tab) + ": " + host.tabName(id));
+                chip.addView(close, new LinearLayout.LayoutParams(dp(22), dp(22)));
             }
+
+            // weight 1 each: equal shares of whatever width the row has, and the same share
+            // for every tab however long its name is. Full strip height, so one tab is a
+            // strip-high tab rather than a label floating in the middle of it.
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
             lp.rightMargin = dp(5);
             tabsBox.addView(chip, lp);
         }
@@ -258,58 +307,59 @@ public final class TabStrip {
     /** Colours the chips for the page on screen: accent outline on one, muted text on rest. */
     private void paintSelection(int current) {
         for (int i = 0; i < tabsBox.getChildCount(); i++) {
-            View child = tabsBox.getChildAt(i);
-            if (!(child instanceof TextView) || !(child.getTag() instanceof Integer)) continue;
-            TextView chip = (TextView) child;
+            View chip = tabsBox.getChildAt(i);
+            if (!(chip.getTag() instanceof Integer)) continue;
             boolean active = (Integer) chip.getTag() == current;
-            chip.setTextColor(AppUi.color(context,
-                    active ? R.color.on_bg : R.color.on_bg_muted));
-            chip.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
-                    active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL));
             chip.setBackground(chipBackground(active));
             chip.setAlpha(active ? 1f : 0.92f);
+            if (chip instanceof LinearLayout) {
+                LinearLayout box = (LinearLayout) chip;
+                for (int c = 0; c < box.getChildCount(); c++) {
+                    View child = box.getChildAt(c);
+                    if (child instanceof TextView) {
+                        TextView label = (TextView) child;
+                        label.setTextColor(AppUi.color(context,
+                                active ? R.color.on_bg : R.color.on_bg_muted));
+                        label.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
+                                active ? android.graphics.Typeface.BOLD
+                                        : android.graphics.Typeface.NORMAL));
+                    }
+                }
+            }
         }
     }
 
-    /** Filled, accent-outlined for the page on screen; plain and pressable for the others. */
+    /**
+     * A chip's background: accent outline when it is the page on screen, quiet when not.
+     *
+     * A stroke needs something to sit on, so the inactive chip is filled with the bar's own
+     * surface rather than being left transparent: on a dark bar a transparent chip with no
+     * outline read as plain text, and the strip looked like a row of labels instead of a
+     * row of tabs.
+     */
     private Drawable chipBackground(boolean active) {
-        GradientDrawable shape = new GradientDrawable();
-        shape.setShape(GradientDrawable.RECTANGLE);
-        shape.setCornerRadius(dp(CHIP_RADIUS_DP));
+        GradientDrawable shape = roundedShape(dp(CHIP_RADIUS_DP));
         if (active) {
             shape.setColor(AppUi.color(context, R.color.accent_soft));
-            shape.setStroke(Math.max(1, dp(0.8f)), AppUi.color(context, R.color.accent_chip));
+            shape.setStroke(Math.max(1, dp(0.9f)), AppUi.color(context, R.color.accent_chip));
         } else {
-            shape.setColor(Color.TRANSPARENT);
+            shape.setColor(AppUi.color(context, R.color.surface2));
+            shape.setStroke(Math.max(1, dp(0.6f)), AppUi.color(context, R.color.divider));
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            // The mask is what keeps the ripple inside the rounded corners.
             return new RippleDrawable(
-                    ColorStateList.valueOf(AppUi.color(context, R.color.ripple)), shape, null);
+                    ColorStateList.valueOf(AppUi.color(context, R.color.ripple)),
+                    shape, roundedShape(dp(CHIP_RADIUS_DP)));
         }
         return shape;
     }
 
-    /** Keeps the current chip in view after a switch, without jumping the list about. */
-    private void scrollToCurrent(int current) {
-        if (scroller == null || tabsBox == null) return;
-        View match = null;
-        for (int i = 0; i < tabsBox.getChildCount(); i++) {
-            View child = tabsBox.getChildAt(i);
-            if (child.getTag() instanceof Integer && (Integer) child.getTag() == current) {
-                match = child;
-                break;
-            }
-        }
-        if (match == null) return;
-        final View target = match;
-        scroller.post(() -> {
-            int start = scroller.getScrollX();
-            int end = start + scroller.getWidth();
-            if (target.getLeft() >= start + dp(6) && target.getRight() <= end - dp(6)) {
-                return; // already fully visible: do not move the list under the finger
-            }
-            scroller.smoothScrollTo(Math.max(0, target.getLeft() - dp(10)), 0);
-        });
+    private GradientDrawable roundedShape(float radiusDp) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setShape(GradientDrawable.RECTANGLE);
+        shape.setCornerRadius(dp(radiusDp));
+        return shape;
     }
 
     /**
@@ -357,7 +407,9 @@ public final class TabStrip {
      * broken even when it worked.
      */
     private void tap(View v) {
-        AppUi.press(v);
+        // No scale animation on a tab: scaling a chip that shares the row makes its
+        // neighbours jump, and on a wide chip the shrink is visible as the text sliding.
+        // The ripple is the feedback (see chipBackground), plus the haptic below.
         try {
             v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
         } catch (RuntimeException ignored) {

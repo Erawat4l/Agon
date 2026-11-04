@@ -52,6 +52,14 @@ public final class Settings {
     /** Version name + build number in the nav bar footer. */
     public static final String K_SHOW_VERSION = "show_version";
     /** Developer options: unlocked by seven taps on the build line, never shown by default. */
+    /**
+     * The strip above the page (back / tabs / forward / +).
+     *
+     * ON by default - it is the app's tab bar, and the only way to reach a second
+     * conversation. The switch exists because some people want the page alone on screen,
+     * and it lives in For developers, like the other page-shaping switches.
+     */
+    public static final String K_SHOW_TAB_STRIP = "show_tab_strip";
     public static final String K_DEVELOPER = "developer_options";
 
     private Settings() {
@@ -179,6 +187,11 @@ public final class Settings {
 
     public static void setDeveloperOptions(Context c, boolean on) {
         set(c, K_DEVELOPER, on);
+    }
+
+    /** True when the strip above the page is drawn. */
+    public static boolean showTabStrip(Context c) {
+        return get(c, K_SHOW_TAB_STRIP, true);
     }
 
     public static boolean showVersion(Context c) {

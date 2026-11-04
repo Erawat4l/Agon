@@ -385,7 +385,13 @@ if (-not $Notes) {
     $Notes = "Agon $Version`n`nAndroid: Agon-$Version.apk - download it, tap it and approve Android's update prompt. One file for 32- and 64-bit phones.`n`nWindows: Agon-Setup-64.exe for 64-bit Windows, Agon-Setup-32.exe for 32-bit. They are two files because Electron compiles the app per architecture; one .exe cannot hold both.`n`nInstalled copies detect this release automatically."
 }
 
+# The size line only claims what was actually built: on an APK-only run there is no
+# installer to mention, and saying otherwise is how a release title once promised Windows
+# files that were never uploaded.
 $Notes = "$Notes`n`nAPK: Agon-$Version.apk ($sizeMb MB)"
+if ($ApkOnly) {
+    $Notes = "$Notes`nWindows installers: built with the next full publish (publish.bat without the apk mode)."
+}
 
 Write-Host "[2/3] Creating release $tag on $($sha.Substring(0,7))..."
 
@@ -396,10 +402,22 @@ try {
     # 404 simply means "no release for this tag yet"
 }
 
+# ONE release, two platforms, named for what it actually is.
+#
+# This used to be called "Agon <version>" even when the Windows installers failed to build
+# and only the APK was attached - so releases/latest (which is what phones read) offered a
+# title with no Windows files under it. The installers are uploaded after this line, so the
+# title is decided by whether this run is going to build them: -ApkOnly never does, and a
+# machine without Node.js cannot.
+$willBuildDesktop = (-not $ApkOnly) -and
+    (Test-Path (Join-Path $root "desktop\package.json")) -and
+    ($null -ne (Get-Command npm -ErrorAction SilentlyContinue))
+
 $body = @{
     tag_name         = $tag
     target_commitish = $sha
-    name             = "Agon $Version"
+    name             = $(if ($willBuildDesktop) { "Agon " + $Version + " - Android APK + Windows installer" }
+                         else { "Agon " + $Version + " - Android APK" })
     body             = $Notes
     # Draft until the APK is actually attached. `releases/latest` ignores drafts, and the
     # in-app updater reads that endpoint - so a release that fails halfway through can no

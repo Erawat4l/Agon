@@ -237,6 +237,8 @@ public final class SettingsSheet {
                 R.string.settings_hide_header_sub, true);
         toggle(Settings.K_SHOW_NAV, R.string.settings_nav_bar, R.string.settings_nav_bar_sub,
                 true);
+        toggle(Settings.K_SHOW_TAB_STRIP, R.string.settings_tab_strip,
+                R.string.settings_tab_strip_sub, true);
         toggle(Settings.K_CHAT_TAPS, R.string.settings_chat_taps,
                 R.string.settings_chat_taps_sub, true);
         toggle(Settings.K_KEEP_SCROLL, R.string.settings_keep_scroll,

@@ -140,6 +140,8 @@
     <string name="settings_theme">Theme</string>
     <string name="settings_nav_bar">Show the bottom bar</string>
     <string name="settings_nav_bar_sub">Chat, Rankings, Search, More over the page</string>
+    <string name="settings_tab_strip">Show the tab bar above the page</string>
+    <string name="settings_tab_strip_sub">Back, the open chats, forward and new-tab. Turn it off to give the page the whole screen</string>
     <string name="settings_chat_taps">Tap gestures on Chat</string>
     <string name="settings_chat_taps_sub">1 tap: current chat · 2 taps: chat history · 3 taps: new chat</string>
     <string name="settings_hide_sidebar">Hide Arena\'s sidebar</string>

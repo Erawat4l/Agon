@@ -186,6 +186,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         tabStrip = buildTabStrip();
         column.addView(tabStrip.view(), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        tabStrip.view().setVisibility(Settings.showTabStrip(this) ? View.VISIBLE : View.GONE);
         column.addView(contentHost, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -696,7 +697,14 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     /** Closes an extra window and keeps the strip, nav and page in step afterwards. */
     private void closeWindowById(int id) {
-        if (tabs == null || !TabWebViews.isWindow(id)) return;
+        if (tabs == null) return;
+        if (!TabWebViews.isWindow(id)) {
+            // The cross is only drawn while more than one tab exists, but the strip is
+            // rebuilt asynchronously: a tap that lands after the last other tab closed must
+            // not leave the app with no page behind it.
+            toast(R.string.strip_last_tab);
+            return;
+        }
         boolean wasCurrent = pageId() == id;
         tabs.closeWindow(id);
         if (menuSheet != null) {
@@ -1645,6 +1653,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         switch (key) {
             case Settings.K_SHOW_NAV:
                 applyNavVisibility();
+                break;
+            case Settings.K_SHOW_TAB_STRIP:
+                if (tabStrip != null) {
+                    tabStrip.view().setVisibility(value ? View.VISIBLE : View.GONE);
+                    if (value) refreshStrip();
+                }
+                // The page does not need to know: the strip is a row of the column, so the
+                // WebView simply gets the height back.
+                applyChromeInsets();
                 break;
             case Settings.K_KEEP_SCROLL:
                 // The strip names the open tabs, and a renamed/closed window changes that

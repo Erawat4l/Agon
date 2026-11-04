@@ -42,6 +42,9 @@ function constant(name) {
   return js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
 }
 
+// Addresses in these fixtures are example.com/.org on purpose: a real consumer address in
+// a tracked file is a personal-data leak the pre-flight refuses to publish, and it caught
+// exactly that the first time this file was built.
 const SIDEBAR = constant('JS_SIDEBAR');
 const HEADER = constant('JS_HEADER');
 
@@ -117,7 +120,7 @@ function check(name, html, wantHidden, opts) {
 check('signed-in panel with an account email is hidden',
   `<div id=sb data-test="sidebar">
      <a>New chat</a><a>Leaderboard</a><a>Search</a>
-     <button>kavi.rawat@gmail.com</button>
+     <button>someone@example.com</button>
    </div>
    <main data-test="main"><textarea></textarea></main>`,
   ['sidebar']);
@@ -125,7 +128,7 @@ check('signed-in panel with an account email is hidden',
 // --- the exact device failure this rule was rewritten for -------------------------------
 check('the old four-word rule could never match a signed-in phone',
   `<div id=sb data-test="sidebar">
-     <a>New chat</a><a>Leaderboard</a><a>Search</a><button>k.r@gmail.com</button>
+     <a>New chat</a><a>Leaderboard</a><a>Search</a><button>other.person@example.org</button>
    </div>`,
   ['sidebar']);
 

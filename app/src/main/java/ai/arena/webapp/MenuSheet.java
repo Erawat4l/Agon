@@ -22,9 +22,6 @@ public final class MenuSheet {
 
         void onSettings();
 
-        /** Opens a second arena window on a fresh chat, in the background. */
-        void onNewWindow();
-
         /** Switches to an already-open window (its id is a TabWebViews id). */
         void onSwitchWindow(int windowId);
 
@@ -92,15 +89,14 @@ public final class MenuSheet {
                     callback.onOpenUpdate();
                 });
 
-        String accountSub = LocalProfile.hasAccount(activity)
-                ? LocalProfile.summary(activity)
-                : activity.getString(R.string.account_signin_sub);
-        addRow(activity, sheet, R.string.account_signin,
-                accountSub, R.drawable.ic_nav_account,
-                false, v -> {
-                    dismiss(parent, scrim, callback);
-                    callback.onSignIn();
-                });
+        // No "Sign in" row.
+        //
+        // Arena asks for an account by itself the moment a message is sent, on its own
+        // page, with its own wording - so a second entry point here was a duplicate that
+        // could start a sign-in flow at a moment when nothing needed one. The account can
+        // still be connected deliberately from Settings, and the page's own prompt is what
+        // a new user actually sees.
+        //
 
         addRow(activity, sheet, R.string.menu_settings,
                 activity.getString(R.string.menu_settings_sub), R.drawable.ic_nav_settings,
@@ -114,19 +110,13 @@ public final class MenuSheet {
             callback.onReload();
         });
 
-        // ---- windows: a second (third, fourth) arena, kept loaded
+        // ---- conversation tabs
         //
-        // The row is last, as asked. It opens a window that starts loading immediately in
-        // the background, so switching to it later is instant - and the windows that are
-        // already open are listed right underneath, so two conversations can be swapped
-        // between without either one reloading.
-        addRow(activity, sheet, R.string.menu_new_window,
-                activity.getString(R.string.menu_new_window_sub),
-                R.drawable.ic_nav_window, false, v -> {
-                    dismiss(parent, scrim, callback);
-                    callback.onNewWindow();
-                });
-
+        // There is no "New window" row any more: the strip above the page owns that, and
+        // having two ways to open a tab - one of them inside a sheet - is exactly the
+        // duplication that was asked to be removed. The list below stays, because switching
+        // and closing a tab is worth having beside Settings as well, and it is the only
+        // place that shows every tab at once with a close button.
         if (openWindows != null && !openWindows.isEmpty()) {
             TextView heading = AppUi.text(activity,
                     activity.getString(R.string.menu_windows_open), 11.5f,

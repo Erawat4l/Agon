@@ -114,11 +114,20 @@ public final class TabWebViews {
     }
 
     /**
-     * Opens a new window on arena and returns its id, or -1 when there is no room.
+     * Opens a new conversation tab and returns its id, or -1 when there is no room.
      *
-     * The window is created and loaded straight away, in the background, so the first time
-     * the user switches to it there is nothing left to fetch - which is the whole point of
-     * asking for it from More.
+     * A new tab is a *new chat*, not a copy of the chat on screen. Two things do that:
+     *
+     *  1. it loads the arena root, never the current tab's URL - copying the current URL is
+     *     what made the previous build open the same conversation twice;
+     *  2. once that document exists, {@link #startNewChat} is run in it. Arena keeps the
+     *     conversation in its route, so the root alone is not always a fresh chat (a client
+     *     router can restore the last one); pressing arena's own "new chat" affordance -
+     *     or moving the route, when that button is hidden with the sidebar - is what
+     *     guarantees the tab opens empty.
+     *
+     * The tab starts loading immediately, so by the time the user looks at it there is
+     * nothing left to fetch.
      */
     public int openWindow() {
         // A window that is already warm (preload() makes one) is handed over instead of
@@ -140,6 +149,24 @@ public final class TabWebViews {
         // switch to it there is nothing left to fetch. ensure() starts the load.
         ensure(id);
         usedWindows.add(id);
+        return id;
+    }
+
+    /**
+     * Makes a tab warm without putting it on screen, and asks it for a fresh conversation.
+     *
+     * Used when the app wants "another chat tab" to exist in the background - the strip
+     * then lists it, and switching to it costs a visibility change.
+     */
+    public int openTabInBackground() {
+        int id = openWindow();
+        if (id < 0) return -1;
+        WebView w = views.get(id);
+        if (w != null) {
+            // Loads immediately (ensure() did that); asking for a new chat here means the
+            // tab is empty by the time anyone looks at it.
+            w.postDelayed(() -> startNewChat(w, null), 700L);
+        }
         return id;
     }
 
@@ -257,21 +284,26 @@ public final class TabWebViews {
      * slower first tap is a much better trade than a laggy chat.
      */
     public void preload() {
-        if (isLowRamDevice()) return;
-        int[] tabs = {AppUi.TAB_LEADERBOARD, AppUi.TAB_SEARCH};
-        for (int i = 0; i < tabs.length; i++) {
-            final int tab = tabs[i];
+        // Every page the app can show is built and loaded at launch, not on first tap -
+        // "leaderboard and search load when I click" is what building them lazily looked
+        // like. Each is a WebView, not a new process: Android decides how many renderers
+        // to give out, and this app's tabs are cheap (no video, no canvas).
+        //
+        // They are built one after another with a short gap rather than all at once, so
+        // the tab on screen keeps the CPU for its first paint. The gap is small because
+        // the whole point is that they are ready by the time the user taps.
+        final int[] pages = {AppUi.TAB_LEADERBOARD, AppUi.TAB_SEARCH};
+        for (int i = 0; i < pages.length; i++) {
+            final int tab = pages[i];
             main.postDelayed(() -> {
                 if (!views.containsKey(tab)) ensure(tab);
-            }, 500L + 400L * i);
+            }, 250L + 250L * i);
         }
-        // ...and one window, so More -> New window is not the only way to get a second
-        // arena already warm. If the user never opens one it costs a single background
-        // renderer while it is still hidden (priority BOUND - the policy above is what
-        // keeps it from competing with the page on screen).
+        // ...and one conversation tab, so the strip has a second chip the moment it is
+        // asked for one, already loaded. It stays out of the strip until it is used.
         main.postDelayed(() -> {
             if (windows().isEmpty()) ensure(CHAT_WINDOW_BASE);
-        }, 400L + 500L * tabs.length);
+        }, 250L + 250L * pages.length);
     }
 
     /** True when Android itself has decided this phone has little memory to give. */
@@ -708,27 +740,137 @@ public final class TabWebViews {
         web.evaluateJavascript(JS_ENTER_SEND, null);
     }
 
+    /**
+     * The page-side half of "start a new chat".
+     *
+     * Arena exposes no URL for a fresh conversation, and the chat tab's URL at the moment
+     * the user asked for one is still the old conversation's - so a new window opened with
+     * the chat tab's URL opens that same conversation again. That is exactly what happened
+     * on the device: two tabs, both showing the chat that was already open.
+     *
+     * The fix lives in the page because that is where arena's own "new chat" control is.
+     * It first tries to find that control; when it cannot (the sidebar is hidden in this
+     * app, and with it the button), it changes the route itself:
+     *
+     *  1. several URL shapes, in order: a bare /, then /chat, then coming back to / from
+     *     whatever the app is on - whichever first produces a document without a
+     *     conversation id in its address is the one that works;
+     *  2. only if a route change leaves the address pointing at a conversation does it
+     *     try the keyboard shortcut and, last, a full home load.
+     *
+     * It reports what it did through AgonNewChat so the app knows whether the tab needs a
+     * load of its own (the callback is optional: without it the script still works).
+     */
+    private static final String JS_NEW_CHAT =
+            "(function(){try{"
+            + "function tell(state){"
+            + "try{if(window.AgonNewChat&&AgonNewChat.state)AgonNewChat.state(state);}catch(e){}}"
+            // A conversation route has an id after the first path segment; the landing page
+            // does not. This is the only test used to decide "is this still a chat".
+            + "function onConversation(){"
+            + "var p=location.pathname.replace(/\\/+$/,'');"
+            + "var seg=p.split('/').filter(function(x){return x.length>0;});"
+            + "if(seg.length<2)return false;"
+            + "return /^(c|chat|conversation|thread|chats)$/i.test(seg[0]);}"
+            // 1. arena's own control, when it is on screen
+            + "var sel=['[aria-label*=\"new chat\" i]','[data-testid*=\"new-chat\" i]',"
+            + "'button[title*=\"new chat\" i]','a[title*=\"new chat\" i]',"
+            + "'a[href=\"/\"]','a[href$=\"/chat\"]'];"
+            + "for(var i=0;i<sel.length;i++){"
+            + "var el=document.querySelector(sel[i]);"
+            + "if(el&&el.offsetParent!==null){el.click();tell('clicked');return;}}"
+            // 2. route changes, cheapest first
+            + "if(!onConversation()){tell('already-new');return;}"
+            + "var tries=['/','/chat','/new'];"
+            + "var next=tries[0];"
+            + "for(var t=0;t<tries.length;t++){"
+            + "if(tries[t]!==location.pathname){next=tries[t];break;}}"
+            + "try{history.pushState({},'',next);"
+            + "window.dispatchEvent(new PopStateEvent('popstate',{state:{}}));"
+            + "tell('routed');}catch(e){tell('none');}"
+            + "}catch(e){try{AgonNewChat.state('none');}catch(x){}}})();";
+
+    /**
+     * The one key the app claims for itself: Ctrl/Cmd+N asks for a new chat.
+     *
+     * It is installed on every document because a hardware keyboard shortcut is a browser
+     * expectation, and the app is the thing that owns the window. Everything else is left
+     * to the page - pressing Escape through is what the Back button already does.
+     */
+    private static final String JS_NEW_CHAT_LISTENER =
+            "(function(){"
+            + "if(window.__arenaNewChatKey)return;window.__arenaNewChatKey=1;"
+            + "document.addEventListener('keydown',function(e){"
+            + "if(e.key!=='n'&&e.key!=='N')return;"
+            + "if(!(e.ctrlKey||e.metaKey)||e.shiftKey||e.altKey)return;"
+            + "e.preventDefault();"
+            + "try{if(window.ArenaNative&&ArenaNative.newChat)ArenaNative.newChat();}catch(x){}}"
+            + ",true);})();";
+
+    /** Runs {@link #JS_NEW_CHAT}; the callback receives the state word the script reports. */
+    public static void startNewChat(WebView web, android.webkit.ValueCallback<String> state) {
+        if (web == null) {
+            if (state != null) state.onReceiveValue("none");
+            return;
+        }
+        if (state != null) {
+            web.addJavascriptInterface(new NewChatBridge(state), "AgonNewChat");
+        }
+        web.evaluateJavascript(JS_NEW_CHAT, null);
+    }
+
+    /** Receives the state word from {@link #JS_NEW_CHAT}. Runs on a WebView thread. */
+    private static final class NewChatBridge {
+        private final android.webkit.ValueCallback<String> target;
+
+        NewChatBridge(android.webkit.ValueCallback<String> target) {
+            this.target = target;
+        }
+
+        @android.webkit.JavascriptInterface
+        public void state(final String value) {
+            if (target == null) return;
+            new Handler(Looper.getMainLooper()).post(() -> {
+                try {
+                    target.onReceiveValue(value);
+                } catch (RuntimeException ignored) {
+                    // the activity went away between the call and the answer
+                }
+            });
+        }
+    }
+
     /** Text-based fallback for a sidebar whose class names say nothing. */
     private static final String JS_SIDEBAR =
             "var cands=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
             + "for(var i=0;i<cands.length;i++){var el=cands[i];"
             + "if(!shown(el)||!empty(el))continue;"
             + "var r=el.getBoundingClientRect();"
-            + "if(r.width>420||r.height<0.5*r.width)continue;"
-            + "var t=text(el);if(t.length>600)continue;"
+            // Shape, not a desktop size: a sidebar is a column - taller than it is wide -
+            // and it sits against one edge of the window. The old rule also required
+            // width <= 420 CSS px, which is a desktop figure; on a phone the panel is a
+            // slide-over the full width of the screen, so the rule could never match there
+            // while it matched happily in a desktop-shaped emulator window. That is
+            // the it-hides-in-the-emulator-but-not-on-my-phone report.
+            + "if(r.height<r.width*0.9)continue;"
+            + "if(r.left>window.innerWidth*0.2&&"
+            + "r.right<window.innerWidth*0.8)continue;"
+            + "var t=text(el);if(t.length>700)continue;"
             // The three fixed entries, then the account row, which is an email address once
             // signed in and a sign-in label before that. Requiring all four terms, including
             // the literal sign-in text, is why the sidebar was never hidden on a signed-in
-            // phone: the recording shows the account email where that text was expected, so
-            // the count could only ever reach three. A landing page does not carry three nav
-            // words plus an email address, so this is no looser than it was.
+            // phone.
             + "var words=['new chat','leaderboard','search'];"
             + "var hits=0;"
             + "for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0)hits++;}"
             + "var account=/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/.test(t)||t.indexOf('sign in')>=0"
-            + "||t.indexOf('log in')>=0;"
-            + "if(hits<3||!account)continue;"
-            + "if(el.querySelectorAll('a,button').length<4)continue;"
+            + "||t.indexOf('sign up')>=0||t.indexOf('log in')>=0||t.indexOf('login')>=0;"
+            // Two of the three words plus an account row is a navigation panel; the words
+            // alone are a start page and are left alone. On a narrow panel arena hides one
+            // of them behind its own overflow control often enough that requiring all
+            // three kept the panel on screen.
+            + "if(hits<2||!account)continue;"
+            + "if(el.querySelectorAll('a,button,[role=button],[role=link]').length<3)continue;"
             // ...and never hide anything that contains the composer or the main region.
             + "if(el.querySelector('main,textarea,form,[contenteditable]'))continue;"
             + "hide(el);break;}";
@@ -748,17 +890,7 @@ public final class TabWebViews {
 
     /** Starts a fresh conversation using arena's own "new chat" control. */
     public static void startNewChat(WebView web) {
-        if (web == null) return;
-        String js = "(function(){"
-                + "var sel=['[aria-label*=\"new chat\" i]','[data-testid*=\"new-chat\" i]',"
-                + "'a[href=\"/\"]','a[href$=\"/chat\"]','button[title*=\"new chat\" i]'];"
-                + "for(var i=0;i<sel.length;i++){var el=document.querySelector(sel[i]);"
-                + "if(el&&el.offsetParent!==null){el.click();return true;}}"
-                + "if(location.pathname!=='/'){location.assign('/');return true;}"
-                + "window.dispatchEvent(new KeyboardEvent('keydown',"
-                + "{key:'k',ctrlKey:true,bubbles:true}));"
-                + "return false;})();";
-        web.evaluateJavascript(js, null);
+        startNewChat(web, null);
     }
 
     /** Escapes text into a single-quoted JavaScript string literal. */
@@ -810,6 +942,15 @@ public final class TabWebViews {
         // Chat tab loads immediately; others start as soon as they are created so the
         // network work overlaps with the user reading the current screen.
         w.loadUrl(urlFor(tab));
+        // A tab created for a *new chat* must not stop at whatever conversation the root
+        // route restores: once its document exists, ask the page for a fresh one. This
+        // runs once per tab, and only for tabs the user asked for (never for the chat tab
+        // restored on launch, which must come back to what it was showing).
+        if (isWindow(tab)) {
+            w.postDelayed(() -> {
+                if (views.get(tab) == w) startNewChat(w, null);
+            }, 900L);
+        }
         trim();
         return w;
     }
@@ -917,8 +1058,9 @@ public final class TabWebViews {
                 loaded.add(tab);
                 applyChromeInsets(view, lastTopInset, lastBottomInset);
                 // Re-installed per document: a navigation replaces the page, and with it
-                // every listener the previous document had. The script is idempotent.
+                // every listener the previous document had. Both scripts are idempotent.
                 installEnterSend(view);
+                view.evaluateJavascript(JS_NEW_CHAT_LISTENER, null);
                 // The page made it: if the "stuck" bar is up for this tab, drop it.
                 if (activity instanceof MainActivity) ((MainActivity) activity).clearStalledLoad();
             }

@@ -22,27 +22,31 @@ import android.widget.TextView;
  * The browser strip above the page.
  *
  * <pre>
- *   &lt;   [ Chat ] [ Leaderboard ] [ Search ] [ Window 2 ]   &gt;   (+)
+ *   &lt;   [ Chat ] [ New chat 2 ]   &gt;   (+)
  * </pre>
  *
- * Why it exists: extra pages were only reachable through the More sheet, and switching to
- * one meant finding a menu row. The user asked for the shape a browser has, so this is
- * that shape: two arrows, the open tabs by name, and one button to add another.
+ * The model is a browser's, not a menu's:
  *
- * The tabs are the real ones - Chat, Leaderboard, Search and every window opened from
- * More. Each has a live WebView behind it, so tapping a name flips visibility instead of
- * loading anything; that is why the strip can be tapped as freely as the bottom bar.
+ *  - every chip is a <em>conversation</em>, in the order the user made them;
+ *  - {@code +} opens another one, and it opens empty rather than on the chat that was
+ *    already on screen;
+ *  - {@code <} and {@code >} move along that list, and dim at the ends. They are not page
+ *    history: page history inside one tab is what the system Back button is for, and a
+ *    browser-shaped arrow that goes "back" to a page you have already left is not what
+ *    the arrow next to a tab strip means. A long press on either arrow still asks the page
+ *    to go back/forward, so nothing was lost.
  *
- * Everything visual lives here, so the strip matches the app's palette in both themes:
- * paper-white chips, an accent-outlined chip for the page on screen, muted text for the
- * rest, a hairline under the row. Nothing is drawn over the page and no CSS is injected
- * for it - the row is real estate, exactly like the bottom bar.
+ * There is deliberately no chip for Leaderboard or Search: those are the bottom bar's
+ * destinations. The strip starts as just the arrows and a +, and the first + adds the
+ * second tab beside the one that is already there.
+ *
+ * Everything visual lives here so the strip matches the app's palette in both themes.
  */
 public final class TabStrip {
 
     /** What the strip needs from the activity; it knows nothing about WebViews itself. */
     public interface Host {
-        /** The id of the page actually on screen (a tab or one of the extra windows). */
+        /** The id of the tab on screen. */
         int currentTabId();
 
         /** Tab ids in display order. */
@@ -51,8 +55,10 @@ public final class TabStrip {
         /** Name to show on a chip. */
         String tabName(int tabId);
 
-        /** True for a tab the user may close (the extra windows, never the built-in tabs). */
-        boolean canCloseTab(int tabId);
+        /** False at the last tab / first tab, so the arrows can dim. */
+        boolean canSelectPrevious();
+
+        boolean canSelectNext();
 
         /** False when another tab would exceed what the phone can keep warm. */
         boolean canOpenTab();
@@ -61,9 +67,16 @@ public final class TabStrip {
 
         void onCloseTab(int tabId);
 
-        void onBack();
+        /** The left arrow: the previous tab. */
+        void onPreviousTab();
 
-        void onForward();
+        /** The right arrow: the next tab. */
+        void onNextTab();
+
+        /** Long press on an arrow: page history, the thing the arrows no longer do. */
+        void onPageBack();
+
+        void onPageForward();
 
         void onNewTab();
     }
@@ -102,7 +115,7 @@ public final class TabStrip {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         back = arrowButton(R.drawable.ic_nav_back, R.string.strip_back, true,
-                () -> host.onBack());
+                () -> host.onPreviousTab(), () -> host.onPageBack());
         row.addView(back, new LinearLayout.LayoutParams(buttonSize(), buttonSize()));
 
         // Only the tab list scrolls. With five chips on a phone the arrows and the + would
@@ -123,16 +136,15 @@ public final class TabStrip {
         row.addView(scroller, scrollLp);
 
         forward = arrowButton(R.drawable.ic_nav_forward, R.string.strip_forward, true,
-                () -> host.onForward());
+                () -> host.onNextTab(), () -> host.onPageForward());
         row.addView(forward, new LinearLayout.LayoutParams(buttonSize(), buttonSize()));
 
         plus = arrowButton(R.drawable.ic_nav_plus, R.string.strip_new_tab, false,
-                () -> host.onNewTab());
-        plus.setContentDescription(context.getString(R.string.strip_new_tab));
+                () -> host.onNewTab(), null);
         plus.setOnLongClickListener(v -> {
             if (host.canOpenTab()) return false;
             tap(v);
-            toast(context.getString(R.string.strip_tab_limit));
+            toast(context.getString(R.string.window_limit));
             return true;
         });
         LinearLayout.LayoutParams plusLp = new LinearLayout.LayoutParams(
@@ -156,11 +168,9 @@ public final class TabStrip {
     }
 
     /** Dims an arrow that would go nowhere, without removing it and reflowing the row. */
-    public void setArrowsEnabled(boolean canGoBack, boolean canGoForward) {
-        back.setAlpha(canGoBack ? 1f : 0.28f);
-        back.setEnabled(canGoBack);
-        forward.setAlpha(canGoForward ? 1f : 0.28f);
-        forward.setEnabled(canGoForward);
+    public void setArrowsEnabled(boolean hasPrevious, boolean hasNext) {
+        back.setAlpha(hasPrevious ? 1f : 0.28f);
+        forward.setAlpha(hasNext ? 1f : 0.28f);
     }
 
     /**
@@ -183,10 +193,9 @@ public final class TabStrip {
     /**
      * Redraws the row.
      *
-     * Rebuilt only when the *set* of tabs or the current tab changed. Page finishes, title
-     * changes and every other harmless callback call this too; rebuilding on those would
-     * make the chips blink and lose their scroll position, so an unchanged strip is a
-     * cheap comparison and a selection repaint.
+     * Rebuilt only when the *set* of tabs or the current tab changed. Page finishes and
+     * every other harmless callback call this too; rebuilding on those would make the
+     * chips blink and lose their scroll position.
      */
     public void refresh() {
         if (tabsBox == null || host == null) return;
@@ -206,6 +215,7 @@ public final class TabStrip {
         }
         scrollToCurrent(current);
         setCanOpenTab(host.canOpenTab());
+        setArrowsEnabled(host.canSelectPrevious(), host.canSelectNext());
     }
 
     private void buildChips(java.util.List<Integer> ids, int current) {
@@ -226,9 +236,9 @@ public final class TabStrip {
                 tap(v);
                 host.onSelectTab(tabId);
             });
-            // Long press closes a window: on a phone that is the usual per-chip action, and
-            // it costs no width for an x on every chip.
-            if (host.canCloseTab(id)) {
+            // Long press closes a tab. Never the last one: an empty strip with no page
+            // behind it is a state the app cannot show.
+            if (ids.size() > 1) {
                 chip.setOnLongClickListener(v -> {
                     tap(v);
                     host.onCloseTab(tabId);
@@ -302,7 +312,15 @@ public final class TabStrip {
         });
     }
 
-    private ImageView arrowButton(int icon, int description, boolean muted, Runnable onClick) {
+    /**
+     * One arrow control.
+     *
+     * Tap and long press are different things here - along the tabs, and through the page's
+     * own history - so both are wired, and the long press carries its own description for
+     * anyone using TalkBack.
+     */
+    private ImageView arrowButton(int icon, int description, boolean muted,
+                                  final Runnable onClick, final Runnable onLongClick) {
         ImageView v = new ImageView(context);
         v.setImageResource(icon);
         v.setColorFilter(AppUi.color(context, muted ? R.color.on_bg : R.color.on_accent));
@@ -318,10 +336,16 @@ public final class TabStrip {
             v.setBackground(pressableCircle(AppUi.color(context, R.color.accent)));
         }
         v.setOnClickListener(view -> {
-            if (!view.isEnabled()) return;
             tap(view);
             onClick.run();
         });
+        if (onLongClick != null) {
+            v.setOnLongClickListener(view -> {
+                tap(view);
+                onLongClick.run();
+                return true;
+            });
+        }
         return v;
     }
 

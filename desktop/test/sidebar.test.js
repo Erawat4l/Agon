@@ -155,8 +155,28 @@ check('a wide hero band is not a sidebar',
      <a>me@x.com</a></div>`,
   [], { size: { hero: { w: 900, h: 300 } } });
 
-check('a panel with too few links is not a sidebar',
-  `<div data-test="thin"><a>New chat</a><a>Search</a><a>me@x.com</a></div>`,
+// --- the phone case that broke it: the panel is a full-width slide-over ---------------
+check('a full-width drawer on a phone is hidden',
+  `<div id=sb data-test="sidebar">
+     <a>New chat</a><a>Leaderboard</a><a>Search</a><button>someone@example.com</button>
+   </div>`,
+  ['sidebar'], { size: { sb: { w: 392, h: 780 } } });
+
+check('a narrow phone drawer with one nav word behind an overflow control is hidden',
+  `<div id=sb data-test="sidebar">
+     <a>New chat</a><a>Search</a><button>More</button><button>someone@example.com</button>
+   </div>`,
+  ['sidebar'], { size: { sb: { w: 300, h: 700 } } });
+
+check('a full-width drawer that holds the composer is never hidden',
+  `<div data-test="drawer">
+     <a>New chat</a><a>Search</a><button>someone@example.com</button>
+     <textarea></textarea></div>`,
+  [], { size: { drawer: { w: 392, h: 780 } } });
+
+// One nav word plus an account row is a promo card or a settings panel, not the sidebar.
+check('a single nav word with an account row is not a sidebar',
+  `<div data-test="thin"><a>New chat</a><button>someone@example.com</button></div>`,
   []);
 
 check('a hidden panel stays hidden and nothing else is touched',
@@ -186,6 +206,6 @@ check('a hidden panel stays hidden and nothing else is touched',
   console.log(`${ok ? 'PASS' : 'FAIL'}  the page's own top header is still hidden`);
 }
 
-const total = 11;
+const total = 14;
 console.log(`\n${total - bad}/${total} PASS`);
 process.exit(bad === 0 ? 0 : 1);

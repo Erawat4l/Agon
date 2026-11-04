@@ -35,6 +35,19 @@ public final class WebBridge {
                 safeName == null ? "arena-download" : safeName, safeMime, base64));
     }
 
+    /**
+     * Ctrl/Cmd+N in the page: a browser-shaped request for a new chat tab.
+     *
+     * The only inbound call that changes what is on screen, and it can do nothing worse
+     * than what the strip's own + button does - the activity decides, not the page.
+     */
+    @JavascriptInterface
+    public void newChat() {
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) ((MainActivity) activity).onNewChatShortcut();
+        });
+    }
+
     @JavascriptInterface
     public void failed(final String what) {
         activity.runOnUiThread(() -> android.widget.Toast

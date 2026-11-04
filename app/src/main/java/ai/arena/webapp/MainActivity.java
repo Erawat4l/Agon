@@ -474,35 +474,31 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public java.util.List<Integer> tabIds() {
-                // The three pages first, in nav order, then every extra window the user
-                // opened - the same order the More sheet lists them in. They are listed
-                // even when the bottom bar is hidden: then the strip is the only way to
-                // reach them.
+                // The open conversations, in the order they were made. Leaderboard and
+                // Search are deliberately not here: they are the bottom bar's
+                // destinations, and a chip for them made the strip read as a second copy
+                // of the nav.
                 java.util.List<Integer> ids = new java.util.ArrayList<>();
                 ids.add(AppUi.TAB_CHAT);
-                ids.add(AppUi.TAB_LEADERBOARD);
-                ids.add(AppUi.TAB_SEARCH);
                 if (tabs != null) ids.addAll(tabs.windows());
                 return ids;
             }
 
             @Override
             public String tabName(int tabId) {
-                switch (tabId) {
-                    case AppUi.TAB_CHAT:
-                        return getString(R.string.strip_tab_chat);
-                    case AppUi.TAB_LEADERBOARD:
-                        return getString(R.string.strip_tab_leaderboard);
-                    case AppUi.TAB_SEARCH:
-                        return getString(R.string.strip_tab_search);
-                    default:
-                        return windowName(tabId);
-                }
+                return tabLabel(tabId);
             }
 
             @Override
-            public boolean canCloseTab(int tabId) {
-                return TabWebViews.isWindow(tabId);
+            public boolean canSelectPrevious() {
+                return tabIndex(pageId()) > 0;
+            }
+
+            @Override
+            public boolean canSelectNext() {
+                java.util.List<Integer> ids = tabIds();
+                int index = tabIndex(pageId());
+                return index >= 0 && index < ids.size() - 1;
             }
 
             @Override
@@ -512,11 +508,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public void onSelectTab(int tabId) {
-                if (TabWebViews.isWindow(tabId)) {
-                    switchWindow(tabId);
-                } else {
-                    showTab(tabId);
-                }
+                selectPage(tabId);
             }
 
             @Override
@@ -525,20 +517,97 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
-            public void onBack() {
+            public void onPreviousTab() {
+                stepTab(-1);
+            }
+
+            @Override
+            public void onNextTab() {
+                stepTab(1);
+            }
+
+            @Override
+            public void onPageBack() {
                 goBackInPage();
             }
 
             @Override
-            public void onForward() {
+            public void onPageForward() {
                 goForwardInPage();
             }
 
             @Override
             public void onNewTab() {
-                newWindow();
+                newChatTab();
             }
         });
+    }
+
+    /** Where a page id sits in the strip, or -1 when it is not one of the open tabs. */
+    private int tabIndex(int id) {
+        java.util.List<Integer> ids = new java.util.ArrayList<>();
+        ids.add(AppUi.TAB_CHAT);
+        if (tabs != null) ids.addAll(tabs.windows());
+        return ids.indexOf(id);
+    }
+
+    /** A chip's name: the conversation's own title when arena has one, else its number. */
+    private String tabLabel(int id) {
+        if (id == AppUi.TAB_CHAT) return getString(R.string.strip_tab_chat);
+        String title = tabs == null ? null : tabs.windowTitle(id);
+        if (title != null) return title;
+        java.util.List<Integer> open = tabs == null ? null : tabs.windows();
+        int index = open == null ? -1 : open.indexOf(id);
+        return index < 0 ? getString(R.string.strip_tab_chat)
+                : getString(R.string.strip_tab_new, index + 2);
+    }
+
+    /** Puts any page id on screen: the chat tab, or one of the extra conversation tabs. */
+    private void selectPage(int id) {
+        if (id == AppUi.TAB_CHAT) {
+            currentTab = AppUi.TAB_CHAT;
+            showChat();
+            refreshStrip();
+            return;
+        }
+        if (TabWebViews.isWindow(id)) switchWindow(id);
+    }
+
+    /** Moves one tab left or right; the strip's arrows are exactly this. */
+    private void stepTab(int direction) {
+        java.util.List<Integer> ids = new java.util.ArrayList<>();
+        ids.add(AppUi.TAB_CHAT);
+        if (tabs != null) ids.addAll(tabs.windows());
+        if (ids.size() < 2) return;
+        int index = ids.indexOf(pageId());
+        if (index < 0) index = 0;
+        int next = Math.max(0, Math.min(ids.size() - 1, index + direction));
+        if (next == index) return;
+        selectPage(ids.get(next));
+    }
+
+    /**
+     * The + button, and Ctrl/Cmd+N from the page: another conversation tab, opened empty.
+     *
+     * The new tab is created, put on screen and asked for a fresh chat. It is a new chat
+     * rather than a copy of the current one - copying the current URL is what made the
+     * previous build open the same conversation twice.
+     */
+    private void newChatTab() {
+        if (tabs == null) return;
+        int id = tabs.openWindow();
+        if (id < 0) {
+            toast(R.string.window_limit);
+            return;
+        }
+        switchWindow(id);
+        refreshStrip();
+    }
+
+    /** Called from the page when Ctrl/Cmd+N is pressed there. */
+    void onNewChatShortcut() {
+        if (isFinishing() || isDestroyed()) return;
+        newChatTab();
     }
 
     /** Redraws the strip and its arrows; cheap and safe to call from any callback. */
@@ -757,18 +826,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * nothing. The four-window ceiling is not arbitrary: each window is its own Chromium
      * renderer, and a phone that already reported lag cannot keep six of them.
      */
-    private void newWindow() {
-        if (tabs == null) return;
-        int id = tabs.openWindow();
-        if (id < 0) {
-            toast(R.string.window_limit);
-            return;
-        }
-        switchWindow(id);
-        refreshStrip();
-        toast(R.string.window_opened);
-    }
-
     /** Puts an open window (or any page id) on screen. */
     private void switchWindow(int id) {
         if (tabs == null) return;
@@ -806,7 +863,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // A popup raised by the page (a preview, a doc) covers the window just switched to,
         // and leaving it up reads as the switch having done nothing.
         dismissOverPageSheets();
-        toastText(getString(R.string.window_switched, windowName(id)));
+        // No toast: switching between tabs is a browser gesture now, and one that answers
+        // every tap with a message is noise. The chip that lights up is the feedback.
     }
 
     /**
@@ -830,8 +888,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (title != null) return title;
         java.util.List<Integer> open = tabs == null ? null : tabs.windows();
         int index = open == null ? -1 : open.indexOf(id);
-        return index < 0 ? getString(R.string.menu_new_window)
-                : getString(R.string.window_number, index + 1);
+        return index < 0 ? getString(R.string.strip_tab_chat)
+                : getString(R.string.strip_tab_new, index + 2);
     }
 
     /** The open windows, in the order the More sheet lists them. */
@@ -1421,11 +1479,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
-            public void onNewWindow() {
-                newWindow();
-            }
-
-            @Override
             public void onSwitchWindow(int windowId) {
                 switchWindow(windowId);
             }
@@ -1574,10 +1627,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private void schedulePreload() {
         if (preloadScheduled || tabs == null) return;
         preloadScheduled = true;
-        window.postDelayed(() -> {
+        // Right away, not seconds later: the other pages used to be built 2.5 s after the
+        // chat finished loading, which on a phone meant a tap on Leaderboard in the first
+        // few seconds still opened a cold page ("leaderboard and search do not preload").
+        window.post(() -> {
             if (isFinishing() || isDestroyed() || tabs == null) return;
             tabs.preload();
-        }, 2500);
+        });
     }
 
     /** Shows/hides the bottom bar and hands the freed space back to the page. */

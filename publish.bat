@@ -12,6 +12,8 @@ REM     publish.bat 1.2.0 beta      publish as a pre-release (Beta channel)
 REM     publish.bat local           build the APK + installers and STOP - no release,
 REM                                 no upload, GitHub never contacted
 REM     publish.bat 1.4.49 apk      build ONLY the APK and stop (no installers, no upload)
+REM     publish.bat 1.4.57 rebuild  rebuild and re-upload even if that version is
+REM                                 already published and complete
 REM     publish.bat 1.2.0 local     same, at a version you choose
 REM     publish.bat --token ghp_xx  remember a GitHub token for next time
 REM
@@ -24,6 +26,7 @@ set "VERSION=%~1"
 set "CHANNEL=%~2"
 set "LOCAL=0"
 set "APKONLY=0"
+set "REBUILD=0"
 
 if /i "%VERSION%"=="--token" goto :save_token
 if /i "%VERSION%"=="-t" goto :save_token
@@ -50,6 +53,18 @@ if /i "%VERSION%"=="apk" (
 )
 if /i "%CHANNEL%"=="apk" (
     set "APKONLY=1"
+    set "CHANNEL="
+)
+
+REM "rebuild" forces the full build+upload for a version that is already complete.
+REM Only two words are accepted, so it goes in either position; it is not a channel.
+if /i "%VERSION%"=="rebuild" (
+    set "REBUILD=1"
+    set "VERSION=%CHANNEL%"
+    set "CHANNEL="
+)
+if /i "%CHANNEL%"=="rebuild" (
+    set "REBUILD=1"
     set "CHANNEL="
 )
 
@@ -190,7 +205,8 @@ REM One line per call, on purpose: a "^" line continuation inside a parenthesise
 REM block is a documented cmd.exe trap (the block is parsed before the caret is honoured).
 if "!APKONLY!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly -ApkOnly
 if "!APKONLY!"=="0" if "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly
-if "!APKONLY!"=="0" if not "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!"
+if "!APKONLY!"=="0" if not "!LOCAL!"=="1" if "!REBUILD!"=="0" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!"
+if "!APKONLY!"=="0" if not "!LOCAL!"=="1" if "!REBUILD!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!" -Rebuild
 if errorlevel 1 goto :failed
 
 echo.

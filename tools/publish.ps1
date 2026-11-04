@@ -20,6 +20,10 @@ param(
     # Build the APK and the installers and STOP. No release is created, nothing is uploaded,
     # and GitHub is not contacted at all - so nothing can be left behind as a draft.
     [switch]$LocalOnly,
+    # Publish even when this version already has every file attached. Without it a repeat
+    # run of a finished version stops early instead of rebuilding for several minutes and
+    # uploading byte-identical files (see the check before the upload).
+    [switch]$Rebuild,
     # Build ONLY the APK and stop. The Windows installers are 140 MB and several minutes of
     # electron-builder for a file that is not being asked for; this is the APK iteration loop.
     [switch]$ApkOnly
@@ -413,16 +417,28 @@ $willBuildDesktop = (-not $ApkOnly) -and
     (Test-Path (Join-Path $root "desktop\package.json")) -and
     ($null -ne (Get-Command npm -ErrorAction SilentlyContinue))
 
+# A brand-new release starts as a draft; one that already exists keeps whatever state it
+# has (see the comment on the field below).
+$wasDraft = $(if ($existing) { [bool]$existing.draft } else { $true })
+
 $body = @{
     tag_name         = $tag
     target_commitish = $sha
     name             = $(if ($willBuildDesktop) { "Agon " + $Version + " - Android APK + Windows installer" }
                          else { "Agon " + $Version + " - Android APK" })
     body             = $Notes
-    # Draft until the APK is actually attached. `releases/latest` ignores drafts, and the
-    # in-app updater reads that endpoint - so a release that fails halfway through can no
-    # longer become the "newest" build with no file in it. It is published at the very end.
-    draft            = $true
+    # An existing release keeps its state; a new one starts as a draft. Two reasons.
+    #
+    # `releases/latest` ignores drafts, and the in-app updater reads that endpoint - so a
+    # release that fails halfway through can no longer become the "newest" build with no
+    # file in it. That is why a new one is created as a draft and published at the very end.
+    #
+    # But re-running for a version that is ALREADY published (the usual case: v1.4.57 was
+    # published APK-only and now needs the installers) must not un-publish it on the way
+    # in. Forcing draft=true here took the live release away from every installed app for
+    # the several minutes the Windows build takes, and left it a draft whenever that build
+    # failed. Only the release at the very end of this script changes draft state now.
+    draft            = $wasDraft
     prerelease       = ($Channel -eq "beta")
 } | ConvertTo-Json
 
@@ -548,6 +564,16 @@ if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
             Write-Host "      [i] Windows build incomplete (need Agon-Setup-64.exe and -32.exe); skipping the Windows upload." -ForegroundColor Yellow
         } else {
             foreach ($file in $desktopAssets) {
+                # Same rule as the APK above: re-running for the same version replaces that
+                # version's file instead of failing on GitHub's 422 "already_exists". Without
+                # this, the second run of a version that already had an installer stopped
+                # dead at the upload.
+                $clash = @($release.assets) | Where-Object { $_.name -eq $file.Name }
+                foreach ($old in $clash) {
+                    Write-Host "      replacing the existing $($file.Name)"
+                    Invoke-RestMethod -Uri "$api/releases/assets/$($old.id)" -Headers $headers `
+                        -Method Delete | Out-Null
+                }
                 Write-Host "      uploading $($file.Name)..."
                 $name = [uri]::EscapeDataString($file.Name)
                 $assetUpload = "https://uploads.github.com/repos/$Owner/$Repo/releases/$($release.id)/assets?name=$name"
@@ -558,6 +584,73 @@ if ((Test-Path (Join-Path $desktopDir "package.json")) -and $null -ne $npm) {
     }
 } else {
     Write-Host "[3b] Windows client: skipped (Node.js/npm not found, or desktop/ missing)."
+}
+
+# ---------------------------------------------------------------- already done?
+# Re-running a version that is already published is a normal thing to do: after an APK-only
+# publish you come back with `publish.bat 1.4.57` to add the installers, and after that
+# there is nothing left to add. Before spending several minutes on a full rebuild, check
+# what the release actually holds.
+#
+#   the APK      - a byte-for-byte match on GitHub's own sha256 (or, on an older release
+#                  without one, the same file size)
+#   the installers - latest.yml on the release names this exact version
+#
+# If both match, this run would upload exactly what is there already, so it says so and
+# stops. `publish.bat <ver> --rebuild` (or -Rebuild) forces the full run.
+$alreadyComplete = $false
+if (-not $ApkOnly -and -not $Rebuild -and $release) {
+    $remoteApk = @($release.assets) | Where-Object { $_.name -eq "Agon-$Version.apk" }
+    $remoteYml = @($release.assets) | Where-Object { $_.name -eq "latest.yml" }
+    if ($remoteApk -and $remoteYml) {
+        $apkSame = $false
+        if ($remoteApk.digest) {
+            $apkSame = ("$($remoteApk.digest)" -eq "sha256:" + (Get-FileHash $asset -Algorithm SHA256).Hash.ToLower())
+        } else {
+            $apkSame = ([int64]$remoteApk.size -eq [int64](Get-Item $asset).Length)
+        }
+        $ymlVersion = ""
+        try {
+            $ymlText = Invoke-RestMethod -Uri $remoteYml.url -Headers @{
+                Authorization = "Bearer $Token"
+                Accept        = "application/octet-stream"
+                "User-Agent"  = "ArenaPublisher"
+            } -Method Get
+            if ($ymlText -match "(?m)^version:\s*'?([0-9][^'\s]*)") { $ymlVersion = $Matches[1] }
+        } catch {
+            $ymlVersion = ""
+        }
+        if ($apkSame -and $ymlVersion -eq $Version) {
+            $alreadyComplete = $true
+        }
+    }
+}
+
+if ($alreadyComplete) {
+    Write-Host ""
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "  [OK] $tag is already published and complete" -ForegroundColor Green
+    Write-Host "  $($release.html_url)" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  The APK on the release is this exact build, and latest.yml already"
+    Write-Host "  describes $Version, so the Windows installers are there and current."
+    Write-Host "  Nothing was rebuilt and nothing was uploaded."
+    Write-Host ""
+    Write-Host "  To build and upload again anyway:  publish.bat $Version --rebuild" -ForegroundColor Yellow
+    if ($wasDraft) {
+        Write-Host ""
+        Write-Host "  The release is still a DRAFT - publishing it now." -ForegroundColor Yellow
+        try {
+            $release = Invoke-RestMethod -Uri "$api/releases/$($release.id)" -Headers $headers `
+                -Method Patch -ContentType "application/json" `
+                -Body (@{ draft = $false; prerelease = ($Channel -eq "beta") } | ConvertTo-Json)
+            Write-Host "  Published: $($release.html_url)" -ForegroundColor Green
+        } catch {
+            Fail "The release could not be published: $($_.Exception.Message)"
+        }
+    }
+    exit 0
 }
 
 # Nothing above this line is visible to an installed app: the release is still a draft and

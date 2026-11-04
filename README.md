@@ -40,6 +40,7 @@ Run these from this folder in `cmd` (or double-click the `.bat` files).
 | `publish.bat` | Builds **and publishes a downloadable APK release** to GitHub (auto-bumps the patch version) |
 | `publish.bat 1.2.0` | Publishes that exact version |
 | `publish.bat 1.2.0 beta` | Publishes as a pre-release (visible on the Beta channel in-app) |
+| `publish.bat 1.2.0 rebuild` | Rebuilds and re-uploads even if that version is already complete |
 | `publish.bat --token ghp_…` | Remembers a GitHub token in `gh-token.txt` (git-ignored) |
 | `commit.bat` | **All-in-one:** pull → bump version → build → commit → push → publish release → install on USB phone → open release page |
 | `commit.bat "my changes"` | Same, with your commit message |

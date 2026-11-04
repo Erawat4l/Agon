@@ -179,6 +179,7 @@ public final class TabWebViews {
         WebView w = views.remove(id);
         if (w == null) return false;
         loaded.remove(id);
+        reportedTitles.remove(id);
         container.removeView(w);
         w.destroy();
         if (currentTab == id) {
@@ -187,6 +188,23 @@ public final class TabWebViews {
             if (chat != null) chat.bringToFront();
         }
         return true;
+    }
+
+    /** Conversation names reported by the pages themselves, keyed by tab id. */
+    private final Map<Integer, String> reportedTitles = new java.util.HashMap<>();
+
+    /** Called by the title bridge; keeps the latest name for a tab. */
+    void rememberTitle(int tab, String name) {
+        if (tab < 0 || name == null) return;
+        String clean = name.trim();
+        if (clean.isEmpty()) return;
+        reportedTitles.put(tab, clean);
+        if (activity instanceof MainActivity) ((MainActivity) activity).onTabTitleChanged();
+    }
+
+    /** The name the page reported for a tab, or null. */
+    public String conversationTitle(int tab) {
+        return reportedTitles.get(tab);
     }
 
     /** The page title arena gave a window, for the list in More. */
@@ -840,6 +858,110 @@ public final class TabWebViews {
         }
     }
 
+    /**
+     * What the conversation is called, read out of arena's own page.
+     *
+     * {@code WebView.getTitle()} is useless here: arena is a single-page app and never
+     * changes {@code document.title} per conversation, so every tab reports the same
+     * string ("Arena | Benchmarking...") no matter which chat it is showing. On the device
+     * that meant a tab called "Arena | Benchma..." for a conversation about something
+     * else entirely - and a tab that never renames itself as the chat goes on.
+     *
+     * The name has to come from the page, and the page offers three levels of it:
+     *
+     *  1. an explicit heading - an {@code h1}/{@code h2} in the conversation area, or an
+     *     element whose aria-label says so;
+     *  2. the first thing the user wrote: the first block of text in the message list,
+     *     which is what every chat app displays as a conversation name once it has one;
+     *  3. nothing - in which case the app keeps the number it gave the tab.
+     *
+     * It reports through AgonTitle and re-reports when the page changes, throttled, so a
+     * streaming answer cannot flood the bridge.
+     */
+    private static final String JS_TAB_TITLE =
+            "(function(){"
+            + "if(window.__arenaTabTitle)return;window.__arenaTabTitle=1;"
+            + "function clean(s){"
+            + "return (s||'').replace(/\\s+/g,' ').trim();}"
+            + "function usable(s){"
+            + "if(!s)return false;"
+            + "var low=s.toLowerCase();"
+            + "if(low==='arena'||low==='arena.ai'||low==='chat'||low==='new chat')return false;"
+            // the page's own pitch, which arena uses as a document title on every route
+            + "if(low.indexOf('benchmark')>=0||low.indexOf('arena |')>=0)return false;"
+            + "if(s.length<3)return false;"
+            + "return true;}"
+            // 1. an explicit conversation heading
+            + "function fromHeading(){"
+            + "var hs=document.querySelectorAll('h1,h2,[role=heading]');"
+            + "for(var i=0;i<hs.length;i++){"
+            + "var el=hs[i];"
+            + "if(el.querySelector('textarea,input,[contenteditable]'))continue;"
+            + "var t=clean(el.innerText||el.textContent);"
+            + "if(usable(t)&&t.length<=80)return t;}"
+            + "return null;}"
+            // 2. the first user message
+            + "function fromFirstMessage(){"
+            + "var ms=document.querySelectorAll("
+            + "'[data-role=user],[data-author=user],[class*=user-message i],'"
+            + "+'[class*=message i],[class*=prose i],article,p');"
+            + "for(var i=0;i<ms.length&&i<400;i++){"
+            + "var el=ms[i];"
+            + "if(el.querySelector('textarea,input,button,[contenteditable]'))continue;"
+            + "var r=el.getBoundingClientRect();"
+            + "if(r.width<40||r.height<8)continue;"
+            + "var t=clean(el.innerText||el.textContent);"
+            + "if(!usable(t))continue;"
+            // the first line of a message is its own subject line
+            + "return t.split(/[.!?\\n]/)[0].slice(0,60);}"
+            + "return null;}"
+            + "var last='',sentAt=0,pending=null;"
+            + "function report(){"
+            + "var t=fromHeading()||fromFirstMessage()||'';"
+            + "if(!t||t===last)return;"
+            + "if(Date.now()-sentAt<800)return;"
+            + "last=t;sentAt=Date.now();"
+            + "try{if(window.AgonTitle&&AgonTitle.name)AgonTitle.name(t);}catch(e){}}"
+            + "function soon(){if(pending)clearTimeout(pending);"
+            + "pending=setTimeout(report,600);}"
+            + "try{new MutationObserver(soon).observe(document.documentElement,"
+            + "{childList:true,subtree:true,characterData:true});}catch(e){}"
+            + "var passes=0;var t0=setInterval(function(){"
+            + "if(++passes>8){clearInterval(t0);return;}"
+            + "if(document.hidden)return;report();},700);"
+            + "setTimeout(report,400);"
+            + "})();";
+
+    /** Installs the title reporter on a document. Idempotent. */
+    public static void installTabTitle(WebView web, final android.webkit.ValueCallback<String> onName) {
+        if (web == null) return;
+        if (onName != null) {
+            web.addJavascriptInterface(new TitleBridge(onName), "AgonTitle");
+        }
+        web.evaluateJavascript(JS_TAB_TITLE, null);
+    }
+
+    /** Receives a conversation name from {@link #JS_TAB_TITLE}. */
+    private static final class TitleBridge {
+        private final android.webkit.ValueCallback<String> target;
+
+        TitleBridge(android.webkit.ValueCallback<String> target) {
+            this.target = target;
+        }
+
+        @android.webkit.JavascriptInterface
+        public void name(final String value) {
+            if (target == null || value == null) return;
+            new Handler(Looper.getMainLooper()).post(() -> {
+                try {
+                    target.onReceiveValue(value);
+                } catch (RuntimeException ignored) {
+                    // the tab went away between the call and the answer
+                }
+            });
+        }
+    }
+
     /** Text-based fallback for a sidebar whose class names say nothing. */
     private static final String JS_SIDEBAR =
             "var cands=document.body?document.body.querySelectorAll('nav,aside,div'):[];"
@@ -1061,6 +1183,10 @@ public final class TabWebViews {
                 // every listener the previous document had. Both scripts are idempotent.
                 installEnterSend(view);
                 view.evaluateJavascript(JS_NEW_CHAT_LISTENER, null);
+                // The chat tab's chip is a fixed label, but its name still matters: it is
+                // what the history sheet and the window list show for the conversation that
+                // is open. Every tab is asked, and only the extra tabs display it.
+                installTabTitle(view, name -> rememberTitle(tab, name));
                 // The page made it: if the "stuck" bar is up for this tab, drop it.
                 if (activity instanceof MainActivity) ((MainActivity) activity).clearStalledLoad();
             }

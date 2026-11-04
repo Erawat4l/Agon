@@ -225,7 +225,31 @@ if ($null -ne $python -and (Test-Path $abiCheck)) {
     & $python.Source $abiCheck $asset | Out-Host
     if ($LASTEXITCODE -ne 0) { Fail "The APK does not cover both 32-bit and 64-bit (see above). Nothing was published." }
 }
-Write-Host "      $((Split-Path $asset -Leaf))  ($sizeMb MB)"
+Write-Host "      $((Split-Path $asset -Leaf))  ($sizeMb MB)" -ForegroundColor Green
+# Show exactly where the bytes are. "Why is the APK 2.1 MB and not 2.4?" is not a
+# question anyone should have to answer by guesswork, and the answer is almost always
+# the same: the APK holds bytecode, not binaries.
+$files = (Get-ChildItem -Path (Join-Path $root "app\src\main\java") -Recurse -Filter *.java |
+    Measure-Object).Count
+$resFiles = (Get-ChildItem -Path (Join-Path $root "app\src\main\res") -Recurse -File |
+    Measure-Object).Count
+Write-Host "        $files java files, $resFiles resource files, no native .so (one APK for every phone)"
+try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($asset)
+    $groups = @{}
+    foreach ($entry in $zip.Entries) {
+        $leaf = $entry.FullName.Split('/')[0]
+        if (-not $groups.ContainsKey($leaf)) { $groups[$leaf] = 0 }
+        $groups[$leaf] += $entry.Length
+    }
+    $zip.Dispose()
+    $parts = $groups.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 4 |
+        ForEach-Object { "{0} {1:N0} KB" -f $_.Key, ($_.Value / 1KB) }
+    Write-Host ("        inside: " + ($parts -join ", "))
+} catch {
+    # A missing compression assembly must never fail a build that already succeeded.
+}
 
 if ($ApkOnly) {
     Write-Host ""

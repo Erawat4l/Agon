@@ -478,10 +478,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 // Search are deliberately not here: they are the bottom bar's
                 // destinations, and a chip for them made the strip read as a second copy
                 // of the nav.
-                java.util.List<Integer> ids = new java.util.ArrayList<>();
-                ids.add(AppUi.TAB_CHAT);
-                if (tabs != null) ids.addAll(tabs.windows());
-                return ids;
+                return openTabs();
             }
 
             @Override
@@ -498,7 +495,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public boolean canSelectNext() {
                 java.util.List<Integer> ids = tabIds();
                 int index = tabIndex(pageId());
-                return index >= 0 && index < ids.size() - 1;
+                // A page that is not in the list yet (the moment between opening a tab and
+                // it appearing) may still move right.
+                return index < 0 ? ids.size() > 1 : index < ids.size() - 1;
             }
 
             @Override
@@ -544,16 +543,38 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     /** Where a page id sits in the strip, or -1 when it is not one of the open tabs. */
-    private int tabIndex(int id) {
+    /**
+     * Every tab, left to right, as the strip draws them.
+     *
+     * One method, so the chips and the arrows can never disagree about the order - which is
+     * exactly what was wrong: the strip listed the tabs and the arrows counted them
+     * separately, and with a single conversation tab on screen the count came out as one
+     * item, so the left arrow had nowhere to go and the right one dimmed itself.
+     */
+    private java.util.List<Integer> openTabs() {
         java.util.List<Integer> ids = new java.util.ArrayList<>();
         ids.add(AppUi.TAB_CHAT);
         if (tabs != null) ids.addAll(tabs.windows());
-        return ids.indexOf(id);
+        return ids;
     }
 
-    /** A chip's name: the conversation's own title when arena has one, else its number. */
+    /** Where a page id sits in that order, or -1 when it is not one of the open tabs. */
+    private int tabIndex(int id) {
+        return openTabs().indexOf(id);
+    }
+
+    /**
+     * A chip's name: what the conversation is actually called.
+     *
+     * The page reports the name of the conversation it is showing (arena never changes its
+     * document title per chat, so WebView.getTitle() returns the same marketing string for
+     * every tab). Only when the page has nothing to say - a brand new tab, a page that has
+     * not rendered a message yet - does the chip fall back to a number.
+     */
     private String tabLabel(int id) {
         if (id == AppUi.TAB_CHAT) return getString(R.string.strip_tab_chat);
+        String spoken = tabs == null ? null : tabs.conversationTitle(id);
+        if (spoken != null) return spoken;
         String title = tabs == null ? null : tabs.windowTitle(id);
         if (title != null) return title;
         java.util.List<Integer> open = tabs == null ? null : tabs.windows();
@@ -573,16 +594,30 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (TabWebViews.isWindow(id)) switchWindow(id);
     }
 
-    /** Moves one tab left or right; the strip's arrows are exactly this. */
+    /**
+     * Moves one tab left or right; the strip's arrows are exactly this.
+     *
+     * The current page is looked up in the same list the chips are drawn from, and a page
+     * that is not in it (a popup, or a window that closed under us) counts as the leftmost
+     * tab rather than as "nowhere" - so the first press always moves somewhere.
+     */
     private void stepTab(int direction) {
-        java.util.List<Integer> ids = new java.util.ArrayList<>();
-        ids.add(AppUi.TAB_CHAT);
-        if (tabs != null) ids.addAll(tabs.windows());
-        if (ids.size() < 2) return;
+        java.util.List<Integer> ids = openTabs();
+        if (ids.size() < 2) {
+            toast(R.string.strip_single_tab);
+            return;
+        }
         int index = ids.indexOf(pageId());
-        if (index < 0) index = 0;
-        int next = Math.max(0, Math.min(ids.size() - 1, index + direction));
-        if (next == index) return;
+        if (index < 0) index = direction > 0 ? -1 : 0;
+        int next = index + direction;
+        if (next < 0) {
+            toast(R.string.strip_at_start);
+            return;
+        }
+        if (next >= ids.size()) {
+            toast(R.string.strip_at_end);
+            return;
+        }
         selectPage(ids.get(next));
     }
 
@@ -609,6 +644,26 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (isFinishing() || isDestroyed()) return;
         newChatTab();
     }
+
+    /**
+     * A page reported a new conversation name.
+     *
+     * Debounced: a streaming answer changes the page's text constantly, and the strip only
+     * needs to be redrawn once the name has settled. The name also goes into the window
+     * list in More, so that is refreshed with it.
+     */
+    void onTabTitleChanged() {
+        if (titleRefreshPending) return;
+        titleRefreshPending = true;
+        tapHandler.postDelayed(() -> {
+            titleRefreshPending = false;
+            if (isFinishing() || isDestroyed()) return;
+            refreshStrip();
+        }, 350);
+    }
+
+    /** True while a title-driven strip refresh is already scheduled. */
+    private boolean titleRefreshPending;
 
     /** Redraws the strip and its arrows; cheap and safe to call from any callback. */
     void refreshStrip() {

@@ -79,31 +79,45 @@ fi
 # this container with another ssh session is fine.
 
 echo "[3/5] Toolchain, arm64 build-tools, and the build itself..."
-proot-distro login ubuntu -- bash -lc "
+
+# The body below is handed to the container through a quoted heredoc, NOT as a
+# double-quoted string.
+#
+# It used to be `proot-distro login ubuntu -- bash -lc " ... "`. The container's
+# shell then received the text without the escaping Termux had added for its own
+# parsing, and without a closing quote, so the command word was `bash` with the
+# junk flag -lc" and line 1 was `set -e`. bash runs that and exits, so nothing
+# after it ever ran: apt-get was never called, nothing was installed, and the
+# first command that actually exists on the phone reported
+# `gradlew: command not found`. A quoted heredoc is not re-parsed by anyone, so
+# what is written below is exactly what the container gets.
+INNER=$(mktemp)
+trap 'rm -f "$INNER"' EXIT
+cat > "$INNER" <<'INNER_SCRIPT'
 set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq openjdk-17-jdk unzip curl git python3 xz-utils file >/dev/null
 
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
-export PATH=\"\$JAVA_HOME/bin:\$PATH\"
+export PATH="$JAVA_HOME/bin:$PATH"
 export ANDROID_HOME=/root/android-sdk
-SDKMANAGER=\"\$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\"
+SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
 # ---- 1. the SDK itself (the tools inside are the x86_64 ones we replace next)
-if [ ! -x \"\$SDKMANAGER\" ]; then
+if [ ! -x "$SDKMANAGER" ]; then
   echo '  ... downloading Android command-line tools'
   curl -fL -o /tmp/cmdtools.zip \
     https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-  mkdir -p \"\$ANDROID_HOME/cmdline-tools\"
-  unzip -q -o /tmp/cmdtools.zip -d \"\$ANDROID_HOME/cmdline-tools\"
-  rm -rf \"\$ANDROID_HOME/cmdline-tools/latest\"
-  mv \"\$ANDROID_HOME/cmdline-tools/cmdline-tools\" \"\$ANDROID_HOME/cmdline-tools/latest\"
+  mkdir -p "$ANDROID_HOME/cmdline-tools"
+  unzip -q -o /tmp/cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
+  rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+  mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
 fi
-if [ ! -d \"\$ANDROID_HOME/platforms/android-35\" ]; then
+if [ ! -d "$ANDROID_HOME/platforms/android-35" ]; then
   echo '  ... accepting licences and installing platform 35 + build-tools'
-  yes | \"\$SDKMANAGER\" --licenses >/dev/null 2>&1 || true
-  \"\$SDKMANAGER\" 'platforms;android-35' 'build-tools;35.0.0' platform-tools >/dev/null
+  yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+  "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0' platform-tools >/dev/null
 fi
 
 # ---- 2. arm64 build-tools, dropped over the x86_64 ones
@@ -112,47 +126,47 @@ fi
 # which is exactly what this container is. The x86_64 originals are kept as
 # *.x86_64 so nothing is destroyed and the swap can be undone.
 TOOLS=/opt/arm64-tools
-mkdir -p \"\$TOOLS\"
-if [ ! -x \"\$TOOLS/aapt2\" ]; then
+mkdir -p "$TOOLS"
+if [ ! -x "$TOOLS/aapt2" ]; then
   echo '  ... downloading arm64 build-tools'
   curl -fL -o /tmp/armtools.tar.xz \
     https://github.com/HomuHomu833/android-sdk-custom/releases/download/37.0.0/android-sdk-aarch64-linux-gnu.tar.xz
-  tar -xJf /tmp/armtools.tar.xz -C \"\$TOOLS\" --strip-components=1 2>/dev/null \
-    || tar -xJf /tmp/armtools.tar.xz -C \"\$TOOLS\"
+  tar -xJf /tmp/armtools.tar.xz -C "$TOOLS" --strip-components=1 2>/dev/null \
+    || tar -xJf /tmp/armtools.tar.xz -C "$TOOLS"
   # The archive layout is not guaranteed: find the binaries wherever they landed.
   for tool in aapt2 zipalign aidl; do
-    found=\$(find \"\$TOOLS\" -name \"\$tool\" -type f | head -1)
-    if [ -n \"\$found\" ] && [ \"\$found\" != \"\$TOOLS/\$tool\" ]; then
-      cp \"\$found\" \"\$TOOLS/\$tool\"
+    found=$(find "$TOOLS" -name "$tool" -type f | head -1)
+    if [ -n "$found" ] && [ "$found" != "$TOOLS/$tool" ]; then
+      cp "$found" "$TOOLS/$tool"
     fi
-    [ -f \"\$TOOLS/\$tool\" ] && chmod +x \"\$TOOLS/\$tool\"
+    [ -f "$TOOLS/$tool" ] && chmod +x "$TOOLS/$tool"
   done
 fi
 
 # Fallback for aapt2 alone: ReVanced publishes one current arm64 binary. It is
 # used only if the archive above did not yield a working aapt2.
-if ! \"\$TOOLS/aapt2\" version >/dev/null 2>&1; then
+if ! "$TOOLS/aapt2" version >/dev/null 2>&1; then
   echo '  ... archive aapt2 unusable, using the ReVanced arm64 build'
-  curl -fL -o \"\$TOOLS/aapt2\" \
+  curl -fL -o "$TOOLS/aapt2" \
     https://github.com/ReVanced/aapt2/releases/download/v1.1.0/aapt2-arm64-v8a
-  chmod +x \"\$TOOLS/aapt2\"
+  chmod +x "$TOOLS/aapt2"
 fi
-if ! \"\$TOOLS/aapt2\" version >/dev/null 2>&1; then
+if ! "$TOOLS/aapt2" version >/dev/null 2>&1; then
   echo ''
   echo '  [X] No arm64 aapt2 would run on this CPU.'
   echo '      That is unusual - the two known sources are both in this script.'
   echo '      Nothing was built.'
   exit 3
 fi
-echo \"  arm64 aapt2: \$(\"\$TOOLS/aapt2\" version 2>&1 | head -1)\"
+echo "  arm64 aapt2: $("$TOOLS/aapt2" version 2>&1 | head -1)"
 
-BT=\"\$ANDROID_HOME/build-tools/35.0.0\"
+BT="$ANDROID_HOME/build-tools/35.0.0"
 for tool in aapt2 zipalign aidl; do
-  if [ -f \"\$TOOLS/\$tool\" ] && [ -f \"\$BT/\$tool\" ]; then
+  if [ -f "$TOOLS/$tool" ] && [ -f "$BT/$tool" ]; then
     # Keep the original once, then replace it with the arm64 build.
-    [ -f \"\$BT/\$tool.x86_64\" ] || mv \"\$BT/\$tool\" \"\$BT/\$tool.x86_64\"
-    cp -f \"\$TOOLS/\$tool\" \"\$BT/\$tool\"
-    chmod +x \"\$BT/\$tool\"
+    [ -f "$BT/$tool.x86_64" ] || mv "$BT/$tool" "$BT/$tool.x86_64"
+    cp -f "$TOOLS/$tool" "$BT/$tool"
+    chmod +x "$BT/$tool"
   fi
 done
 
@@ -162,7 +176,7 @@ done
 # this phone, and machine-specific paths must not end up in the repository.
 mkdir -p /root/.gradle
 cat > /root/.gradle/gradle.properties <<EOF
-android.aapt2FromMavenOverride=\$TOOLS/aapt2
+android.aapt2FromMavenOverride=$TOOLS/aapt2
 org.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=512m
 org.gradle.parallel=false
 org.gradle.daemon=false
@@ -177,7 +191,7 @@ else
   cd agon && git fetch --all --quiet && git checkout --quiet main && git pull --ff-only --quiet && cd ..
 fi
 cd agon
-printf 'sdk.dir=%s\n' \"\$ANDROID_HOME\" > local.properties
+printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 chmod +x gradlew
 
 # ---- 3a. sign with the key the installed app already has
@@ -201,6 +215,22 @@ chmod +x gradlew
 # this phone: the first install still has to replace the old app (one uninstall, one
 # sign-in). Either file is git-ignored, so `git pull` cannot remove it.
 SHARED=/sdcard/Download
+# A key kept next to the APK in shared storage is copied in on every build. The
+# container's /sdcard is the phone's, so this needs nothing from Termux and it makes
+# the rootfs disposable: reinstall the container, keep the key, keep updating the app.
+for cand in agon-build.jks arena-release.jks; do
+  [ -f "$SHARED/$cand" ] || continue
+  [ -f "$cand" ] && continue
+  [ -f agon-build.properties ] && continue
+  cp -f "$SHARED/$cand" "$cand" 2>/dev/null || continue
+  if [ "$cand" = arena-release.jks ]; then
+    printf 'storeFile=arena-release.jks\nstorePassword=agonphone\nkeyAlias=arena\nkeyPassword=agonphone\n' > agon-build.properties
+  else
+    printf 'storeFile=agon-build.jks\nstorePassword=agonbuild\nkeyAlias=agon\nkeyPassword=agonbuild\n' > agon-build.properties
+  fi
+  echo "  ... using the key kept in Download/$cand"
+done
+# One key for both machines, instead of one key per container install.
 # Two names are accepted for the incoming key, because both workflows exist:
 #   ADOPT.md  - the PC's old %USERPROFILE%\.android\debug.keystore (password "android")
 #   AGON-KEY.md - the shared key the PC now makes (agon-build.jks, password "agonbuild")
@@ -208,26 +238,26 @@ SHARED=/sdcard/Download
 # is preferred when both are present.
 if [ ! -f agon-build.jks ]; then
   for cand in AGON-KEY.md ADOPT.md; do
-    [ -f \"\$SHARED/\$cand\" ] || continue
+    [ -f "$SHARED/$cand" ] || continue
     for pass in agonbuild android; do
-      cp \"\$SHARED/\$cand\" /tmp/incoming.jks
-      if keytool -list -keystore /tmp/incoming.jks -storepass \"\$pass\" >/dev/null 2>&1; then
+      cp "$SHARED/$cand" /tmp/incoming.jks
+      if keytool -list -keystore /tmp/incoming.jks -storepass "$pass" >/dev/null 2>&1; then
         # The alias, read from the key entry line rather than guessed: keytool prints
         # "alias, date, PrivateKeyEntry," and nothing else in that list has a comma.
-        alias=\$(keytool -list -keystore /tmp/incoming.jks -storepass \"\$pass\" 2>/dev/null \
+        alias=$(keytool -list -keystore /tmp/incoming.jks -storepass "$pass" 2>/dev/null \
           | grep 'PrivateKeyEntry' | head -1 | cut -d, -f1 | tr -d ' ')
-        [ -n \"\$alias\" ] || alias=agon
+        [ -n "$alias" ] || alias=agon
         mv /tmp/incoming.jks agon-build.jks
         printf 'storeFile=agon-build.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
-          \"\$pass\" \"\$alias\" \"\$pass\" > agon-build.properties
-        rm -f \"\$SHARED/\$cand\"
-        echo \"  ... using the key from \$cand\"
+          "$pass" "$alias" "$pass" > agon-build.properties
+        rm -f "$SHARED/$cand"
+        echo "  ... using the key from $cand"
         break 2
       fi
       rm -f /tmp/incoming.jks
     done
     echo ''
-    echo \"  [X] \$SHARED/\$cand did not open with either known password.\"
+    echo "  [X] $SHARED/$cand did not open with either known password."
     echo '      Nothing was built. Remove it from Download/ and run again.'
     exit 5
   done
@@ -243,7 +273,7 @@ if [ ! -f arena-release.jks ] || [ ! -f agon-build.properties ]; then
   echo ''
   echo '  [!] No key from the PC yet, so a key is being created for THIS phone only.'
   echo '      That APK will be refused over the installed app. To update instead:'
-  echo '        PC:    copy \"%USERPROFILE%\\.android\\debug.keystore\" to a USB/Download'
+  echo '        PC:    copy "%USERPROFILE%\.android\debug.keystore" to a USB/Download'
   echo '        phone: rename that copy to ADOPT.md, put it in Download/, run again.'
   echo ''
   rm -f arena-release.jks agon-build.properties
@@ -253,23 +283,39 @@ if [ ! -f arena-release.jks ] || [ ! -f agon-build.properties ]; then
     -dname 'CN=Agon Phone Build, OU=Mobile, O=Arena, C=IN' >/dev/null 2>&1
   printf 'storeFile=arena-release.jks\nstorePassword=agonphone\nkeyAlias=arena\nkeyPassword=agonphone\n' > agon-build.properties
 fi
-# The key fingerprint is printed after the build instead of inside this quoted
-# block, where a command substitution would be parsed by Termux, not the container.
+# The key fingerprint is printed after the build, outside this block.
 
 echo '  ... building (this is the slow part; a phone can take half an hour)'
-./gradlew --no-daemon --stacktrace assembleDebug -PVERSION_NAME=$VERSION -PAGON_DEBUG_KEY=1 || {
+./gradlew --no-daemon --stacktrace assembleDebug -PVERSION_NAME="$AGON_VERSION" -PAGON_DEBUG_KEY=1 || {
   echo ''
   echo '  [X] The build failed. The two usual causes on a phone:'
-  echo '      - \"AAPT2 ... Daemon startup failed\": the arm64 aapt2 was not used.'
+  echo '      - "AAPT2 ... Daemon startup failed": the arm64 aapt2 was not used.'
   echo '      - OutOfMemoryError: lower org.gradle.jvmargs in /root/.gradle/gradle.properties.'
   exit 4
 }
-"
+INNER_SCRIPT
+
+# The version crosses the boundary as an argument, so the body is never quoted.
+if ! proot-distro login ubuntu -- env AGON_VERSION="$VERSION" bash "$INNER"; then
+  echo ''
+  echo '  [X] The build did not finish inside the container (see above).'
+  echo '      Its state is kept: the SDK, the arm64 tools and the checkout are'
+  echo '      reused by the next run, not rebuilt.'
+  exit 4
+fi
 
 # The signing key's fingerprint, so two builds can be compared. If a future APK is
 # refused with "package conflicts with an existing package", this line is the answer:
 # a different fingerprint than the installed app means a different key.
-KEYHASH=$(proot-distro login ubuntu -- sh -c "keytool -list -v -keystore /root/agon/arena-release.jks -alias arena -storepass agonphone 2>/dev/null | sed -n 's/.*SHA256: //p' | head -1" 2>/dev/null | tr -d '\r' | head -1) || true
+KEYHASH=$(proot-distro login ubuntu -- sh -c '
+  for f in /root/agon/agon-build.jks /root/agon/arena-release.jks; do
+    [ -f "$f" ] || continue
+    for p in agonbuild android agonphone; do
+      out=$(keytool -list -v -keystore "$f" -storepass "$p" 2>/dev/null \
+        | sed -n "s/.*SHA256: //p" | head -1)
+      if [ -n "$out" ]; then echo "$out"; exit 0; fi
+    done
+  done' 2>/dev/null | tr -d '\r' | head -1) || true
 [ -n "${KEYHASH:-}" ] && echo "      signing key: $KEYHASH"
 
 # Getting the APK out of the container.

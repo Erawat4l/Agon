@@ -411,6 +411,18 @@ public final class TabWebViews {
                     + "b.style.removeProperty('min-height');"
                     + "b.style.removeProperty('height');}"
                     + "})();"
+                    // The selection rules are not frame CSS and must not be dropped with
+                    // it: this branch used to leave the page selectable no matter what
+                    // Settings said (see selectCss).
+                    + "(function(){"
+                    + "var st=document.getElementById('arena-select-policy');"
+                    + "if(st)st.remove();"
+                    + "st=document.createElement('style');st.id='arena-select-policy';"
+                    + "st.textContent=" + quote(selectCss(selectable)) + ";"
+                    + "if(st.textContent)(document.head||document.documentElement)"
+                    + ".appendChild(st);"
+                    + selectGuard(selectable)
+                    + "})();"
                     // Arena's own menus still have to fit the window...
                     + "(function(){" + JS_POPUP_FIT + "})();"
                     // ...and the page's own panel still has to go, if that is what was asked.
@@ -497,6 +509,7 @@ public final class TabWebViews {
                 + "el.style.setProperty('max-height','calc(100dvh - " + (cssTop + cssBottom)
                 + "px)','important');"
                 + "}}}"
+                + selectGuard(selectable)
                 + "liftFixed();"
                 + "window.dispatchEvent(new Event('arena-insets'));"
                 // Safety net: hiding something must never leave an empty page. If nothing
@@ -567,12 +580,10 @@ public final class TabWebViews {
                 // opens empty and answers no taps - the files/workspace icon at the top
                 // right of a chat. liftFixed() below is what actually moves fixed elements,
                 // and it only ever moves chrome pinned to the very bottom edge.
-                // An app is not a web page: no accidental text selection and no long-press
-                // copy callout. Inputs and editable areas keep normal behaviour.
-                + (selectable ? "" : "*{-webkit-user-select:none !important;"
-                + "user-select:none !important;-webkit-touch-callout:none !important;}"
-                + "input,textarea,[contenteditable=\"" + "true" + "\"]{"
-                + "-webkit-user-select:text !important;user-select:text !important;}")
+                // Selection is handled by selectCss()/selectGuard(), which run on both
+                // branches; keeping a second copy here is what made it look fixed when it
+                // was only ever written on this branch.
+                + ""
                 // Arena's own panel is NOT hidden with CSS any more: an attribute match on
                 // someone else's markup hid content containers and made the page look
                 // mashed. If the user asks for it, JS_SIDEBAR removes one element that is
@@ -971,6 +982,60 @@ public final class TabWebViews {
                 }
             });
         }
+    }
+
+    /**
+     * The rule that turns text selection off, or leaves the page alone.
+     *
+     * It is a document-wide `user-select: none` plus the WebView-specific side of the same
+     * thing, and each part is there for a different road into a selection:
+     *
+     *  - `-webkit-user-select` / `user-select` stop a drag or a long press from selecting;
+     *  - `-webkit-touch-callout: none` stops the long-press callout on iOS-shaped engines;
+     *  - a document-level `selectstart` listener is the last word. WebKit still allows a
+     *    selection to *start* in some cases that the CSS alone does not cover - a triple
+     *    tap, a text run inside a link, a click-drag over a chat bubble - and cancelling
+     *    that event is what makes the setting actually mean off, rather than "off unless
+     *    the page fights back".
+     *
+     * Inputs and editable areas are exempt throughout: the composer is where the user
+     * types, and a caret there is not a selection.
+     *
+     * This rule used to live in {@link #buildFrameCss} only, and that was the bug: the
+     * frame CSS is written only on the branch that reserves space for the app's bars, and
+     * the app stopped reserving any. applyChromeInsets() therefore took its early-return
+     * branch, which clears the injected stylesheet and never rewrote this rule - so the
+     * setting silently did nothing on every device. It now goes in on both branches.
+     */
+    private static String selectCss(boolean selectable) {
+        if (selectable) return "";
+        return "*{-webkit-user-select:none !important;user-select:none !important;"
+                + "-webkit-touch-callout:none !important;}"
+                + "input,textarea,[contenteditable=\"true\"]{"
+                + "-webkit-user-select:text !important;user-select:text !important;}";
+    }
+
+    /** The matching listener, as a function body the injection calls. */
+    private static String selectGuard(boolean selectable) {
+        if (selectable) {
+            return "try{if(window.__agonNoSelect){"
+                    + "document.removeEventListener('selectstart',window.__agonNoSelect,true);"
+                    + "window.__agonNoSelect=null;}}catch(e){}";
+        }
+        return "try{if(!window.__agonNoSelect){"
+                + "window.__agonNoSelect=function(e){"
+                + "var t=e.target;"
+                // The composer, and anything inside it: a rich-text box puts the caret in a
+                // child element, so the event target is often a span rather than the
+                // editable itself. `closest` is what catches that.
+                + "try{"
+                + "if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||"
+                + "t.isContentEditable===true))return;"
+                + "if(t&&t.closest&&t.closest("
+                + "'input,textarea,[contenteditable=\\\"\\\"],[contenteditable=true]'))return;"
+                + "}catch(x){}"
+                + "e.preventDefault();};"
+                + "document.addEventListener('selectstart',window.__agonNoSelect,true);}}catch(e){}";
     }
 
     /**

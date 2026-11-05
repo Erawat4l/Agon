@@ -7,6 +7,15 @@ in it, and the signing key cannot be recovered at all.
 Work through the steps in order. Every command is typed into **cmd** (press
 <kbd>Win</kbd>, type `cmd`, press Enter), not PowerShell.
 
+> **If your prompt looks like `C:\Users\<you> ~ ➜`, you are in the fish shell, not cmd.**
+> Fish cannot run `build.bat` (or any `.bat`) — it answers `fish: Unknown command:
+> build.bat`. Type `cmd` first, then carry on. In fish, the equivalent is
+> `python build.py <mode>`.
+>
+> **And every command has to be typed inside the project folder.** `cd /d
+> "%USERPROFILE%\Desktop\Erawat\Agon"` first; if `build.bat` is "not recognized", either
+> you are one level up (`C:\Users\<you>`) or you are in fish. `dir build.bat` settles it.
+
 ---
 
 ## Step 0 — What you need to install
@@ -129,6 +138,7 @@ where /r C:\ arena-release.jks
 Only if Step 2b found nothing:
 
 ```bat
+cd /d "%USERPROFILE%\Desktop\Erawat\Agon"
 build.bat
 ```
 
@@ -379,6 +389,7 @@ yourself are the signing key and the credential (Step 2); nothing else is irrepl
 
 | Symptom | Cause and fix |
 | --- | --- |
+| `'build.bat' is not recognized` / `fish: Unknown command: build.bat` / `'1.4.57' is not recognized` | Three different mistakes that look alike. (a) **You are in `C:\Users\<you>`, not in the project** — `cd Desktop\Erawat\Agon` first; `git status` should print a branch, and `dir build.bat` must find the file. (b) **You are in the fish shell** — fish does not run `.bat` files, so type `cmd` to get back to a normal prompt, or run `python build.py <mode>`. (c) **The version went on its own line** — `1.4.57` on a line by itself is a command to Windows ("not recognized"), not an option. A version is only ever typed *after* a mode: `build.bat publish 1.4.57`. |
 | `'git' is not recognized` | Git installed but cmd was open before it. Close cmd, open it again. |
 | `Java not found` | JDK missing, or `JAVA_HOME` not set. `winget install EclipseAdoptium.Temurin.17.JDK`, reopen cmd. |
 | Gradle: `SDK location not found. Define a valid SDK location with an ANDROID_HOME environment variable...` | The SDK is missing or in an unexpected place — Step 3. `publish.bat` now finds it and writes `local.properties` itself; if it still says this, the SDK genuinely is not installed. |

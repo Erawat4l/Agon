@@ -103,6 +103,9 @@ def host():
     return "linux"
 
 
+MODES = ("apk", "desktop", "publish", "doctor", "clean", "sign")
+
+
 def version_from_args(argv):
     for arg in argv:
         if re.match(r"^\d+\.\d+(\.\d+)?$", arg):
@@ -921,8 +924,22 @@ def release_apk(version):
 
 def main(argv):
     mode = "apk"
+    # A version typed by hand is an argument, not a request to do nothing.
+    #
+    # `build.bat publish 1.4.57` and `build.bat 1.4.57` are what a person actually types -
+    # and "1.4.57" is not a path, so cmd/PowerShell/fish will simply run it as a command
+    # ("'1.4.57' is not recognized" / "Unknown command") before build.bat or build.py is
+    # ever reached. So a bare version means "build this one", said out loud.
+    stray = [a for a in argv
+             if not a.startswith("-") and a not in MODES
+             and not re.match(r"^\d+\.\d+(\.\d+)?$", a)]
+    if stray:
+        say("  Not sure what to do with: %s" % " ".join(stray))
+        say("  Modes: %s  (and a version like 1.4.58 on its own means 'build that version')"
+            % " / ".join(MODES))
+        return 2
     for arg in argv:
-        if arg in ("apk", "desktop", "publish", "doctor", "clean", "sign"):
+        if arg in MODES:
             mode = arg
     beta = "--beta" in argv or "beta" in argv
     channel = "beta" if beta else "stable"
@@ -935,6 +952,8 @@ def main(argv):
                          else "Windows" if host_name == "windows" else "Linux/macOS"))
     say("  mode : %s" % mode)
     say("=" * 52)
+    say("  on Windows: build.bat <mode>    on the phone: bash build.sh <mode>")
+    say()
 
     if mode == "doctor":
         missing = needs.describe(needs.inspect(channel))

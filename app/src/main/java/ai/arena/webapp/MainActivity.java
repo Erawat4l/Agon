@@ -609,21 +609,24 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      */
     private void stepTab(int direction) {
         java.util.List<Integer> ids = openTabs();
+        if (ids.isEmpty()) return;
         if (ids.size() < 2) {
-            toast(R.string.strip_single_tab);
+            // Nothing to move to, and nothing to explain: with one tab open the second
+            // arrow cannot be pointing anywhere except back at the page already on screen.
+            selectPage(ids.get(0));
             return;
         }
         int index = ids.indexOf(pageId());
         if (index < 0) index = direction > 0 ? -1 : 0;
-        int next = index + direction;
-        if (next < 0) {
-            toast(R.string.strip_at_start);
-            return;
-        }
-        if (next >= ids.size()) {
-            toast(R.string.strip_at_end);
-            return;
-        }
+        // Wrap instead of stopping at an end.
+        //
+        // The old code refused at the last tab and put "This is the last tab" on screen -
+        // a message about a list that visibly has tabs on both sides of it. The arrows are
+        // navigation along the row of tabs, so they go round: from the last chip, > lands
+        // on the first, and from the first, < lands on the last. Nothing to explain, and
+        // no press is ever spent on nothing.
+        int count = ids.size();
+        int next = ((index + direction) % count + count) % count;
         selectPage(ids.get(next));
     }
 

@@ -169,10 +169,19 @@ public final class TabStrip {
         return root;
     }
 
-    /** Dims an arrow that would go nowhere, without removing it and reflowing the row. */
+    /**
+     * Kept for the host, which still reports where the current tab sits.
+     *
+     * It no longer changes anything on screen: the arrows are tab navigation, and a tab
+     * list does not have ends the way page history does - a dimmed ">" next to a full row
+     * of tabs said "you cannot go further" when what it meant was "this is the last chip",
+     * and it made the two arrows look like different kinds of control from each other.
+     * Both arrows now look identical, always. A press that really has nowhere to go still
+     * says so (see stepTab in MainActivity), so nothing is silently swallowed.
+     */
     public void setArrowsEnabled(boolean hasPrevious, boolean hasNext) {
-        back.setAlpha(hasPrevious ? 1f : 0.28f);
-        forward.setAlpha(hasNext ? 1f : 0.28f);
+        back.setAlpha(1f);
+        forward.setAlpha(1f);
     }
 
     /**

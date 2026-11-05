@@ -11,7 +11,7 @@ Needs **Node.js 18+** (nothing else; the Android SDK is not involved).
 One command from the repository root builds this **and** the APK:
 
 ```bat
-build-all.bat
+build.bat desktop
 ```
 
 It copies `Agon-Setup-<version>-{x64,ia32}.exe` and
@@ -31,7 +31,7 @@ npm run dist      :: build the installers into desktop\release\
 
 | File | What it is |
 | --- | --- |
-| `Agon.exe` | the 64-bit installer under its short name (`build-all.bat` makes this copy for you) |
+| `Agon.exe` | the 64-bit installer under its short name |
 | `Agon-32.exe` | the 32-bit installer under its short name |
 | `Agon-Setup-<version>-x64.exe` | 64-bit installer (per-user, choose the folder) |
 | `Agon-Setup-<version>-ia32.exe` | **32-bit** installer, for old Windows on old hardware |
@@ -42,7 +42,7 @@ All four installers appear because the scripts pass `--x64 --ia32` explicitly. N
 on the command line (`--win nsis portable`) without arch flags makes electron-builder ignore
 the `arch` lists in `build.win.target` and build for the host architecture only — that is how
 a release can end up with no 32-bit `.exe` at all, which is what happened to `v1.4.24`.
-`build-all.bat release`, `npm run dist` and CI all go through the same script, so the fix
+`build.bat desktop`, `npm run dist` and CI all go through the same script, so the fix
 applies everywhere.
 
 ### Setup vs Portable - what actually differs
@@ -76,7 +76,7 @@ dies. `win.signAndEditExecutable: false` (the default here) skips that code path
 
 | | Command | What it costs |
 | --- | --- | --- |
-| **Default (works for everyone)** | `npm run dist` (or `build-all.bat`) | Builds unprivileged. Windows skips resource editing, so the **`.exe` file itself keeps Electron's icon** — the window/taskbar icon is still Agon's, and the Start Menu entry is named Agon. |
+| **Default (works for everyone)** | `npm run dist` (or `build.bat desktop`) | Builds unprivileged. Windows skips resource editing, so the **`.exe` file itself keeps Electron's icon** — the window/taskbar icon is still Agon's, and the Start Menu entry is named Agon. |
 | **Branded `.exe`** | `npm run dist:branded` | Needs **Developer Mode on** (Settings → System → For developers) or an Administrator terminal. Then the exe, shortcut and taskbar all carry the Agon mark. |
 
 If an old half-extracted cache still breaks even the default build, delete

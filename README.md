@@ -6,47 +6,69 @@ Agon puts arena.ai in a real Android app instead of a bookmark in Chrome.
 > the two files the repository deliberately does not contain (the APK signing key and the
 > GitHub credential), the toolchain, and the publish-then-delete-the-old-release routine.
 
-One command in **cmd** builds a ready-to-install APK:
+One command builds a ready-to-install APK — on Windows **or** on the phone itself:
 
 ```bat
-build.bat
+build.bat                 :: Windows
+bash build.sh             :: Termux / Linux
 ```
 
-That produces **`Agon-debug.apk`** in this folder. Copy it to your phone, tap it,
-allow *"install unknown apps"*, done. App name on the home screen: **Agon**.
+That produces **`Agon-<version>.apk`**. Copy it to your phone, tap it, allow *"install
+unknown apps"*, done. App name on the home screen: **Agon**.
 
-For both platforms at once, `build-all.bat` also leaves the short names
-**`Agon.apk`** (Android) and **`Agon.exe`** (64-bit Windows installer, plus `Agon-32.exe`
-for 32-bit Windows) next to the versioned files.
+`build.bat desktop` additionally builds both Windows installers (`Agon-Setup-64.exe`,
+`Agon-Setup-32.exe`). On the phone the same command builds only the APK and says so, because
+Electron cannot compile for Windows there.
 
 ---
 
 ## The commands
 
-Run these from this folder in `cmd` (or double-click the `.bat` files).
+**One build script.** It works out where it is running — a Windows PC, or an Android phone
+in Termux (where the toolchain goes into a proot Ubuntu container, because Google's `aapt2`
+is x86-64 only) — then checks every prerequisite, **downloads what is missing**, and only
+then builds.
+
+```bat
+build.bat                 :: Windows (double-click it, or run it in cmd)
+```
+
+```bash
+bash build.sh             # Termux / Linux / macOS
+```
+
+Both are thin launchers for `build.py`, so the phone and the PC cannot drift apart.
 
 | Command | What it does |
 | --- | --- |
-| `build.bat` | Builds `Agon-debug.apk` — signed with the debug key, installs immediately |
-| `build-all.bat` | **Both apps in one command:** the APK *and* the Windows installers (64-bit and 32-bit setup), renamed to `Agon.apk` / `Agon.exe` |
-| `build-all.bat release` | Same, but a signed release APK |
-| `build.bat install` | Builds, then installs + launches on a USB-connected phone (needs `adb`) |
-| `build.bat release` | Builds `Agon-release.apk` (signed if you ran `make-keystore.bat` first) |
-| `build.bat clean` | Wipes build output |
-| `rename-repo.bat Agon` | Renames the GitHub repository (`gh`), repoints `origin`, and updates every place the repo name is written down |
-| `clean-all.bat` | Deletes the build leftovers (`desktop\node_modules`, `desktop\release`, `app\build`, `.gradle`, the electron-builder cache) and keeps `Agon.apk` / `Agon.exe` |
-| `python tools\set-repo.py Agon` | Points the app, the desktop client and the publish scripts at a renamed repository |
-| `make-keystore.bat` | Creates `arena-release.jks` + `keystore.properties` for a signed release build |
-| `publish.bat` | Builds **and publishes a downloadable APK release** to GitHub (auto-bumps the patch version) |
-| `publish.bat 1.2.0` | Publishes that exact version |
-| `publish.bat 1.2.0 beta` | Publishes as a pre-release (visible on the Beta channel in-app) |
-| `publish.bat 1.2.0 rebuild` | Rebuilds and re-uploads even if that version is already complete |
-| `publish.bat --token ghp_…` | Remembers a GitHub token in `gh-token.txt` (git-ignored) |
-| `commit.bat` | **All-in-one:** pull → bump version → build → commit → push → publish release → install on USB phone → open release page |
-| `commit.bat "my changes"` | Same, with your commit message |
-| `commit.bat "msg" 1.3.0` | Same, at a version you choose |
-| `commit.bat "msg" skipbuild` | Commit + push only |
-| `commit.bat "msg" beta` | Publish as a pre-release |
+| `build.bat` | Builds `Agon-<version>.apk` — signed with the shared key, installs as an update |
+| `build.bat doctor` | Prints what is installed and what is missing. Builds nothing, installs nothing |
+| `build.bat apk 1.4.58` | Builds that exact version (refused if it is lower than what is published) |
+| `build.bat apk --release` | Signed release APK instead of a debug one |
+| `build.bat apk --beta` | Next version on the beta channel |
+| `build.bat desktop` | APK **and** both Windows installers (Windows only) |
+| `build.bat publish` | Everything above, then uploads the release |
+| `build.bat clean` | Deletes build output. Never the signing key, never the source |
+| `publish.bat` | The publishing path on its own (version policy, release notes, upload) |
+| `rename-repo.bat Agon` | Renames the GitHub repository and repoints everything at it |
+| `python tools\set-repo.py Agon` | Same, without the git or `gh` steps |
+
+`python3 build.py ...` is the same thing on every platform; `bash build.sh` is the same
+launcher as `build.bat` for Termux.
+
+### What it installs for you
+
+| Missing | Windows | Termux |
+| --- | --- | --- |
+| Python 3 | `winget install Python.Python.3.12` (the launcher does this) | `pkg install python` |
+| JDK 17–23 | `winget install EclipseAdoptium.Temurin.17.JDK` | inside the container, `apt-get` |
+| Android SDK + platform 35 + build-tools 35 | unpacked from Google's command-line tools, licences accepted | the same, in the container |
+| arm64 `aapt2` | not needed (x86-64 is native) | downloaded and put over the SDK's copy |
+| Signing key | created once as `agon-build.jks` | adopted from `Download/`, else created |
+
+Nothing is ever uninstalled or deleted, and the signing key is never regenerated: a new
+key means Android refuses the update ("package conflicts with an existing package") and the
+app has to be removed, which wipes the arena session.
 
 First build downloads Gradle and the Android build tools (~3–5 minutes). Later builds
 take well under a minute, since everything is cached in `%USERPROFILE%\.gradle`.
@@ -285,23 +307,17 @@ onwards is consistent.
 
 **Publishing a release (this is what makes the update appear)**
 
-### After every change: `commit.bat` (the all-in-one command)
+### After every change
 
 ```bat
-commit.bat "fixed the composer overlap"
+git pull --rebase --autostash
+build.bat publish
 ```
 
-Seven steps in one go:
-
-1. `git pull --rebase --autostash` — picks up anything pushed from elsewhere, and
-   clears a stale local `version.txt` first so it can never block the pull
-2. bumps the version from whichever is higher, `version.txt` or the newest `v*` tag,
-   e.g. `1.4.29` → `1.4.30`
-3. builds `app-debug.apk` with that version and copies it to `Agon-<version>.apk`
-4. commits + pushes this branch
-5. publishes the GitHub release with the APK attached
-6. runs `adb install -r` if a phone is on USB (skipped silently otherwise)
-7. opens the release page in your browser
+`build.bat publish` builds the APK, builds the Windows installers, and uploads both to a
+release whose version it takes from the highest number already published — so a release is
+never numbered below what the phones already have. `publish.bat` does the same without the
+Windows installers, which is the faster loop.
 
 `version.txt` in the repo root holds the last published version. It is **git-ignored
 and generated locally** — committing it made every later `git pull` fail with
@@ -417,8 +433,10 @@ private repos without paid minutes.)
 ## Project layout
 
 ```
-build.bat / build.sh          one-command builders
-make-keystore.bat             release signing key helper
+build.py                      ONE build script: detects Windows/Termux, installs what is
+                              missing, builds, and optionally publishes
+build.bat / build.sh          thin launchers for build.py (cmd / Termux)
+tools/needs.py                the prerequisite check and the version policy it uses
 app/build.gradle              module config (app id, version, signing)
 app/src/main/AndroidManifest.xml
 app/src/main/java/ai/arena/webapp/

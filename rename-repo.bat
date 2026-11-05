@@ -90,7 +90,7 @@ echo.
 echo =============================================
 echo   [DONE]
 echo =============================================
-echo   1. Rebuild so the app and installers carry the new name:  build-all.bat
+echo   1. Rebuild so the app and installers carry the new name:  build.bat desktop
 echo   2. Later pushes go to:  https://github.com/!NEW_OWNER!/!NEW_REPO!
 echo =============================================
 echo.

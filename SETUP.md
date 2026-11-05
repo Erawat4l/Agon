@@ -124,15 +124,16 @@ where /r C:\ arena-release.jks
 `%USERPROFILE%\Downloads`, OneDrive and any backup folder.) If it finds one, move it to the
 `Agon` folder and skip to Step 2c.
 
-### 2c. Create a new key (only if Step 2b found nothing)
+### 2c. Or let the build make the key
+
+Only if Step 2b found nothing:
 
 ```bat
-cd /d %USERPROFILE%\Desktop\Erawat\Agon
-make-keystore.bat
+build.bat
 ```
 
-It asks for a password you choose, writes `arena-release.jks` and `keystore.properties`,
-and returns. Both stay out of git.
+The first run creates `agon-build.jks` + `agon-build.properties` — one key for the PC *and*
+the phone — and prints its SHA-256 fingerprint. There is no separate keystore step now.
 
 > **Back `arena-release.jks` and `keystore.properties` up now** — copy both to a USB stick
 > or a password manager's file storage. Losing them again means every installed copy has to
@@ -143,40 +144,31 @@ and returns. Both stay out of git.
 
 ## Step 3 — The Android SDK
 
-`build.bat` looks for the SDK in `%LOCALAPPDATA%\Android\Sdk`, then `ANDROID_HOME`, then
-`ANDROID_SDK_ROOT`, then an Android Studio install. Install it without Android Studio
-(~5 minutes, from cmd):
-
-```bat
-mkdir "%LOCALAPPDATA%\Android\Sdk\cmdline-tools" 2>nul & curl -L -o "%TEMP%\cmdtools.zip" https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip
-tar -xf "%TEMP%\cmdtools.zip" -C "%LOCALAPPDATA%\Android\Sdk\cmdline-tools" && ren "%LOCALAPPDATA%\Android\Sdk\cmdline-tools\cmdline-tools" latest
-(for /l %i in (1,1,30) do @echo y) | "%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
-"%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-```
-
-The `(for /l …)` line answers `y` to every licence prompt — that is expected, not a script
-you should worry about. It prints a lot; only the last `100%` matters.
-
-If you already had Android Studio, skip this step.
+Nothing to do. `build.bat` looks in `%LOCALAPPDATA%\Android\Sdk`, then `ANDROID_HOME`,
+then `ANDROID_SDK_ROOT`, then an Android Studio install — and if it finds nothing it
+downloads Google's command-line tools, accepts the licences and installs
+`platforms;android-35` and `build-tools;35.0.0` itself. Same on the phone, inside the
+container. `build.bat doctor` shows exactly what is present before anything is built.
 
 ---
 
 ## Step 4 — Build once, locally, with nothing published
 
 ```bat
-build-all.bat
+build.bat desktop
 ```
 
-Expected result: `Agon.apk` (Android) and `Agon-Setup-64.exe` / `Agon-Setup-32.exe`
-(Windows) appear in the folder. The first run downloads Gradle and the Electron packages,
-so it takes 5–10 minutes; later runs are much faster.
+Expected result: `Agon-<version>.apk` (Android) and `Agon-Setup-64.exe` /
+`Agon-Setup-32.exe` in `desktop\release`. The first run downloads Gradle and the Electron
+packages, so it takes 5–10 minutes; later runs are much faster.
 
-- If the Android half fails → Step 3 is wrong, or the JDK is not 17–21.
+- If the Android half fails → the messages above name the missing piece, and
+  `build.bat doctor` lists all of them at once.
 - If the Windows half fails → Node is missing (`node --version`), or a stray
   `%LOCALAPPDATA%\electron-builder\Cache` folder; delete it and retry.
 - It is normal for one half to succeed and the other to fail — the summary says which.
 
-Nothing is published by this step. `build-all.bat` never touches GitHub.
+Nothing is published by this step, and GitHub is never contacted.
 
 ---
 
@@ -203,9 +195,8 @@ Pick the version explicitly if you like: `publish.bat 1.4.46 local` (both argume
 work). Note this does **not** write `version.txt`, so a later real publish will not think the
 number is taken.
 
-`build-all.bat` also publishes nothing, but it leaves the installers with electron-builder's
-longer names (`Agon-Setup-1.4.46-x64.exe`). `publish.bat local` gives you the same
-`Agon-Setup-64.exe` / `Agon-Setup-32.exe` names a release would have.
+`build.bat desktop` does the same without publishing, and leaves the installers under the
+`Agon-Setup-64.exe` / `Agon-Setup-32.exe` names a release has.
 
 **If you ever interrupt a real `publish.bat`**, check whether it left a draft:
 

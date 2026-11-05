@@ -73,8 +73,6 @@
     <string name="strip_new_tab_loading">New tab is loading</string>
     <string name="strip_close_tab">Close this tab</string>
     <string name="strip_at_start">This tab has nothing before it</string>
-    <string name="strip_at_end">This is the last tab</string>
-    <string name="strip_single_tab">Only one tab open - the + adds another</string>
     <string name="strip_window_gone">That window had closed - dropped it</string>
     <string name="strip_last_tab">That is the last tab - the + adds another</string>
     <string name="reload">Reload</string>

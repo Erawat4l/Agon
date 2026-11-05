@@ -169,6 +169,21 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Scroll | scrolling only scrolls; nothing about scrolling triggers a reload |
 | Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
+| Tab strip arrows | the two arrows look identical (never dimmed) and **go round**: from the last tab `>` lands on the first, from the first `<` lands on the last. No "this is the last tab" message anywhere |
+
+### Panels that do not fit the phone
+
+Arena's own menus and side panels are laid out for a desktop-sized window. On a phone that
+shows up as a list whose left edge is off screen and whose right side is cropped — the model
+picker in a device screenshot looked like it started halfway through its own text.
+
+`JS_POPUP_FIT` measures instead of guessing: anything `fixed`/`absolute` that reaches past
+the window gets a box no bigger than the window (`max-width: 100vw - 12px`), is pinned inside
+it if it was shifted sideways, and is allowed to scroll inside itself — and gets its own
+inline styles back the moment it fits again. It never touches the page shell (anything that
+contains `main`, a `form`, a `textarea` or an editable area is skipped), never touches
+ordinary content, and remembers nothing across a page reload, so a page cannot be left
+permanently altered.
 
 ### Saved pages, and why a bad connection is not a dead app
 

@@ -157,6 +157,20 @@ def sdk_has(sdk, package):
     return os.path.isdir(folder)
 
 
+def container_sdk_ready():
+    """True when the phone's container already holds the SDK, platform and aapt2.
+
+    One `sh -c` test inside the container, because that is the only place the answer
+    exists: Termux's own filesystem does not contain the container's /root.
+    """
+    probe = ("test -x /root/android-sdk/cmdline-tools/latest/bin/sdkmanager "
+             "&& test -d /root/android-sdk/platforms/android-%s "
+             "&& test -d /root/android-sdk/build-tools/%s "
+             "&& test -x /opt/arm64-tools/aapt2" % (COMPILE_SDK, BUILD_TOOLS))
+    code, _ = run("proot-distro login ubuntu -- sh -c '%s'" % probe, timeout=180)
+    return code == 0
+
+
 def arm64_tools_ok(tools="/opt/arm64-tools"):
     """True when the aarch64 aapt2 in the container actually runs."""
     exe = os.path.join(tools, "aapt2")
@@ -268,18 +282,22 @@ def inspect(channel="stable", host_override=""):
             container = run("proot-distro login ubuntu -- true", timeout=120)[0] == 0
         add("container", "Ubuntu container", container, "proot-distro install ubuntu")
         # Only meaningful once the container exists; reported as missing otherwise so the
-        # installer gets a chance to fill it in.
-        inner = run("proot-distro login ubuntu -- sh -c "
-                    '"command -v java && command -v keytool && command -v unzip"',
-                    timeout=180)[1] if container else ""
-        add("apt", "Ubuntu toolchain (JDK 17, unzip, curl, git)",
-            container and inner.count("\n") + (1 if inner.strip() else 0) >= 3,
+        # installer gets a chance to fill it in. Three separate tests rather than counting
+        # lines in one output, which is what mis-counted before.
+        inner = False
+        if container:
+            inner = run("proot-distro login ubuntu -- sh -c "
+                        "'command -v java && command -v keytool && command -v unzip && "
+                        "command -v git'", timeout=180)[0] == 0
+        add("apt", "Ubuntu toolchain (JDK 17, unzip, curl, git)", inner,
             "apt-get install -y openjdk-17-jdk unzip curl git python3 xz-utils file")
-        sdk = find_sdk()
-        manager = sdk_manager(sdk) if sdk else None
-        add("sdk", "Android SDK (command-line tools)", bool(sdk and manager),
+        # Everything that needs an Android SDK is answered from INSIDE the container: the
+        # SDK is in its /root, and Termux cannot see that path at all. Without this the
+        # SDK looked missing on every run and a multi-GB download started again each time.
+        sdk = container_sdk_ready()
+        add("sdk", "Android SDK (command-line tools)", sdk,
             "download commandlinetools-linux and install into /root/android-sdk")
-        add("arm64", "arm64 build-tools (aapt2)", arm64_tools_ok(),
+        add("arm64", "arm64 build-tools (aapt2)", sdk,
             "fetch the aarch64 build-tools and drop them over the SDK's x86_64 ones")
     else:
         jdk = find_jdk()
@@ -345,8 +363,9 @@ def verify(package):
                                  timeout=120)[1].splitlines()[0],
         "apt": lambda: run("proot-distro login ubuntu -- sh -c 'java -version 2>&1 | head -1'",
                            timeout=120)[1].strip(),
-        "sdk": lambda: sdk_manager(find_sdk() or ""),
-        "arm64": lambda: run(["/opt/arm64-tools/aapt2", "version"])[1].strip(),
+        "sdk": lambda: sdk_manager(find_sdk() or "") or "in the container",
+        "arm64": lambda: run("proot-distro login ubuntu -- /opt/arm64-tools/aapt2 version",
+                             timeout=120)[1].strip(),
         "java": lambda: java_major(find_jdk())[1],
         "platform": lambda: "platforms;android-%s" % COMPILE_SDK,
         "buildtools": lambda: "build-tools;%s" % BUILD_TOOLS,

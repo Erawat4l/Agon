@@ -9,7 +9,10 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
+import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -66,6 +69,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     /** The bar the page must stay clear of: the app's own bar plus the system gesture area. */
     private int chromeBottom = 0;
     private View errorView;
+    private ConnectivityManager.NetworkCallback connectivity;
     private UpdateSheet updateSheet;
     private View menuSheet;
     private SignInSheet signInSheet;
@@ -176,6 +180,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         FrameLayout contentHost = new FrameLayout(this);
         contentHost.addView(contentFrame, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        watchConnectivity();
         errorView = buildErrorView();
         errorView.setVisibility(View.GONE);
         contentHost.addView(errorView, new FrameLayout.LayoutParams(
@@ -1104,7 +1109,16 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             retry.setOnClickListener(v -> {
                 AppUi.press(v);
                 hideStalledBar();
-                if (stuck != null) stuck.reload();
+                // A tab showing a saved copy must be sent back to the live URL: reloading
+                // it would only re-read the same file and stay stuck.
+                if (stuck == null) return;
+                String shown = stuck.getUrl();
+                int tab = tabs == null ? -1 : tabs.tabOf(stuck);
+                if (tab >= 0 && (shown == null || shown.startsWith("file://"))) {
+                    stuck.loadUrl(tabs.realUrl(tab));
+                } else {
+                    stuck.reload();
+                }
             });
             bar.addView(retry);
             TextView close = AppUi.text(this, "✕", 15f, R.color.on_bg_muted, false);
@@ -1602,12 +1616,16 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             @Override
             public void onSignOut() {
                 closeSettingsNow();
+                // Signed out means signed out: the saved pages are copies of someone's
+                // private chats and must not survive it.
+                OfflinePages.clear(MainActivity.this);
                 if (tabs != null) tabs.clearAndReload();
             }
 
             @Override
             public void onClearData() {
                 closeSettingsNow();
+                OfflinePages.clear(MainActivity.this);
                 if (tabs != null) tabs.clearAndReload();
             }
 
@@ -1681,6 +1699,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 break;
             case Settings.K_NOTIFY_UPDATES:
                 if (!value) UpdateNotifications.cancelAll(this);
+                break;
+            case Settings.K_OFFLINE_PAGES:
+                // Off means off: the copies are private chat pages, so they go now.
+                if (!value) OfflinePages.clear(this);
                 break;
             case Settings.K_NO_SELECT:
                 applyChromeInsets();   // the CSS is replaced in place, no reload needed
@@ -1825,7 +1847,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         retry.setOnClickListener(v -> {
             hideError();
             if (isOnline() && tabs != null) {
-                tabs.loadInCurrent(TabWebViews.urlFor(currentTab));
+                tabs.loadInCurrent(tabs.realUrl(currentTab));
             } else {
                 showError();
             }
@@ -2037,6 +2059,65 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (tabs != null && tabs.current() != null) tabs.current().saveState(outState);
     }
 
+    /**
+     * Watches the connection, because the app's behaviour depends on it.
+     *
+     * Two device reports have the same root: a phone that thinks it is online while the
+     * connection cannot reach anything. "The sign-in icon only appears after a refresh" and
+     * "sometimes the app does not load" are both a page that was fetched, failed, and was
+     * never asked for again. So: when the connection actually comes back, reload what is on
+     * screen instead of waiting for the user to notice.
+     */
+    private void watchConnectivity() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager)
+                    getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            if (connectivity != null) {
+                try {
+                    cm.unregisterNetworkCallback(connectivity);
+                } catch (Exception ignored) {
+                }
+            }
+            connectivity = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    runOnUiThread(() -> onConnectivityGained());
+                }
+            };
+            cm.registerNetworkCallback(
+                    new NetworkRequest.Builder()
+                            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                            .build(), connectivity);
+        } catch (Exception e) {
+            // registerNetworkCallback is API 24+ and may be refused; the app works without.
+            connectivity = null;
+        }
+    }
+
+    /** A network with internet capability appeared: pick up where the page left off. */
+    private void onConnectivityGained() {
+        if (tabs == null) return;
+        CrashLog.note(this, "connection available again");
+        if (errorView != null && errorView.getVisibility() == View.VISIBLE) {
+            hideError();
+            tabs.loadInCurrent(tabs.realUrl(currentTab));
+            return;
+        }
+        WebView page = tabs.current();
+        OfflinePages.applyCacheMode(page, true);
+        // Only when the page is showing a saved copy or never finished: a page that is
+        // fine must not be reloaded just because the phone switched from Wi-Fi to data.
+        if (page != null && page.getUrl() != null && page.getUrl().startsWith("file://")) {
+            // It is showing a saved copy; now that there is a connection, fetch the real one.
+            tabs.loadInCurrent(tabs.realUrl(currentTab));
+            return;
+        }
+        if (stalledBar != null && stalledBar.getVisibility() == View.VISIBLE) {
+            tabs.reloadCurrent();
+        }
+    }
+
     @Override
     protected void onPause() {
         super.onPause();
@@ -2054,7 +2135,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         refreshStrip();
         if (errorView != null && errorView.getVisibility() == View.VISIBLE && isOnline()) {
             hideError();
-            if (tabs != null) tabs.reloadCurrent();
+            // realUrl(), not reload: if the tab fell back to a saved copy, reloading would
+            // replay the same local file and the page would stay exactly as broken.
+            if (tabs != null) tabs.loadInCurrent(tabs.realUrl(currentTab));
         }
     }
 
@@ -2070,6 +2153,17 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     @Override
     protected void onDestroy() {
+        // Leaving the callback registered would keep this activity alive for the life of
+        // the process, and reload a WebView that no longer exists.
+        if (connectivity != null) {
+            try {
+                ConnectivityManager cm = (ConnectivityManager)
+                        getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) cm.unregisterNetworkCallback(connectivity);
+            } catch (Exception ignored) {
+            }
+            connectivity = null;
+        }
         closeWebWindow();
         if (tabs != null) tabs.destroyAll();
         super.onDestroy();

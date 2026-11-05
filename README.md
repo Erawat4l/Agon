@@ -140,7 +140,8 @@ Android Studio install; if it finds nothing it prints the same steps.
 | Deep links | Tapping an `arena.ai` / `lmarena.ai` link opens the app |
 | External links | `mailto:`, `tel:`, `upi:`, Play Store links open in their own apps |
 | Back button | Navigates web history first, "press back again to exit" at the root |
-| Offline screen | Friendly retry screen instead of WebView's error page |
+| Saved pages | Each tab's last good copy is kept on the device, so a page you have already opened still opens with no usable connection |
+| Offline screen | Friendly retry screen instead of WebView's error page — and only when there is no saved copy to show |
 | Dark mode | Follows the system theme, including status/navigation bars |
 | Rotation, split screen | Handled without reloading the page |
 
@@ -162,12 +163,36 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Tapping Rankings / Search | flips `View.VISIBILITY` on an already-painted WebView — no reload, no white flash, ~1 frame |
 | First visit to a tab | the tab's WebView is pre-built in the background at launch (`TabWebViews.preload()`), so even the first tap skips the cold start |
 | Returning to a tab | keeps DOM, scroll position and session; a silent `focus` event asks the page for fresh data |
-| Caching | `LOAD_DEFAULT` — the network answers, the cache answers only what is still fresh. `LOAD_CACHE_ELSE_NETWORK` painted stale Arena documents and made pages look permanently stuck |
+| Caching | `LOAD_DEFAULT` while there is a connection — the network answers, the cache answers only what is still fresh. `LOAD_CACHE_ELSE_NETWORK` painted stale Arena documents and made pages look permanently stuck, so it is used *only* when the phone has no usable connection |
 | Stalled page | a load that has not finished after 9 s raises one small bar: *This page stopped loading — Load again* |
 | Loading ring | the nav item whose page is still loading shows a small spinner in place of its icon |
 | Scroll | scrolling only scrolls; nothing about scrolling triggers a reload |
 | Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
+
+### Saved pages, and why a bad connection is not a dead app
+
+Two device reports came from the same place — a slow connection: *"add also every page of
+arena.ai is saved inside the app, it should update itself as I use it"* and *"the sign-in
+icon only appears after a refresh, sometimes the app doesn't load"*.
+
+What it does, exactly:
+
+| Behaviour | Detail |
+| --- | --- |
+| Cache mode | chosen per connection, and re-chosen on every page finish: online the network wins, offline the cache does. Never pinned once at startup |
+| A saved copy per tab | after a page finishes loading, the rendered page is written with `saveWebArchive()` to one file per URL in the app's private cache (`cache/pages/p-<hash>.mht`) |
+| Kept current | re-saved at most once every 3 minutes per URL, so using the app is what updates it — the copy is always roughly what you last saw |
+| Bounded | at most 8 pages, 12 MB each; the oldest is dropped first, and a page that fails to save is simply not kept |
+| Opened offline | with no connection a tab starts from its saved copy instead of a blank page, and the normal load runs behind it |
+| A load that fails | a main-frame error restores the saved copy instead of showing the error screen |
+| Never in the way | the browser chrome always shows the real `arena.ai` URL, so Back, the strip, the title and Retry all point at the real page, not at a local file |
+| Connection returns | the visible tab is reloaded by itself when the network comes back (a `NetworkCallback`), so a page that never loaded recovers without a refresh |
+| Private | the copies live only in the app's cache dir, and are deleted on sign-out, on "clear data", and when *Developer Settings → Saved pages* is switched off |
+
+This is **not** full offline Arena: the site is a live single-page app, and a chat that has
+never been opened is not on the phone. What is on the phone is the last thing each tab
+showed, which is what makes the app open instantly and survive a dropped connection.
 
 ### Sign-in: Google, in the app, with a browser handoff
 
@@ -561,6 +586,7 @@ must ship whenever the project is made public.
 | Account email + provider | `agon_profile` prefs | no |
 | Sign-in trace (URLs, query values stripped to `name=set`) | `agon_signin_trace` prefs | no |
 | Crash trace | `files/last_crash.txt` | no |
+| Saved page copies (last page shown per tab) | `cache/pages/*.mht` — cleared on sign-out, clear-data, or the *Saved pages* switch | no |
 
 Both backup rule files exclude `agon_update`, `agon_profile` and `agon_signin_trace`, so a
 cloud backup of the app cannot be used to read someone else's token or address. The app has

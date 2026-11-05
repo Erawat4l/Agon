@@ -194,6 +194,8 @@
     <string name="signin_provider_blocked">%1$s will not sign in inside an app - use the browser line below, and the session still comes back here</string>
     <string name="updates_dropdown_installed">Installed %1$s · build %2$d</string>
     <string name="updates_dropdown_latest">Latest on GitHub: %1$s</string>
+    <string name="settings_offline">Saved pages</string>
+    <string name="settings_offline_sub">Keep a copy of each page so the app still opens on a bad connection. Turning this off deletes the copies</string>
     <string name="settings_selectable">App-style text</string>
     <string name="settings_selectable_sub">No text selection or long-press menu, like a real app</string>
     <string name="history_title">Your chats</string>

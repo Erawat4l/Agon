@@ -78,6 +78,37 @@ public final class CrashLog {
         }
     }
 
+    /**
+     * Records a one-line note, not a crash.
+     *
+     * The app's own decisions about loading - "offline, showing the saved copy", "came back
+     * online, refreshing" - are the first thing to look at when a page behaves oddly, and
+     * there is no log to read on a phone. They are appended to the same file a crash is
+     * written to, because that file is already reachable from the app's own menu.
+     */
+    public static void note(Context context, String line) {
+        try {
+            File f = file(context);
+            // Under 400 bytes there is no crash trace worth keeping, so the note starts the
+            // file; past 64 KB the oldest notes are dropped rather than growing for ever.
+            boolean blank = f.length() < 400;
+            if (f.length() > 64L * 1024L) {
+                //noinspection ResultOfMethodCallIgnored
+                f.delete();
+                blank = true;
+            }
+            FileOutputStream out = new FileOutputStream(f, !blank);
+            String stamp = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US)
+                    .format(new Date());
+            String text = (blank ? "" : "\n") + stamp + "  " + line + "\n";
+            out.write(text.getBytes("UTF-8"));
+            out.flush();
+            out.close();
+        } catch (Throwable ignored) {
+            // A note is never allowed to be the reason something fails.
+        }
+    }
+
     public static String read(Context context) {
         try {
             File f = file(context);

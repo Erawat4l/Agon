@@ -60,6 +60,8 @@ public final class Settings {
      * and it lives in For developers, like the other page-shaping switches.
      */
     public static final String K_SHOW_TAB_STRIP = "show_tab_strip";
+    /** Keep a copy of each page so the app still opens with no usable connection. */
+    public static final String K_OFFLINE_PAGES = "offline_pages";
     public static final String K_DEVELOPER = "developer_options";
 
     private Settings() {
@@ -198,6 +200,17 @@ public final class Settings {
     }
 
     /** True when the strip above the page is drawn. */
+    /**
+     * True when pages should be kept on the device for offline use.
+     *
+     * On by default: the copy is what makes a bad connection feel like a fast app instead
+     * of a broken one. It can be switched off in developer settings, and it is the only
+     * switch whose data is deleted the moment it is turned off.
+     */
+    public static boolean offlinePages(Context c) {
+        return get(c, K_OFFLINE_PAGES, true);
+    }
+
     public static boolean showTabStrip(Context c) {
         return get(c, K_SHOW_TAB_STRIP, true);
     }

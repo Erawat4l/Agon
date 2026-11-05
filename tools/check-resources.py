@@ -706,6 +706,9 @@ ANDROID_MEMBERS = {
                 "setLongClickable", "setRendererPriorityPolicy", "getScale", "zoomIn",
                 "zoomOut", "requestFocus", "setInitialScale", "pageUp", "pageDown",
                 "setBackgroundColor", "getFocusedNode", "saveState", "restoreState",
+                # The offline copy of a page: a whole document as one file, which is the
+                # only API that can put back a page the network will not give you.
+                "saveWebArchive",
                 # static, API 19+, and the only way to reach chrome://inspect on a device.
                 "setWebContentsDebuggingEnabled"},
     "Build": {"MODEL", "MANUFACTURER", "BRAND", "DEVICE", "VERSION", "SDK_INT"},

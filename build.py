@@ -10,6 +10,7 @@
     python3 build.py apk --beta     build a beta-channel version number
     python3 build.py apk --release  signed release APK instead of a debug one
     python3 build.py clean          delete build output (never the key)
+    python3 build.py sign           fix the signing state: find, adopt or create the key
 
 The old build.bat / build.sh / build-all.bat / clean-all.bat / commit.bat /
 make-keystore.bat / termux-build.sh are all this one file now: same detection, same
@@ -565,21 +566,224 @@ def run_termux_build(version, only_tools=False):
 
 def fingerprint(key):
     """The SHA-256 of the signing key, so two machines can be compared in one line."""
-    keytool = "keytool"
+    sha = key_sha(key)
+    say("        fingerprint: %s" % (sha or "(keytool could not read it - is the JDK "
+                                          "installed?)"))
+
+
+def keytool_path():
+    """The keytool to use: the JDK's own when there is one, else whatever is on PATH."""
     if host() == "windows":
         jdk = needs.find_jdk()
         if jdk:
-            keytool = os.path.join(jdk, "bin", "keytool.exe")
-    code, out = needs.run([keytool, "-list", "-v", "-keystore", key,
-                           "-storepass", "agonbuild"], timeout=60)
-    if code != 0:
-        code, out = needs.run([keytool, "-list", "-v", "-keystore", key,
-                               "-storepass", "agonphone"], timeout=60)
-    for line in (out or "").splitlines():
-        if "SHA256:" in line:
-            say("        fingerprint: %s" % line.split("SHA256:")[1].strip())
-            return
-    say("        fingerprint: (keytool could not read it - is the JDK installed?)")
+            candidate = os.path.join(jdk, "bin", "keytool.exe")
+            if os.path.exists(candidate):
+                return candidate
+        for base in (os.environ.get("JAVA_HOME", ""),):
+            if base:
+                candidate = os.path.join(base, "bin", "keytool.exe")
+                if os.path.exists(candidate):
+                    return candidate
+    return "keytool"
+
+
+def key_sha(key, password=None):
+    """SHA-256 of a keystore, or '' when no known password opens it."""
+    passwords = [password] if password else [p for p, _a in KNOWN_PASSWORDS]
+    for candidate in passwords:
+        code, out = needs.run([keytool_path(), "-list", "-v", "-keystore", key,
+                               "-storepass", candidate], timeout=90)
+        if code != 0:
+            continue
+        for line in (out or "").splitlines():
+            if "SHA256:" in line:
+                return line.split("SHA256:")[1].strip()
+    return ""
+
+
+# The stored phone key: its alias, password and the properties file naming it. The phone
+# build writes arena-release.jks with these; adopting it is what lets a PC build install
+# over an APK that a phone produced.
+LEGACY = {"keystore": "arena-release.jks", "alias": "arena",
+          "password": "agonphone", "props": "keystore.properties"}
+
+
+def sign_repair():
+    """One command that leaves this machine able to sign something installable.
+
+    Android ties an app to the key it was first installed with, for ever: a different key
+    is refused with "package conflicts with an existing package", and the only cure is
+    uninstalling, which clears the arena session. So this does not "generate a key and
+    carry on" - it works out which key the installed app actually has, and makes sure this
+    checkout signs with exactly that one.
+
+    In order of preference:
+      1. an existing agon-build.jks (the shared key both machines use);
+      2. a key file the user already has (arena-release.jks, keystore.properties, or
+         anything in Downloads/) - adopted rather than replaced;
+      3. ask, once, for the SHA-256 the phone printed, so the PC can be given the same key;
+      4. create the key, and say plainly that the app has to be installed once more.
+    """
+    say("=" * 52)
+    say("  Agon  |  signing")
+    say("=" * 52)
+
+    key = needs.find_key()
+    if key:
+        say()
+        say("  Key already here: %s" % key)
+        sha = key_sha(key)
+        ok, broken = ensure_props_for(key)
+        if not ok:
+            fail("%s exists but no known password opens it." % key,
+                 "It is not a usable keystore. Move it out of the project and run this "
+                 "again: a fresh key will be created (and the app will need one reinstall).")
+        if sha:
+            say("  SHA-256: %s" % sha)
+        else:
+            say("  SHA-256: (could not be read with any known password)")
+        say("  Properties: %s" % os.path.join(ROOT, "agon-build.properties"))
+        shared = share_key_for_phone()
+        if shared:
+            say("  Copy for the phone: %s" % shared)
+        say()
+        if not sha:
+            say("  [i] The key is there, but no known password opens it fully.")
+            say("      If a build fails at :app:packageDebug, delete agon-build.jks and")
+            say("      run this again to make a new one.")
+        else:
+            say("  [OK] Nothing to fix - this checkout signs with the key above.")
+        say("  Compare that SHA-256 with the one a phone build prints: they must match,")
+        say("  or an APK from this PC will not install over an APK from the phone.")
+        return 0
+
+    # ---- nothing yet: look for a key the user already has, anywhere obvious
+    found = find_existing_keys()
+    if found:
+        say()
+        say("  Found a key outside the project:")
+        for path in found:
+            say("    %s" % path)
+        source = found[0]
+        target = os.path.join(ROOT, "agon-build.jks")
+        shutil.copyfile(source, target)
+        ok, _ = ensure_props_for(target)
+        sha = key_sha(target)
+        if not ok or not sha:
+            fail("That key would not open with any known password.",
+                 "It is still at %s. Move it out of the project and run this again."
+                 % source)
+        say()
+        say("  [OK] Adopted %s as agon-build.jks" % os.path.basename(source))
+        say("  SHA-256: %s" % sha)
+        shared = share_key_for_phone()
+        if shared:
+            say("  Copy for the phone: %s" % shared)
+        return 0
+
+    # ---- nothing at all: make one, and be honest about what that costs
+    if not needs.have(keytool_path()):
+        if host() == "windows" and needs.have("winget"):
+            say()
+            say("  No keytool yet (it comes with the JDK) - installing JDK 17 once...")
+            run("winget install -e --id EclipseAdoptium.Temurin.17.JDK "
+                "--accept-package-agreements --accept-source-agreements")
+            say("  If that installed a JDK, close this window and run the same command")
+            say("  again: a new PATH is not visible to the window that started it.")
+            return 0
+        fail("keytool is not on this machine, so no key can be created.",
+             "Install a JDK 17 (winget install EclipseAdoptium.Temurin.17.JDK), "
+             "then run this again.")
+    say()
+    say("  No signing key on this machine yet. Creating agon-build.jks ...")
+    ok = make_key()
+    if not ok:
+        fail("keytool could not create the key.",
+             "Install a JDK:  winget install EclipseAdoptium.Temurin.17.JDK")
+    key = needs.find_key()
+    sha = key_sha(key) if key else ""
+    say()
+    say("  [OK] New key: %s" % key)
+    say("       SHA-256: %s" % (sha or "unreadable"))
+    shared = share_key_for_phone()
+    if shared:
+        say("       Copy for the phone: %s" % shared)
+    say()
+    say("  This key is now THE key for this project. Back it up - losing it means")
+    say("  uninstalling the app on every device, which clears the arena session.")
+    say()
+    say("  If the app is already installed from a phone build, that build used its own")
+    say("  key and this one will be refused over it ('package conflicts'). Either")
+    say("  copy the phone's key into this folder as agon-build.jks and run this again,")
+    say("  or uninstall the app once and install the APK from this PC.")
+    return 0
+
+
+def find_existing_keys():
+    """Key files the user already has, without leaving the obvious places.
+
+    Never the whole disk: the point is to find the one the phone printed a fingerprint
+    for, not to spend two minutes scanning a drive.
+    """
+    candidates = []
+    for name in (LEGACY["keystore"], "agon-build.jks"):
+        path = os.path.join(ROOT, name)
+        if os.path.isfile(path) and name != "agon-build.jks":
+            candidates.append(path)
+    home = os.path.expanduser("~")
+    for folder in (os.path.join(home, "Downloads"), os.path.join(home, "Desktop"),
+                   os.path.join(ROOT, "..")):
+        for name in ("agon-build.jks", "arena-release.jks", "AGON-KEY.md"):
+            path = os.path.abspath(os.path.join(folder, name))
+            if os.path.isfile(path) and path not in candidates:
+                candidates.append(path)
+    return candidates
+
+
+# Every password this project has ever used, and the alias each key carries. Trying them
+# is what lets a key that was made somewhere else be adopted without asking the user to
+# remember which workflow produced it.
+KNOWN_PASSWORDS = (("agonbuild", "agon"), ("agonphone", "arena"), ("android", "agon"))
+
+
+def ensure_props_for(key):
+    """Makes agon-build.properties agree with the key file that is actually here.
+
+    The properties file is what Gradle signs with, so a wrong alias or password there is
+    not a warning - it is a build that fails at the signing step, or worse, silently falls
+    back to the debug key. So the alias and password are probed from the key itself.
+    """
+    props = os.path.join(ROOT, "agon-build.properties")
+    name = os.path.basename(key)
+    if os.path.isfile(props):
+        try:
+            text = open(props).read()
+            if ("storeFile=%s" % name) in text:
+                return True, props
+        except OSError:
+            pass
+    for password, alias in KNOWN_PASSWORDS:
+        code, out = needs.run([keytool_path(), "-list", "-v", "-keystore", key,
+                               "-storepass", password], timeout=90)
+        if code != 0:
+            continue
+        found = alias
+        for line in (out or "").splitlines():
+            if "Alias name:" in line:
+                found = line.split("Alias name:")[1].strip()
+                break
+        # Prove it before Gradle tries: the alias has to resolve with that password, or
+        # the signing step fails - or worse, AGP quietly falls back to the debug key.
+        code, _ = needs.run([keytool_path(), "-list", "-keystore", key,
+                             "-storepass", password, "-alias", found], timeout=90)
+        if code != 0:
+            continue
+        with open(props, "w") as fh:
+            fh.write("storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n"
+                     % (name, password, found, password))
+        say("        storeFile=%s  keyAlias=%s" % (name, found))
+        return True, props
+    return False, props
 
 
 def write_local_properties(sdk):
@@ -718,7 +922,7 @@ def release_apk(version):
 def main(argv):
     mode = "apk"
     for arg in argv:
-        if arg in ("apk", "desktop", "publish", "doctor", "clean"):
+        if arg in ("apk", "desktop", "publish", "doctor", "clean", "sign"):
             mode = arg
     beta = "--beta" in argv or "beta" in argv
     channel = "beta" if beta else "stable"
@@ -740,6 +944,9 @@ def main(argv):
         else:
             say("  %d thing(s) missing. `python3 build.py` installs them." % len(missing))
         return 0 if not missing else 1
+
+    if mode == "sign":
+        return sign_repair()
 
     if mode == "clean":
         step(1, 1, "Clean")

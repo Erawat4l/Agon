@@ -48,6 +48,7 @@ Both are thin launchers for `build.py`, so the phone and the PC cannot drift apa
 | `build.bat apk --beta` | Next version on the beta channel |
 | `build.bat desktop` | APK **and** both Windows installers (Windows only) |
 | `build.bat publish` | Everything above, then uploads the release |
+| `build.bat sign` | **Fixes signing in one command**: finds a key you already have, adopts it, or makes one — then prints its fingerprint |
 | `build.bat clean` | Deletes build output. Never the signing key, never the source |
 | `publish.bat` | The publishing path on its own (version policy, release notes, upload) |
 | `rename-repo.bat Agon` | Renames the GitHub repository and repoints everything at it |
@@ -84,6 +85,18 @@ Android will not install an APK over an app whose key differs, and the only cure
 uninstalling, which clears the arena session. So the key is the one thing to back up:
 copy `agon-build.jks` somewhere that is not this repository. `build.bat` prints its
 SHA-256 fingerprint on every run — two machines holding the same key print the same line.
+
+**If anything about signing goes wrong, run one command:**
+
+```bat
+build.bat sign
+```
+
+It looks for `agon-build.jks`, then `arena-release.jks`, then a key in `Downloads` /
+`Desktop` / the parent folder, adopts the first one it can open, rewrites
+`agon-build.properties` to match it (probing every password this project has used), and
+prints the SHA-256. If there is no key at all it creates one and says plainly that the app
+has to be installed once more. It never touches an existing key it can read.
 
 A debug-signed APK is only `debuggable`, never `debug`-insecure: Gradle's debug keystore
 still uses the modern RSA key with a real digest for minSdk 24, so the file is signed with

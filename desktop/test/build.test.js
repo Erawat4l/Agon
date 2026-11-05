@@ -103,6 +103,27 @@ for (const file of ['build.py', 'tools/needs.py']) {
   check('the container script is valid shell (bash -n)', shellOk, detail);
 }
 
+// --- the handover to the container ---------------------------------------------------------
+{
+  // Termux's own /tmp is read-only on Android 10+ ("Permission denied" on a real phone),
+  // so the handover file has to be written inside the repository, not in /tmp.
+  const source = fs.readFileSync(path.join(ROOT, 'build.py'), 'utf8');
+  check('build.py does not write the container script into /tmp',
+    !/open\(\s*["']\/tmp/.test(source), 'a /tmp write is still there');
+  check('it writes it next to build.py instead',
+    /\.agon-inner\.sh/.test(source));
+
+  const script = py(['-c',
+    'import sys; sys.path.insert(0,"."); import build; print(build.termux_inner())']);
+  const keyAt = script.indexOf("echo '  ... signing key'");
+  const stopAt = script.indexOf('AGON_TOOLS_ONLY');
+  check('the tools-only stop comes after the source and the signing key',
+    keyAt > 0 && stopAt > keyAt,
+    `key@${keyAt} stop@${stopAt}`);
+  check('the signing key is made with a keytool path, not a bare name',
+    /KEYTOOL=\S+/.test(script) && /"\$KEYTOOL" -genkeypair/.test(script));
+}
+
 // --- the version policy ------------------------------------------------------------------
 {
   // A build numbered below what is published is invisible for ever, so it is refused

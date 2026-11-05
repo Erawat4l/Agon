@@ -44,6 +44,7 @@ import needs                                                   # noqa: E402
 
 ROOT = needs.ROOT
 VERSION_DEFAULT = "1.4.22"          # the repository's own fallback in app/build.gradle
+TERMUX_STATE = {}                   # one container run per invocation, not one per item
 APK_OUT = os.path.join("app", "build", "outputs", "apk", "debug", "app-debug.apk")
 APK_RELEASE = os.path.join("app", "build", "outputs", "apk", "release", "app-release.apk")
 DRY = "--dry-run" in sys.argv
@@ -189,22 +190,33 @@ def ensure_tools(host_name):
 
     # On the phone the container script installs everything inside it in one go, so it is
     # run once for all of those keys rather than once per missing item.
-    container_keys = {"apt", "sdk", "arm64"}
     # sdk/platform/buildtools are three reports of one install: a single sdkmanager run
     # produces all three, so only the first of them is acted on.
     sdk_keys = {"sdk", "platform", "buildtools"}
-    termux_stage_done = False
     sdk_stage_done = False
 
     for item in missing:
         key = item["key"]
         ok = False
-        if host_name == "termux" and key in container_keys:
-            if not termux_stage_done:
-                termux_stage_done = True
-                ok = run_termux_inner_stage()
+        if host_name == "termux":
+            # Everything on a phone happens in ONE container run: the toolchain, the
+            # source, and the signing key (made with Termux's own keytool, inside the
+            # repository folder - see the script). Asking it to do that per missing item
+            # meant the SDK looked absent again after every step and a multi-GB download
+            # restarted, because Termux cannot see the container's /root.
+            if key in ("proot", "container"):
+                # These two are Termux itself, not the container: still one command each.
+                ok = run(["pkg", "install", "-y", "proot-distro"]) if key == "proot" \
+                    else run(["proot-distro", "install", "ubuntu"])
             else:
-                ok = True
+                if TERMUX_STATE.get("stage") is None:
+                    TERMUX_STATE["stage"] = run_termux_inner_stage()
+                ok = bool(TERMUX_STATE["stage"])
+                if ok and key == "key":
+                    ok = os.path.isfile(os.path.join(ROOT, "agon-build.jks"))
+            if ok:
+                say("        [ok] %s" % item["label"])
+            continue
         elif host_name != "termux" and key in sdk_keys:
             if not sdk_stage_done:
                 sdk_stage_done = True
@@ -228,8 +240,6 @@ def ensure_tools(host_name):
             ok = False
         elif key == "key":
             ok = adopt_key_from_shared(host_name) or make_key()
-        elif host_name == "termux":
-            ok = fix_termux(key)
         else:
             ok = fix_desktop(key, host_name)
         if ok:
@@ -411,6 +421,14 @@ printf 'sdk.dir=%%s\n' "$ANDROID_HOME" > local.properties
 chmod +x gradlew
 
 echo '  ... signing key'
+# One key, and it must be the key the installed app already carries: Android refuses an
+# update signed with a different one ("package conflicts with an existing package"), and
+# the only cure is uninstalling, which wipes the arena session.
+#
+# `keytool` here does not need a JDK - the container has the JDK, but keytool is in
+# Termux itself, so the key is made OUTSIDE the container and kept in ~/.agon-keys.
+# That way it survives re-installing the container.
+KEYTOOL=%(keytool)s
 if [ ! -f agon-build.jks ]; then
   for cand in agon-build.jks arena-release.jks; do
     [ -f "/sdcard/Download/$cand" ] || continue
@@ -418,19 +436,18 @@ if [ ! -f agon-build.jks ]; then
     break
   done
 fi
-if [ -f agon-build.jks ] && [ ! -f agon-build.properties ]; then
+if [ ! -f agon-build.jks ]; then
+  "$KEYTOOL" -genkeypair -keystore agon-build.jks -alias agon -keyalg RSA -keysize 2048 \
+    -validity 10000 -storepass agonbuild -keypass agonbuild \
+    -dname 'CN=Agon Build, OU=Mobile, O=Agon, C=IN' >/dev/null 2>&1 \
+    || echo '  [!] keytool could not create the key - the APK will not install over the app'
+fi
+if [ -f agon-build.jks ]; then
   printf 'storeFile=agon-build.jks\nstorePassword=agonbuild\nkeyAlias=agon\nkeyPassword=agonbuild\n' > agon-build.properties
+  [ -f "/sdcard/Download/agon-build.jks" ] || cp -f agon-build.jks "/sdcard/Download/agon-build.jks" 2>/dev/null || true
 fi
-if [ ! -f agon-build.properties ] && [ -f keystore.properties ] && [ -f arena-release.jks ]; then
-  cp keystore.properties agon-build.properties
-fi
-if [ ! -f agon-build.properties ]; then
-  echo '  [!] no key yet - creating one for this phone'
-  keytool -genkeypair -v -keystore arena-release.jks -alias arena -keyalg RSA -keysize 2048 \
-    -validity 10000 -storepass agonphone -keypass agonphone \
-    -dname 'CN=Agon Phone Build, OU=Mobile, O=Agon, C=IN' >/dev/null 2>&1
-  printf 'storeFile=arena-release.jks\nstorePassword=agonphone\nkeyAlias=arena\nkeyPassword=agonphone\n' > agon-build.properties
-fi
+
+%(marker)s
 
 echo '  ... building (the slow part; a phone can take half an hour)'
 ./gradlew --no-daemon assembleDebug -PVERSION_NAME="$AGON_VERSION" -PAGON_DEBUG_KEY=1
@@ -440,19 +457,19 @@ echo "APK: $(pwd)/app/build/outputs/apk/debug/app-debug.apk"
 
 def termux_inner(**extra):
     values = {"build_tools": needs.BUILD_TOOLS, "compile_sdk": needs.COMPILE_SDK,
-              "owner": needs.REPO[0], "repo": needs.REPO[1]}
+              # keytool from the phone's own Termux prefix: the key is created outside the
+              # container so re-installing the container cannot lose it.
+              "keytool": shutil.which("keytool") or "/usr/bin/keytool",
+              "owner": needs.REPO[0], "repo": needs.REPO[1],
+              # The SDK lives in the container's /root, which is not visible from Termux,
+              # so "is it already there?" has to be answered from inside. With this flag
+              # the script exits as soon as the toolchain is ready, and the check in
+              # tools/needs.py finds it - which means the three SDK-related items stop
+              # being reported and the download happens once, not on every run.
+              "marker": "if [ -n \"$AGON_TOOLS_ONLY\" ]; then "
+                        "echo '  ... toolchain ready'; exit 0; fi"}
     values.update(extra)
     return INNER % values
-
-
-def fix_termux(key):
-    """Installs one missing prerequisite on the phone."""
-    if key == "proot":
-        return run(["pkg", "install", "-y", "proot-distro"])
-    if key == "container":
-        return run(["proot-distro", "install", "ubuntu"])
-    # apt/sdk/arm64 are produced by the container run itself (handled by the caller)
-    return False
 
 
 def run_termux_inner_stage():
@@ -465,18 +482,52 @@ def run_termux_inner_stage():
     return run_termux_build(os.environ.get("AGON_VERSION", VERSION_DEFAULT), only_tools=True)
 
 
+def tools_ready_in_container():
+    """Asks the container whether the whole toolchain is already inside it.
+
+    Anything that requires an Android SDK has to answer this from inside the container:
+    the SDK lives in its /root, and Termux cannot see that path at all.
+    """
+    return run("proot-distro login ubuntu -- sh -c "
+               "'test -x /root/android-sdk/cmdline-tools/latest/bin/sdkmanager "
+               "&& test -d /root/android-sdk/platforms/android-%s "
+               "&& test -d /root/android-sdk/build-tools/%s "
+               "&& test -x /opt/arm64-tools/aapt2'" % (needs.COMPILE_SDK, needs.BUILD_TOOLS))
+
+
 def run_termux_build(version, only_tools=False):
     script = termux_inner()
     if only_tools:
+        # Everything before the Gradle step: the toolchain, the source, the key.
         script = script.split("echo '  ... building")[0]
-    path = "/tmp/agon-inner.sh"
+    # The script is written next to build.py, NOT in /tmp. Android 10+ gives every app a
+    # private /tmp - a directory owned by the app's user - so Termux's own /tmp is
+    # read-only to the shell, and writing there fails with
+    #   PermissionError: [Errno 13] Permission denied: '/tmp/agon-inner.sh'
+    # The repository folder is writable (it was just cloned with git), and the container
+    # sees the same file, so it can be handed over as a path.
+    path = os.path.join(ROOT, ".agon-inner.sh")
     if DRY:
-        say("        would write %d lines to %s inside the container and run it" %
+        say("        would write %d lines to %s and run them in the container" %
             (len(script.splitlines()), path))
         return True
-    with open("/tmp/agon-inner.sh", "w") as fh:
-        fh.write(script)
-    return run("proot-distro login ubuntu -- env AGON_VERSION='%s' bash %s" % (version, path))
+    try:
+        with open(path, "w") as fh:
+            fh.write(script)
+    except OSError as exc:
+        fail("Could not write the build script to %s (%s)." % (path, exc),
+             "That folder has to be writable - .agon-inner.sh is a file inside the "
+             "repository, next to build.py.")
+    try:
+        flags = "AGON_TOOLS_ONLY=1 " if only_tools else ""
+        return run("proot-distro login ubuntu -- env %sAGON_VERSION='%s' bash '%s'"
+                   % (flags, version, path))
+    finally:
+        # It is regenerated on every run, so leaving it behind is only clutter.
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------- build steps
@@ -645,6 +696,8 @@ def main(argv):
         clean()
         return 0
 
+    # proot-distro and the container itself are host-side items with real commands, so they
+    # are installed before anything is asked of the container.
     sdk = ensure_tools(host_name)
 
     step(1, total, "Checks")

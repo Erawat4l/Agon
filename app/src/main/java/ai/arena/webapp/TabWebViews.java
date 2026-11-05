@@ -11,6 +11,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -71,6 +72,15 @@ public final class TabWebViews {
     private final Host host;
     private final FrameLayout container;
     private final Map<Integer, WebView> views = new LinkedHashMap<>();
+    /**
+     * The arena URL of a tab that is showing a saved copy instead.
+     *
+     * A page put back from OfflinePages is loaded from file://, so getUrl() on that tab
+     * answers with a path in the cache directory. That path must never reach the arrows,
+     * the reload button, the history sheet or the tab list - so it is remembered here and
+     * everything that asks "where is this tab?" gets the real page back.
+     */
+    private final Map<Integer, String> restoredUrl = new HashMap<>();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final java.util.Set<Integer> loaded = new java.util.HashSet<>();
     private int currentTab = -1;
@@ -231,6 +241,15 @@ public final class TabWebViews {
     /** Every warm WebView, current tab included. */
     public java.util.Collection<WebView> all() {
         return new java.util.ArrayList<>(views.values());
+    }
+
+    /** The arena URL a tab is really on, even while it shows a saved copy. */
+    public String realUrl(int tab) {
+        WebView w = views.get(tab);
+        String live = w == null ? null : w.getUrl();
+        if (live != null && !live.startsWith("file://")) return live;
+        String remembered = restoredUrl.get(tab);
+        return remembered != null ? remembered : urlFor(tab);
     }
 
     public static String urlFor(int tab) {
@@ -1184,9 +1203,21 @@ public final class TabWebViews {
         // The client must be installed BEFORE the first load, otherwise the first
         // onPageStarted (and therefore the chrome insets) is missed.
         w.setWebViewClient(withLoadHook(w, host.clientFactory().create(), tab));
-        // Chat tab loads immediately; others start as soon as they are created so the
-        // network work overlaps with the user reading the current screen.
-        w.loadUrl(urlFor(tab));
+        // No usable connection (or a very slow one): show the copy saved from last time
+        // instead of an empty page or an error screen, and let the normal load run behind
+        // it. OnPageFinished replaces it the moment there is something better.
+        final String startUrl = urlFor(tab);
+        final boolean offline = !OfflinePages.online(activity);
+        OfflinePages.applyCacheMode(w, !offline);
+        if (offline && OfflinePages.hasSnapshot(activity, startUrl)) {
+            CrashLog.note(activity, "offline: showing the saved copy of " + startUrl);
+            restoredUrl.put(tab, startUrl);
+            OfflinePages.restore(w, startUrl);
+        } else {
+            // Chat tab loads immediately; others start as soon as they are created so the
+            // network work overlaps with the user reading the current screen.
+            w.loadUrl(startUrl);
+        }
         // A tab created for a *new chat* must not stop at whatever conversation the root
         // route restores: once its document exists, ask the page for a fresh one. This
         // runs once per tab, and only for tabs the user asked for (never for the chat tab
@@ -1312,6 +1343,23 @@ public final class TabWebViews {
                 installTabTitle(view, name -> rememberTitle(tab, name));
                 // The page made it: if the "stuck" bar is up for this tab, drop it.
                 if (activity instanceof MainActivity) ((MainActivity) activity).clearStalledLoad();
+                // Keep this page for the next time there is no network ("everything is
+                // saved in the app, so it still opens and feels fast"). Throttled per URL
+                // inside OfflinePages, so firing it on every finish is cheap.
+                if (url != null && url.startsWith("file://")) {
+                    // The saved copy has been replayed; shut the file door again.
+                    OfflinePages.lockFileAccess(view);
+                } else if (url != null) {
+                    restoredUrl.remove(tab);
+                    // Not in the load callback: saveWebArchive() serialises the whole
+                    // document, and doing that at the exact moment the page becomes usable
+                    // is a visible stutter on a slow phone. Two seconds later nobody is
+                    // waiting for it.
+                    final WebView saving = view;
+                    final String saveUrl = url;
+                    view.postDelayed(() -> OfflinePages.save(saving, saveUrl), 2000L);
+                }
+                OfflinePages.applyCacheMode(view);
             }
 
             @Override
@@ -1329,6 +1377,17 @@ public final class TabWebViews {
             @Override
             public void onReceivedError(WebView view, android.webkit.WebResourceRequest request,
                                         android.webkit.WebResourceError error) {
+                // Same rule as the deprecated callback below, for API 23+: a main-frame
+                // failure is answered with the saved copy instead of the error screen.
+                if (request != null && request.isForMainFrame() && request.getUrl() != null) {
+                    String failed = request.getUrl().toString();
+                    if (OfflinePages.restore(view, failed)) {
+                        restoredUrl.put(tab, failed);
+                        CrashLog.note(activity, "load failed, showing the saved copy of "
+                                + failed);
+                        return;
+                    }
+                }
                 delegate.onReceivedError(view, request, error);
             }
 
@@ -1336,6 +1395,16 @@ public final class TabWebViews {
             @SuppressWarnings("deprecation")
             public void onReceivedError(WebView view, int errorCode, String description,
                                         String failingUrl) {
+                // The document itself failed to load. Rather than hand the user the error
+                // screen, put back the copy this tab had ("sometime it doesnt load"): it is
+                // what they were looking at a minute ago, and it is honest about being a
+                // saved page because the retry bar stays up.
+                if (failingUrl != null && OfflinePages.restore(view, failingUrl)) {
+                    restoredUrl.put(tab, failingUrl);
+                    CrashLog.note(activity, "load failed, showing the saved copy of "
+                            + failingUrl);
+                    return;
+                }
                 delegate.onReceivedError(view, errorCode, description, failingUrl);
             }
 
@@ -1403,6 +1472,7 @@ public final class TabWebViews {
         if (key != null) {
             views.remove(key);
             loaded.remove(key);
+            restoredUrl.remove(key);
         }
         if (view.getParent() != null) container.removeView(view);
         view.destroy();
@@ -1426,6 +1496,13 @@ public final class TabWebViews {
             w.clearCache(true);
             w.clearHistory();
             w.clearFormData();
+        }
+        // Any tab that was showing a saved copy is no longer showing anything: the copies
+        // were just deleted by the caller, and reloading one would load a missing file.
+        restoredUrl.clear();
+        if (currentTab >= 0 && views.containsKey(currentTab)) {
+            loadInCurrent(realUrl(currentTab));
+            return;
         }
         reloadCurrent();
     }

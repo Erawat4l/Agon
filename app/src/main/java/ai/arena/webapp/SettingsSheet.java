@@ -243,6 +243,8 @@ public final class SettingsSheet {
                 R.string.settings_chat_taps_sub, true);
         toggle(Settings.K_KEEP_SCROLL, R.string.settings_keep_scroll,
                 R.string.settings_keep_scroll_sub, true);
+        toggle(Settings.K_OFFLINE_PAGES, R.string.settings_offline,
+                R.string.settings_offline_sub, true);
         toggle(Settings.K_NO_SELECT, R.string.settings_selectable,
                 R.string.settings_selectable_sub, true);
         toggle(Settings.K_DESKTOP_UA, R.string.settings_ua,

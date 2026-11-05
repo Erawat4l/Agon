@@ -7,6 +7,7 @@ REM   build.bat doctor       what is installed / what is missing (builds nothing
 REM   build.bat apk 1.4.58   build that exact version
 REM   build.bat desktop      APK + both Windows installers
 REM   build.bat publish      APK + installers + upload the release
+REM   build.bat sign         fix signing: find/adopt/create the key, print its fingerprint
 setlocal EnableExtensions
 cd /d "%~dp0"
 

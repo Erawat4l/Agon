@@ -147,6 +147,28 @@ for (const file of ['build.py', 'tools/needs.py']) {
   }
 }
 
+// --- the one signing command ----------------------------------------------------------------
+{
+  const source = fs.readFileSync(path.join(ROOT, 'build.py'), 'utf8');
+  check('there is a "sign" mode', /mode == "sign"/.test(source) && /sign_repair/.test(source));
+  check('it adopts a key the user already has instead of replacing it',
+    /def find_existing_keys/.test(source) && /Adopted/.test(source));
+  check('it probes every password this project has ever used',
+    /KNOWN_PASSWORDS/.test(source) && /agonphone/.test(source) && /agonbuild/.test(source));
+  check('it proves the alias before writing properties',
+    /-alias", found/.test(source));
+  check('it prints a fingerprint in both the repair and the build',
+    (source.match(/key_sha\(/g) || []).length >= 3 && /def fingerprint/.test(source));
+  check('a missing keytool offers to install the JDK on Windows',
+    /Temurin\.17\.JDK/.test(source) && /No keytool yet/.test(source));
+
+  // The command has to be usable by a person who is on the PC for one day: one line,
+  // and it must not need arguments or a working directory.
+  const bat = fs.readFileSync(path.join(ROOT, 'build.bat'), 'utf8');
+  check('build.bat sign is documented in the launcher',
+    /build\.bat sign/.test(bat), bat.slice(0, 260));
+}
+
 // --- the version policy ------------------------------------------------------------------
 {
   // A build numbered below what is published is invisible for ever, so it is refused

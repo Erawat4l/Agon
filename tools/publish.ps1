@@ -167,7 +167,7 @@ Write-Host "      Android SDK: $androidSdk"
 #
 #   - made here if it does not exist yet, and KEPT (unlike the debug key, it is not
 #     disposable - losing it means the installed app has to be uninstalled once);
-#   - termux-build.sh uses the same file, and can adopt this one by copying it over;
+#   - build.py (on the phone or a PC) uses the same file and adopts this one;
 #   - its SHA-256 is printed by both builds, so a mismatch is visible before an install
 #     is attempted rather than after it is refused.
 $sharedJks = Join-Path $root "agon-build.jks"
@@ -208,7 +208,7 @@ if ((Test-Path $sharedJks) -and (Get-Command keytool -ErrorAction SilentlyContin
     }
     Write-Host ""
     Write-Host "      For the phone: copy AGON-KEY.md (in this folder) into Download/ on the"
-    Write-Host "      phone, then run termux-build.sh there. It adopts the key and signs with it."
+    Write-Host "      phone, then run build.bat there. It adopts the key and signs with it."
     Write-Host "      Until it does, an APK from this PC will not install over a phone build."
 }
 

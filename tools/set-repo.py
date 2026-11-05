@@ -8,7 +8,7 @@ the Windows updater and the release script start looking at different projects:
     desktop/src/main.js                                        (Windows: electron-updater)
     desktop/package.json                                       (build.publish)
     tools/publish.ps1                                          (default -Owner / -Repo)
-    publish.bat, commit.bat                                    (help text / clone hints)
+    publish.bat, rename-repo.bat                               (help text / clone hints)
     README.md, desktop/README.md                               (docs)
 
 Usage:
@@ -39,7 +39,7 @@ FILES = [
     ("desktop/package.json", "publish.owner+repo"),
     ("tools/publish.ps1", "ps-defaults"),
     ("publish.bat", "mentions"),
-    ("commit.bat", "mentions"),
+    ("rename-repo.bat", "mentions"),
     ("README.md", "mentions"),
     ("desktop/README.md", "mentions"),
     ("app/src/main/res/values/strings.xml", "mentions"),
@@ -116,7 +116,7 @@ def main():
     print("  1. Rename it on GitHub too: Settings -> Repository name -> " + new_repo)
     print("     (the old URL keeps redirecting for a while, which keeps old installs working)")
     print("  2. Rebuild so the app and the installers carry the new name:")
-    print("       build-all.bat")
+    print("       build.bat desktop")
     return 0
 
 

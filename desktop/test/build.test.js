@@ -169,6 +169,30 @@ for (const file of ['build.py', 'tools/needs.py']) {
     /build\.bat sign/.test(bat), bat.slice(0, 260));
 }
 
+// --- the two ways a person loses ten minutes on Windows ------------------------------
+{
+  const source = fs.readFileSync(path.join(ROOT, 'build.py'), 'utf8');
+  // A version on its own is a valid argument set: `build.bat 1.4.58` has to build that
+  // version, not silently do nothing while an unknown argument is ignored.
+  const out = pyOut(['build.py', '--dry-run', '1.4.99']);
+  check('a bare version on its own is a version, not an unknown word',
+    !/Not sure what to do/.test(out), out.slice(0, 300));
+
+  const junk = pyOut(['build.py', '--dry-run', 'frobnicate']);
+  check('an unknown word is refused with the list of modes',
+    /Not sure what to do/.test(junk) && /doctor/.test(junk), junk.slice(0, 300));
+
+  // ...and the launcher names itself, so "which command do I type" has one answer.
+  check('the banner says how to invoke it on each machine',
+    /build\.bat <mode>/.test(source) && /build\.sh <mode>/.test(source));
+
+  // The trap the user hit: a shell that cannot run .bat, from the wrong directory.
+  const setup = fs.readFileSync(path.join(ROOT, 'SETUP.md'), 'utf8');
+  check('SETUP.md warns about the fish shell', /fish shell/.test(setup) && /Unknown command/.test(setup));
+  check('SETUP.md says the command must be run inside the project folder',
+    /cd \/d "%USERPROFILE%\\Desktop\\Erawat\\Agon"/.test(setup));
+}
+
 // --- the version policy ------------------------------------------------------------------
 {
   // A build numbered below what is published is invisible for ever, so it is refused

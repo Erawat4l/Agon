@@ -70,6 +70,25 @@ Nothing is ever uninstalled or deleted, and the signing key is never regenerated
 key means Android refuses the update ("package conflicts with an existing package") and the
 app has to be removed, which wipes the arena session.
 
+### Where the signing key lives
+
+| Host | File | Why there |
+| --- | --- | --- |
+| Windows | `agon-build.jks` + `agon-build.properties` in the repository root | Gradle reads `agon-build.properties`; the pair is git-ignored |
+| Windows | `%USERPROFILE%\Downloads\AGON-KEY.md` | a copy, for moving to the phone. A key in the repo is one `git add -A` from being published |
+| Termux | `~/Agon/agon-build.jks` + `agon-build.properties` | same files, same names, so either machine can sign the other's updates |
+| Termux | `Download/agon-build.jks` | the copy the next build (or a container reinstall) picks up |
+| Android install | `~/.android/debug.keystore` | **do not delete**: Android keeps this key forever; a build signed with it can never be replaced by one signed with anything else |
+
+Android will not install an APK over an app whose key differs, and the only cure is
+uninstalling, which clears the arena session. So the key is the one thing to back up:
+copy `agon-build.jks` somewhere that is not this repository. `build.bat` prints its
+SHA-256 fingerprint on every run — two machines holding the same key print the same line.
+
+A debug-signed APK is only `debuggable`, never `debug`-insecure: Gradle's debug keystore
+still uses the modern RSA key with a real digest for minSdk 24, so the file is signed with
+a full v1/v2 signature. There is no "unsigned build" to hand anyone.
+
 First build downloads Gradle and the Android build tools (~3–5 minutes). Later builds
 take well under a minute, since everything is cached in `%USERPROFILE%\.gradle`.
 

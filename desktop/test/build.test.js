@@ -124,6 +124,29 @@ for (const file of ['build.py', 'tools/needs.py']) {
     /KEYTOOL=\S+/.test(script) && /"\$KEYTOOL" -genkeypair/.test(script));
 }
 
+// --- the signing key ------------------------------------------------------------------------
+{
+  const script = py(['-c',
+    'import sys; sys.path.insert(0,"."); import build; print(build.termux_inner())']);
+  // A phone can only be handed a file in its shared storage, and the Windows build leaves
+  // its copy there as AGON-KEY.md - so the phone has to look for that name too.
+  check('the phone accepts the key under all three names',
+    /agon-build\.jks arena-release\.jks AGON-KEY\.md/.test(script), script.slice(0, 120));
+
+  const source = fs.readFileSync(path.join(ROOT, 'build.py'), 'utf8');
+  check('a Windows build copies the key to Downloads, not into the repository',
+    /Downloads/.test(source) && /AGON-KEY\.md/.test(source));
+  check('a Windows build prints the key fingerprint',
+    /def fingerprint/.test(source) && /SHA256/.test(source));
+
+  const trust = fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8');
+  for (const name of ['agon-build.jks', 'agon-build.properties', 'AGON-KEY.md',
+    'keystore.properties', '*.jks']) {
+    if (/\*\*\.jks/.test(trust)) continue;
+    check(`${name} can never be committed`, trust.includes(name), trust);
+  }
+}
+
 // --- the version policy ------------------------------------------------------------------
 {
   // A build numbered below what is published is invisible for ever, so it is refused

@@ -291,6 +291,10 @@ def inspect(channel="stable", host_override=""):
                         "command -v git'", timeout=180)[0] == 0
         add("apt", "Ubuntu toolchain (JDK 17, unzip, curl, git)", inner,
             "apt-get install -y openjdk-17-jdk unzip curl git python3 xz-utils file")
+        # The signing key is made OUTSIDE the container, with Termux's own keytool, so the
+        # JDK inside the container does not help here: this is a separate requirement.
+        add("keytool", "keytool in Termux (for the signing key)", have("keytool"),
+            "pkg install -y openjdk-17")
         # Everything that needs an Android SDK is answered from INSIDE the container: the
         # SDK is in its /root, and Termux cannot see that path at all. Without this the
         # SDK looked missing on every run and a multi-GB download started again each time.
@@ -370,6 +374,8 @@ def verify(package):
         "platform": lambda: "platforms;android-%s" % COMPILE_SDK,
         "buildtools": lambda: "build-tools;%s" % BUILD_TOOLS,
         "key": lambda: os.path.basename(find_key() or "agon-build.jks"),
+        "keytool": lambda: run("keytool -help")[1].splitlines()[0] if have("keytool")
+        else "missing",
         "gradlew": lambda: os.path.join(ROOT, "gradlew"),
         "wrapper": lambda: "gradle-wrapper.properties",
         "python": lambda: platform.python_version(),

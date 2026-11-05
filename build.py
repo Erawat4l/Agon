@@ -144,6 +144,29 @@ def make_key():
     return True
 
 
+def share_key_for_phone():
+    """Puts a copy of the signing key somewhere the phone can actually receive it.
+
+    A phone can only be handed a file in its shared storage, and the only route the user
+    has is the folder their file manager and USB both see: Downloads. The repository
+    folder is deliberately not used - a key lying next to the source is one `git add -A`
+    away from being published, and the user asked for a clean folder.
+    """
+    key = needs.find_key()
+    if not key or host() != "windows":
+        return None
+    home = os.path.expanduser("~")
+    for folder in (os.path.join(home, "Downloads"), os.path.join(home, "Download")):
+        if os.path.isdir(folder):
+            target = os.path.join(folder, "AGON-KEY.md")
+            try:
+                shutil.copyfile(key, target)
+                return target
+            except OSError:
+                continue
+    return None
+
+
 def adopt_key_from_shared(host_name):
     """Uses a key the user keeps in the phone's shared storage, if there is one.
 
@@ -204,7 +227,10 @@ def ensure_tools(host_name):
             # repository folder - see the script). Asking it to do that per missing item
             # meant the SDK looked absent again after every step and a multi-GB download
             # restarted, because Termux cannot see the container's /root.
-            if key in ("proot", "container"):
+            if key == "keytool":
+                ok = run(["pkg", "install", "-y", "openjdk-17"])
+                say("        (that also gives Termux its own java, which nothing else uses)")
+            elif key in ("proot", "container"):
                 # These two are Termux itself, not the container: still one command each.
                 ok = run(["pkg", "install", "-y", "proot-distro"]) if key == "proot" \
                     else run(["proot-distro", "install", "ubuntu"])
@@ -425,14 +451,19 @@ echo '  ... signing key'
 # update signed with a different one ("package conflicts with an existing package"), and
 # the only cure is uninstalling, which wipes the arena session.
 #
-# `keytool` here does not need a JDK - the container has the JDK, but keytool is in
-# Termux itself, so the key is made OUTSIDE the container and kept in ~/.agon-keys.
-# That way it survives re-installing the container.
+# keytool comes from Termux itself (pkg install openjdk-17, or the android-tools
+# package), so the key is made in the repository folder, outside the container. That is
+# what makes a container reinstall harmless: the key is not inside the rootfs.
 KEYTOOL=%(keytool)s
 if [ ! -f agon-build.jks ]; then
-  for cand in agon-build.jks arena-release.jks; do
+  # Three names, because three things put a key there: this script's own copy, a key the
+  # user moved by hand, and AGON-KEY.md - the copy a Windows build leaves in Downloads/.
+  for cand in agon-build.jks arena-release.jks AGON-KEY.md; do
     [ -f "/sdcard/Download/$cand" ] || continue
-    cp -f "/sdcard/Download/$cand" "$cand"
+    target=agon-build.jks
+    [ "$cand" = arena-release.jks ] && target=arena-release.jks
+    cp -f "/sdcard/Download/$cand" "$target"
+    echo "  ... using the key from Download/$cand"
     break
   done
 fi
@@ -458,7 +489,7 @@ echo "APK: $(pwd)/app/build/outputs/apk/debug/app-debug.apk"
 def termux_inner(**extra):
     values = {"build_tools": needs.BUILD_TOOLS, "compile_sdk": needs.COMPILE_SDK,
               # keytool from the phone's own Termux prefix: the key is created outside the
-              # container so re-installing the container cannot lose it.
+              # container, so re-installing the container cannot lose it.
               "keytool": shutil.which("keytool") or "/usr/bin/keytool",
               "owner": needs.REPO[0], "repo": needs.REPO[1],
               # The SDK lives in the container's /root, which is not visible from Termux,
@@ -531,6 +562,25 @@ def run_termux_build(version, only_tools=False):
 
 
 # --------------------------------------------------------------------------- build steps
+
+def fingerprint(key):
+    """The SHA-256 of the signing key, so two machines can be compared in one line."""
+    keytool = "keytool"
+    if host() == "windows":
+        jdk = needs.find_jdk()
+        if jdk:
+            keytool = os.path.join(jdk, "bin", "keytool.exe")
+    code, out = needs.run([keytool, "-list", "-v", "-keystore", key,
+                           "-storepass", "agonbuild"], timeout=60)
+    if code != 0:
+        code, out = needs.run([keytool, "-list", "-v", "-keystore", key,
+                               "-storepass", "agonphone"], timeout=60)
+    for line in (out or "").splitlines():
+        if "SHA256:" in line:
+            say("        fingerprint: %s" % line.split("SHA256:")[1].strip())
+            return
+    say("        fingerprint: (keytool could not read it - is the JDK installed?)")
+
 
 def write_local_properties(sdk):
     if not sdk:
@@ -715,7 +765,11 @@ def main(argv):
     say("        version: %s%s" % (version, "  (beta)" if beta else ""))
     key = needs.find_key()
     if key:
-        say("        signing key: %s" % os.path.basename(key))
+        say("        signing key: %s" % key)
+        fingerprint(key)
+        shared = share_key_for_phone()
+        if shared:
+            say("        phone copy : %s  (copy it into Download/ on the phone)" % shared)
 
     step(2, total, "Android APK")
     built = release_apk(version) if "--release" in argv and host_name != "termux" \

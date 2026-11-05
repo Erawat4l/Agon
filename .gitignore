@@ -29,7 +29,8 @@ keystore.properties
 # copy has to be uninstalled once.
 agon-build.jks
 agon-build.properties
-# A copy of that key for the phone to pick up. Same rules: never committed.
+# A copy of that key for the phone to pick up. publish.ps1 now writes it to the user's
+# Downloads folder instead of here, but an older copy may still be sitting in the tree.
 AGON-KEY.md
 gh-token.txt
 *.jks

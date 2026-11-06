@@ -648,6 +648,45 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         refreshStrip();
     }
 
+    /**
+     * Three taps in the page unlocked (or re-locked) text selection.
+     *
+     * The gesture is a shortcut for the "App-style text" switch, so the switch is written:
+     * `unlocked` means selection is on, which is K_NO_SELECT = false. applySetting is then
+     * run the same way a tap in Settings would, except that the page has already applied
+     * it - so only the parts that are not about the CSS are repeated, and the confirmation
+     * is what tells the user the gesture did something.
+     */
+    void onSelectToggled(boolean unlocked) {
+        if (isFinishing() || isDestroyed()) return;
+        Settings.set(this, Settings.K_NO_SELECT, !unlocked);
+        toast(unlocked ? R.string.select_unlocked : R.string.select_locked);
+    }
+
+    /** Ctrl/Cmd+Tab from the page: the same step the strip's arrows take. */
+    void onCycleTabShortcut(int direction) {
+        if (isFinishing() || isDestroyed()) return;
+        stepTab(direction < 0 ? -1 : 1);
+    }
+
+    /**
+     * Ctrl/Cmd+W from the page: close the tab on screen.
+     *
+     * The chat tab is the app's own page and has no cross, so closing it means what the
+     * strip's remaining tab means: the window in front goes, or - with nothing else open -
+     * nothing happens at all. It never puts a message on screen and never closes the app.
+     */
+    void onCloseTabShortcut() {
+        if (isFinishing() || isDestroyed()) return;
+        int id = pageId();
+        if (!TabWebViews.isWindow(id)) {
+            java.util.List<Integer> open = tabs == null ? null : tabs.windows();
+            if (open == null || open.isEmpty()) return;
+            id = open.get(open.size() - 1);
+        }
+        closeWindowById(id);
+    }
+
     /** Called from the page when Ctrl/Cmd+N is pressed there. */
     void onNewChatShortcut() {
         if (isFinishing() || isDestroyed()) return;
@@ -703,23 +742,62 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 toast(R.string.copy_empty);
                 return;
             }
-            try {
-                android.content.ClipboardManager cm =
-                        (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                if (cm == null) {
-                    toast(R.string.copy_empty);
-                    return;
-                }
-                // No ClipDescription extras: nothing here asks Android to put the text on
-                // the clipboard preview bar for ever, and the clip carries no hint about
-                // what screen it came from.
-                cm.setPrimaryClip(ClipData.newPlainText("Arena", text));
-                String shown = text.length() > 24 ? text.substring(0, 24).trim() + "…" : text;
-                toastText(getString(R.string.copy_done) + "  " + shown);
-            } catch (RuntimeException e) {
-                toast(R.string.copy_empty);
-            }
+            putOnClipboard(text);
         });
+    }
+
+    /**
+     * Puts text on the clipboard and says what was copied.
+     *
+     * One place, because there are now two callers and they must agree about what a copy
+     * looks like: More -> "Copy selected text", which reads the page's selection, and the
+     * page itself after a long press (WebBridge.copied), which hands the block over
+     * because the page's own clipboard call was refused.
+     */
+    private void putOnClipboard(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            toast(R.string.copy_empty);
+            return;
+        }
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null) {
+                toast(R.string.copy_empty);
+                return;
+            }
+            // No ClipDescription extras: nothing here asks Android to put the text on the
+            // clipboard preview bar for ever, and the clip carries no hint about what
+            // screen it came from.
+            cm.setPrimaryClip(ClipData.newPlainText("Arena", text));
+            String shown = text.length() > 24 ? text.substring(0, 24).trim() + "…" : text;
+            toastText(getString(R.string.copy_done) + "  " + shown);
+        } catch (RuntimeException e) {
+            toast(R.string.copy_empty);
+        }
+    }
+
+    /**
+     * The page copied a block for the user after a long press.
+     *
+     * Called from WebBridge, so it arrives on the UI thread already. The text is written
+     * natively whatever the page thinks it did: the page's clipboard call is the part that
+     * can silently fail, and Android's own ClipData cannot.
+     */
+    void onPageCopied(String text) {
+        if (isFinishing() || isDestroyed()) return;
+        putOnClipboard(text);
+    }
+
+    /**
+     * The page could not copy at all - no clipboard access and execCommand refused.
+     *
+     * Says the one thing that still works instead of leaving the long press silent, which
+     * is indistinguishable from the app ignoring the finger.
+     */
+    void onCopyUnavailable() {
+        if (isFinishing() || isDestroyed()) return;
+        toast(R.string.copy_needs_menu);
     }
 
     /** Back *inside* the page, which is what the left arrow means in a browser. */

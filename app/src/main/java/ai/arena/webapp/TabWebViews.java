@@ -956,15 +956,102 @@ public final class TabWebViews {
      * expectation, and the app is the thing that owns the window. Everything else is left
      * to the page - pressing Escape through is what the Back button already does.
      */
+    /**
+     * The keyboard shortcuts a browser tab has, because the page is a browser tab.
+     *
+     *  - Ctrl/Cmd+N: another conversation tab;
+     *  - Ctrl/Cmd+Tab and Ctrl/Cmd+Shift+Tab: the next / previous tab;
+     *  - Ctrl/Cmd+W: close this tab.
+     *
+     * Arena's own page listens for some of these itself (Ctrl+N is a new chat there), so
+     * the app stops the event first and does the thing in the strip, where the tabs
+     * actually live. Ctrl+Tab and Ctrl+W do not exist in a WebView otherwise: the browser
+     * chrome that would handle them is the app's own tab strip.
+     *
+     * A phone has no such keys, which is why every one of these also exists as a tap.
+     */
+    /**
+     * Three taps on the chat unlock text selection - and three more lock it again.
+     *
+     * A phone has no Ctrl key, and "App-style text" is a setting most people never
+     * open. The gesture makes the same switch reachable from the page itself: three
+     * quick taps in the same place toggle selection, the setting is written so the
+     * next launch agrees, and the app says which way it went. Taps inside the
+     * composer, a textarea or an editable box are ignored, so it can never fire while
+     * the user is typing.
+     *
+     * The lock direction restores the stylesheet it removed, rather than re-deriving
+     * it: the policy is one element and its text is what the app already wrote.
+     */
+    private static final String JS_TRIPLE_TAP_SELECT =
+            "(function(){"
+                + "if(window.__agonTripleTap)return;window.__agonTripleTap=1;"
+                + "var lastTap=0,count=0,x0=0,y0=0;"
+                + "function policy(){return document.getElementById('arena-select-policy');}"
+                + "function unlock(){"
+                + "var st=policy();"
+                + "if(st)st.remove();"
+                + "if(window.__agonNoSelect){"
+                + "window.__agonSavedGuard=window.__agonNoSelect;"
+                + "document.removeEventListener('selectstart',window.__agonNoSelect,true);"
+                + "window.__agonNoSelect=null;"
+                + "}"
+                + "window.__agonSelectUnlocked=1;"
+                + "try{if(window.ArenaNative&&ArenaNative.selectToggled)ArenaNative.selectToggled(true);}catch(e){}"
+                + "}"
+                + "function lock(){"
+                + "var saved=window.__agonPolicyCss||'';"
+                + "if(saved&&!policy()){"
+                + "var st=document.createElement('style');"
+                + "st.id='arena-select-policy';"
+                + "st.textContent=saved;"
+                + "(document.head||document.documentElement).appendChild(st);"
+                + "}"
+                + "if(!window.__agonNoSelect&&window.__agonSavedGuard){"
+                + "window.__agonNoSelect=window.__agonSavedGuard;"
+                + "document.addEventListener('selectstart',window.__agonNoSelect,true);"
+                + "}"
+                + "window.__agonSelectUnlocked=0;"
+                + "try{if(window.ArenaNative&&ArenaNative.selectToggled)ArenaNative.selectToggled(false);}catch(e){}"
+                + "}"
+                + "function save(){"
+                + "var st=policy();"
+                + "if(st&&!window.__agonPolicyCss)window.__agonPolicyCss=st.textContent||'';"
+                + "}"
+                + "document.addEventListener('touchstart',function(e){"
+                + "save();"
+                + "var t=e.target;"
+                + "try{"
+                + "if(t&&t.closest&&t.closest('input,textarea,form,[role=\"textbox\"],[contenteditable]'))return;"
+                + "}catch(x){}"
+                + "var touch=e.touches&&e.touches[0];"
+                + "var x=touch?touch.clientX:(e.clientX||0);"
+                + "var y=touch?touch.clientY:(e.clientY||0);"
+                + "var now=Date.now();"
+                + "if(now-lastTap>600||Math.abs(x-x0)>40||Math.abs(y-y0)>40){count=0;x0=x;y0=y;}"
+                + "lastTap=now;"
+                + "count++;"
+                + "if(count<3)return;"
+                + "count=0;"
+                + "if(window.__agonSelectUnlocked)lock();else unlock();"
+                + "},true);"
+            + "})();";
+
     private static final String JS_NEW_CHAT_LISTENER =
             "(function(){"
             + "if(window.__arenaNewChatKey)return;window.__arenaNewChatKey=1;"
             + "document.addEventListener('keydown',function(e){"
-            + "if(e.key!=='n'&&e.key!=='N')return;"
-            + "if(!(e.ctrlKey||e.metaKey)||e.shiftKey||e.altKey)return;"
-            + "e.preventDefault();"
-            + "try{if(window.ArenaNative&&ArenaNative.newChat)ArenaNative.newChat();}catch(x){}}"
-            + ",true);})();";
+            + "if(!(e.ctrlKey||e.metaKey)||e.shiftKey&&e.key!=='Tab'||e.altKey)return;"
+            + "var k=(e.key||'').toLowerCase();"
+            + "if(k==='n'){e.preventDefault();"
+            + "try{if(window.ArenaNative&&ArenaNative.newChat)ArenaNative.newChat();}catch(x){}return;}"
+            + "if(k==='tab'){e.preventDefault();"
+            + "try{if(window.ArenaNative&&ArenaNative.cycleTab)"
+            + "ArenaNative.cycleTab(e.shiftKey?-1:1);}catch(x){}return;}"
+            + "if(k==='w'){e.preventDefault();"
+            + "try{if(window.ArenaNative&&ArenaNative.closeTab)ArenaNative.closeTab();}"
+            + "catch(x){}return;}"
+            + "},true);})();";
 
     /** Runs {@link #JS_NEW_CHAT}; the callback receives the state word the script reports. */
     public static void startNewChat(WebView web, android.webkit.ValueCallback<String> state) {
@@ -1170,70 +1257,82 @@ public final class TabWebViews {
      */
     private static String selectGuard(boolean selectable) {
         if (selectable) {
-            return "try{if(window.__agonNoSelect){"
-                    + "document.removeEventListener('selectstart',window.__agonNoSelect,true);"
-                    + "window.__agonNoSelect=null;}"
-                    + "if(window.__agonHold){"
-                    + "document.removeEventListener('touchstart',window.__agonHold,true);"
-                    + "document.removeEventListener('touchmove',window.__agonHoldMove,true);"
-                    + "document.removeEventListener('touchend',window.__agonHoldEnd,true);"
-                    + "document.removeEventListener('touchcancel',window.__agonHoldEnd,true);"
-                    + "window.__agonHold=null;window.__agonHoldMove=null;"
-                    + "window.__agonHoldEnd=null;}"
-                    + "}catch(e){}";
+            return "try{if(window.__agonNoSelect){document.removeEventListener('selectstart',window.__agonNoSelect,true);window.__agonNoSelect=null;}if(window.__agonHold){document.removeEventListener('touchstart',window.__agonHold,true);document.removeEventListener('touchmove',window.__agonHoldMove,true);document.removeEventListener('touchend',window.__agonHoldEnd,true);document.removeEventListener('touchcancel',window.__agonHoldEnd,true);document.removeEventListener('touchstart',window.__agonCopyTap,true);if(window.__agonPicked&&window.__agonPicked.style){window.__agonPicked.style.removeProperty('-webkit-user-select');window.__agonPicked.style.removeProperty('user-select');}window.__agonPicked=null;window.__agonCopyTap=null;window.__agonHold=null;window.__agonHoldMove=null;window.__agonHoldEnd=null;}}catch(e){}";
         }
-        return "try{if(!window.__agonNoSelect){"
-                // How long the finger has been down when a selection tries to start. A
-                // long press is meant, a drag is not, and that is the only difference the
-                // app needs to see. `contextmenu` cannot be used for it: it does not fire
-                // for a hold on text in every WebView, and when it does it arrives after
-                // the selection has already been refused.
+        return ""
+                + "try{if(!window.__agonNoSelect){"
                 + "window.__agonDown=0;"
                 + "function markDown(){window.__agonDown=Date.now();}"
                 + "document.addEventListener('touchstart',markDown,true);"
                 + "document.addEventListener('mousedown',markDown,true);"
-                // Anything the composer owns is exempt: a rich-text box puts the caret in
-                // a child element, so the target is often a span - `closest` catches that.
                 + "function composer(t){"
                 + "try{"
                 + "if(!t)return false;"
                 + "if(t.tagName==='INPUT'||t.tagName==='TEXTAREA')return true;"
                 + "if(t.isContentEditable===true)return true;"
-                + "if(t.closest&&t.closest('input,textarea,form,[role=\"textbox\"],"
-                + "[contenteditable]:not([contenteditable=false])'))return true;"
+                + "if(t.closest&&t.closest('input,textarea,form,[role=\"textbox\"],[contenteditable]:not([contenteditable=false])'))return true;"
                 + "}catch(e){}"
                 + "return false;}"
                 + "window.__agonNoSelect=function(e){"
                 + "var t=e.target;"
                 + "if(composer(t))return;"
-                // A press that has been held is a deliberate copy: let it through, so
-                // Android's own Copy menu can appear over a reply or over a command in a
-                // code block - the "i cannot copy a command out of the app" report.
                 + "var held=window.__agonDown?Date.now()-window.__agonDown:0;"
                 + "if(held>320)return;"
                 + "if(t&&t.closest&&t.closest('pre,code[data-agon-pick]'))return;"
                 + "if(e.cancelable)e.preventDefault();};"
                 + "document.addEventListener('selectstart',window.__agonNoSelect,true);"
-                // The held press itself: select the block under the finger, so "select in
-                // chat" is something the app does rather than something it hopes for.
                 + "if(!window.__agonHold){"
                 + "var holdTimer=null,startX=0,startY=0;"
                 + "function clearHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}"
+                + "function copyText(text){"
+                + "if(!text)return false;"
+                + "var done=false;"
+                + "try{if(window.ArenaNative&&ArenaNative.copied){ArenaNative.copied(text);done=true;}}catch(x){}"
+                + "try{"
+                + "if(document.execCommand){"
+                + "var ta=document.createElement('textarea');"
+                + "ta.value=text;"
+                + "ta.setAttribute('readonly','');"
+                + "ta.style.position='fixed';"
+                + "ta.style.top='0';"
+                + "ta.style.left='0';"
+                + "ta.style.width='1px';"
+                + "ta.style.height='1px';"
+                + "ta.style.opacity='0';"
+                + "ta.style.fontSize='16px';"
+                + "document.body.appendChild(ta);"
+                + "ta.select();"
+                + "ta.setSelectionRange(0,text.length);"
+                + "if(document.execCommand('copy'))done=true;"
+                + "document.body.removeChild(ta);"
+                + "}"
+                + "}catch(x){}"
+                + "try{if(window.__agonFocus&&window.__agonFocus.focus)window.__agonFocus.focus();}catch(x){}"
+                + "if(!done){"
+                + "try{"
+                + "if(navigator.clipboard&&navigator.clipboard.writeText){"
+                + "navigator.clipboard.writeText(text);"
+                + "done=true;"
+                + "}"
+                + "}catch(x){}"
+                + "}"
+                + "return done;}"
                 + "function pick(x,y){"
                 + "var range=null;"
                 + "try{"
-                + "if(document.caretRangeFromPoint)"
-                + "range=document.caretRangeFromPoint(x,y);"
+                + "if(document.caretRangeFromPoint)range=document.caretRangeFromPoint(x,y);"
                 + "else if(document.caretPositionFromPoint){"
-                + "var p=document.caretPositionFromPoint(x,y);"
-                + "if(p){range=document.createRange();"
-                + "range.setStart(p.offsetNode,p.offset);range.setEnd(p.offsetNode,p.offset);}}"
+                + "var cp=document.caretPositionFromPoint(x,y);"
+                + "if(cp){"
+                + "range=document.createRange();"
+                + "range.setStart(cp.offsetNode,cp.offset);"
+                + "range.setEnd(cp.offsetNode,cp.offset);"
+                + "}"
+                + "}"
                 + "}catch(e){return;}"
                 + "if(!range||!range.startContainer)return;"
                 + "var node=range.startContainer;"
                 + "if(node.nodeType!==3)return;"
-                // The smallest block that holds this text, so a hold selects the reply or
-                // the command, not the whole conversation.
                 + "var block=node.parentElement;"
                 + "while(block&&block!==document.body){"
                 + "var disp=getComputedStyle(block).display;"
@@ -1241,46 +1340,57 @@ public final class TabWebViews {
                 + "block=block.parentElement;}"
                 + "if(!block||block===document.body)block=node.parentElement;"
                 + "if(!block)return;"
+                + "var text=(block.innerText||block.textContent||'').replace(/\\u00a0/g,' ').trim();"
+                + "if(!text)return;"
+                + "if(copyText(text))return;"
                 + "try{"
-                // The doc-wide rule still says "not selectable", which would suppress the
-                // highlight; this one block is handed back for the duration.
                 + "block.style.setProperty('-webkit-user-select','text','important');"
                 + "block.style.setProperty('user-select','text','important');"
                 + "window.__agonPicked=block;"
                 + "var sel=window.getSelection();"
-                + "if(!sel)return;"
+                + "if(sel){"
                 + "sel.removeAllRanges();"
                 + "var r=document.createRange();"
                 + "r.selectNodeContents(block);"
                 + "sel.addRange(r);"
-                + "}catch(e){}"
                 + "}"
+                + "}catch(e){}"
+                + "try{if(window.ArenaNative&&ArenaNative.copyHint)ArenaNative.copyHint();}catch(x){}"
+                + "}"
+                + "window.__agonCopyTap=function(e){"
+                + "if(!composer(e.target))return;"
+                + "try{"
+                + "var sel=window.getSelection();"
+                + "if(!sel)return;"
+                + "var block=sel.anchorNode?(sel.anchorNode.nodeType===3?sel.anchorNode.parentElement:sel.anchorNode):null;"
+                + "if(!block)return;"
+                + "var text=(block.innerText||block.textContent||'').replace(/\\u00a0/g,' ').trim();"
+                + "if(copyText(text))return;"
+                + "}catch(x){}"
+                + "try{if(window.ArenaNative&&ArenaNative.copyHint)ArenaNative.copyHint();}catch(x){}"
+                + "};"
+                + "document.addEventListener('touchstart',window.__agonCopyTap,true);"
                 + "window.__agonHold=function(e){"
                 + "var t=e.target;"
+                + "try{if(document.activeElement&&document.activeElement.blur)window.__agonFocus=document.activeElement;}catch(x){}"
                 + "if(composer(t))return;"
                 + "if(t&&t.closest&&t.closest('input,textarea,[contenteditable]'))return;"
                 + "var touch=e.touches&&e.touches[0];"
                 + "startX=touch?touch.clientX:(e.clientX||0);"
                 + "startY=touch?touch.clientY:(e.clientY||0);"
                 + "clearHold();"
-                + "holdTimer=setTimeout(function(){"
-                + "holdTimer=null;"
-                + "pick(startX,startY);"
-                + "},450);};"
+                + "holdTimer=setTimeout(function(){holdTimer=null;pick(startX,startY);},450);};"
                 + "window.__agonHoldMove=function(e){"
                 + "if(!holdTimer)return;"
                 + "var touch=e.touches&&e.touches[0];"
                 + "var x=touch?touch.clientX:(e.clientX||0);"
                 + "var y=touch?touch.clientY:(e.clientY||0);"
-                // A finger that travels is scrolling, not selecting.
                 + "if(Math.abs(x-startX)>12||Math.abs(y-startY)>12)clearHold();};"
                 + "document.addEventListener('touchstart',window.__agonHold,true);"
                 + "document.addEventListener('touchmove',window.__agonHoldMove,true);"
-                + "window.__agonHoldEnd=clearHold;"
                 + "document.addEventListener('touchend',clearHold,true);"
                 + "document.addEventListener('touchcancel',clearHold,true);"
-                + "}"
-                + "}}catch(e){}";
+                + "}}}catch(e){}";
     }
 
     /**
@@ -1613,6 +1723,9 @@ public final class TabWebViews {
                 // every listener the previous document had. Both scripts are idempotent.
                 installEnterSend(view);
                 view.evaluateJavascript(JS_NEW_CHAT_LISTENER, null);
+                // Three taps toggle "App-style text", which is the only way to unlock a
+                // selection on a phone - there is no Ctrl to press.
+                view.evaluateJavascript(JS_TRIPLE_TAP_SELECT, null);
                 // The chat tab's chip is a fixed label, but its name still matters: it is
                 // what the history sheet and the window list show for the conversation that
                 // is open. Every tab is asked, and only the extra tabs display it.

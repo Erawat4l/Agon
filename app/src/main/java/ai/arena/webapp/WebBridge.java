@@ -48,6 +48,85 @@ public final class WebBridge {
         });
     }
 
+    /**
+     * The page copied a block for the user: put it on the clipboard as well, and say so.
+     *
+     * This is the second half of "i still cant copy". The page's own copy path can be
+     * refused (no user gesture, no clipboard permission granted to the site), and when it
+     * is, nothing reaches Android - so the text is handed over here and written natively
+     * with ClipData, which needs no permission at all. Writing it twice is harmless: the
+     * clipboard holds one clip, and the last write wins with the same text.
+     */
+    @JavascriptInterface
+    public void copied(final String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) ((MainActivity) activity).onPageCopied(text);
+        });
+    }
+
+    /**
+     * The page could not copy by itself and is handing the text over instead.
+     *
+     * Same destination as copied(): the app writes the clip natively, so the user gets the
+     * text even when both of the page's own clipboard routes were refused.
+     */
+    @JavascriptInterface
+    public void copyRefused(final String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) ((MainActivity) activity).onPageCopied(text);
+        });
+    }
+
+    /** The page could not copy by itself: tell the user the one route that always works. */
+    @JavascriptInterface
+    public void copyHint() {
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) ((MainActivity) activity).onCopyUnavailable();
+        });
+    }
+
+    /**
+     * Ctrl/Cmd+Tab in the page: move along the strip.
+     *
+     * One step, and it wraps - exactly what the strip's own arrows do, because the keys and
+     * the arrows are the same gesture on two devices. Nothing is announced: the chip that
+     * lights up is the answer.
+     */
+    @JavascriptInterface
+    public void cycleTab(final int direction) {
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) {
+                ((MainActivity) activity).onCycleTabShortcut(direction);
+            }
+        });
+    }
+
+    /** Ctrl/Cmd+W in the page: close the tab on screen, never the app's last page. */
+    @JavascriptInterface
+    public void closeTab() {
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) ((MainActivity) activity).onCloseTabShortcut();
+        });
+    }
+
+    /**
+     * Three taps in the page flipped text selection: keep the setting in step.
+     *
+     * `unlocked` true means selection is now ON, which is the setting "App-style text"
+     * turned OFF. The gesture is a shortcut for a switch that exists, never a third state
+     * of its own: Settings shows what happened and the next launch starts from it.
+     */
+    @JavascriptInterface
+    public void selectToggled(final boolean unlocked) {
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) {
+                ((MainActivity) activity).onSelectToggled(unlocked);
+            }
+        });
+    }
+
     @JavascriptInterface
     public void failed(final String what) {
         activity.runOnUiThread(() -> android.widget.Toast

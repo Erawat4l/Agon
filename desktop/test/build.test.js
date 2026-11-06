@@ -211,8 +211,18 @@ for (const file of ['build.py', 'tools/needs.py']) {
   // a version with nothing above it must NOT be refused
   const allowed = pyOut(['build.py', 'apk', '9.9.9', '--dry-run'], { AGON_HOST: 'termux' });
   check('a sane version is accepted', /version: 9\.9\.9/.test(allowed), allowed.slice(-200));
-  check('a version below the published one is refused, and says why',
-    refused && /lower than/.test(output) && /never offered/.test(output), output);
+  // A LOW number is a warning, not a refusal: the APK still installs over the app by hand,
+  // and refusing the build turned a stale version.txt into a dead end. What must not happen
+  // is publishing it silently.
+  check('a version below the published one still builds, and says what it means',
+    !refused && /lower than/.test(output) && /install this APK/.test(output),
+    output.slice(-400));
+  // `build.bat` with nothing on the command line takes the next free version, so a stale
+  // version.txt can never make it build (or refuse) an old number.
+  const plain = pyOut(['build.py', 'apk', '--dry-run'], { AGON_HOST: 'termux' });
+  check('with no version typed, the next free one is taken',
+    /version: \d+\.\d+\.\d+/.test(plain) && !/lower than/.test(plain),
+    plain.slice(-300));
 }
 
 // --- the launchers ----------------------------------------------------------------------

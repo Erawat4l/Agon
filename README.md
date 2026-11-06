@@ -171,6 +171,20 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
 | Tab strip arrows | the two arrows look identical (never dimmed) and **go round**: from the last tab `>` lands on the first, from the first `<` lands on the last. No "this is the last tab" message anywhere |
 
+### Copying text out of the app
+
+Two routes, because they fail in different places:
+
+| Route | How |
+| --- | --- |
+| Android's own menu | a **long press** on a reply or a command selects it and offers *Copy*. A quick drag still never selects anything — that is what "App-style text" means now, and the setting's description says so |
+| *More → Copy selected text* | asks the page for its current selection and puts it on the clipboard. Works even if the WebView decides not to show its own menu |
+
+The old rule switched off `-webkit-touch-callout` on everything and cancelled every
+selection, which is why a command in a code block could not be copied at all. The long-press
+callout is no longer suppressed, and the guard now refuses only a selection that a **drag**
+starts (under ~320 ms of press) — a held press is let through.
+
 ### Panels that do not fit the phone
 
 Arena's own menus and side panels are laid out for a desktop-sized window. On a phone that

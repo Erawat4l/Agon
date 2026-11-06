@@ -684,6 +684,44 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         tabStrip.setArrowsEnabled(canBack, canForward);
     }
 
+    /**
+     * Copies whatever is selected in the page, and says so.
+     *
+     * The one deliberate way to get text out of the app when Android's own Copy menu does
+     * not appear - which it may not, because this app refuses a selection that a stray drag
+     * starts. Nothing selected is answered with a hint rather than silence, because a menu
+     * entry that does nothing is indistinguishable from a broken one.
+     */
+    private void copySelection() {
+        WebView page = tabs == null ? null : tabs.current();
+        if (page == null || tabs == null) {
+            toast(R.string.copy_empty);
+            return;
+        }
+        tabs.selectedText(page, text -> {
+            if (text == null || text.isEmpty()) {
+                toast(R.string.copy_empty);
+                return;
+            }
+            try {
+                android.content.ClipboardManager cm =
+                        (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm == null) {
+                    toast(R.string.copy_empty);
+                    return;
+                }
+                // No ClipDescription extras: nothing here asks Android to put the text on
+                // the clipboard preview bar for ever, and the clip carries no hint about
+                // what screen it came from.
+                cm.setPrimaryClip(ClipData.newPlainText("Arena", text));
+                String shown = text.length() > 24 ? text.substring(0, 24).trim() + "…" : text;
+                toastText(getString(R.string.copy_done) + "  " + shown);
+            } catch (RuntimeException e) {
+                toast(R.string.copy_empty);
+            }
+        });
+    }
+
     /** Back *inside* the page, which is what the left arrow means in a browser. */
     private void goBackInPage() {
         WebView page = tabs == null ? null : tabs.current();
@@ -1556,6 +1594,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onReload() {
                 hideError();
                 if (tabs != null) tabs.reloadCurrent();
+            }
+
+            @Override
+            public void onCopySelection() {
+                copySelection();
             }
 
             @Override

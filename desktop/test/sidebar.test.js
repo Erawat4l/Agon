@@ -74,14 +74,42 @@ const WATCH = watchSource();
  * layout, so a test chooses which elements "have size" by tagging them with a class the
  * stubbed getBoundingClientRect() reads.
  */
-const HELPERS = `
-  var undo=[];
-  function hide(el){undo.push(el);el.style.setProperty('display','none','important');}
-  function shown(el){var r=el.getBoundingClientRect();return r.width>0&&r.height>0;}
-  function empty(el){return !el.querySelector('main,textarea,form,[contenteditable="true"]');}
-  function text(el){return ((el.innerText||'')+' '+
-    (el.getAttribute&&el.getAttribute('aria-label')||'')).toLowerCase();}
-`;
+/**
+ * The REAL hide() block, read out of the Java rather than copied here.
+ *
+ * It is copied nowhere any more because the copy is how the bug survived: the hand-written
+ * stand-in below hid an element and nothing ever removed the inline style, so the tests
+ * passed while the switch did nothing on the device. `tagged` is checked instead.
+ */
+function injectedHelpers() {
+  const branch = SRC.indexOf('if (cssTop <= 0 && cssBottom <= 0)');
+  const anchor = SRC.indexOf('+ "var undo=[];', branch);
+  const to = SRC.indexOf('+ watchHelpers(hideSidebar, hideHeader)', anchor);
+  let js = '';
+  for (const line of SRC.slice(anchor, to).split('\n')) {
+    if (/^\s*\/\//.test(line)) continue;
+    for (const m of line.matchAll(/"((?:[^"\\]|\\.)*)"/g)) js += m[1];
+  }
+  return js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+}
+const HELPERS = injectedHelpers() +
+  'function shown(el){var r=el.getBoundingClientRect();return r.width>0&&r.height>0;}' +
+  'function empty(el){return !el.querySelector(\'main,textarea,form,[contenteditable="true"]\');}' +
+  'function text(el){return ((el.innerText||\'\')+\' \'+' +
+  '(el.getAttribute&&el.getAttribute(\'aria-label\')||\'\')).toLowerCase();}';
+
+/** Gives back everything a hiding pass took away - the code the switch runs when it is off. */
+function showSource() {
+  const start = SRC.indexOf('private static String unwrapFromHide(');
+  const end = SRC.indexOf('\n    }', start);
+  let js = '';
+  for (const line of SRC.slice(start, end).split('\n')) {
+    if (/^\s*\/\//.test(line)) continue;
+    for (const m of line.matchAll(/"((?:[^"\\]|\\.)*)"/g)) js += m[1];
+  }
+  return js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+}
+const REVEAL = showSource();
 
 function makeDom(html, { size = {} } = {}) {
   const dom = new JSDOM('<!doctype html><html><body>' + html + '</body></html>',
@@ -123,6 +151,13 @@ const hidden = doc => {
 };
 
 let bad = 0;
+
+/** A plain assertion, for the checks that are not about one fixture's hidden list. */
+function okThat(name, ok, detail) {
+  if (!ok) bad++;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}` + (ok || !detail ? '' : `  ${detail}`));
+}
+
 function check(name, html, wantHidden, opts) {
   const doc = run(html, opts);
   const got = hidden(doc).sort();
@@ -281,7 +316,53 @@ async function watchCase(name, html, add, wantHidden) {
        <button>someone@example.com</button><textarea></textarea></div>`,
     []);
 
-const total = 17;
+// --- turning the switch OFF has to give the panel back ---------------------------------
+//
+// "i disabled the hide sidebar button but it still hides that": the rule hid the panel
+// with an inline display:none, and nothing in the app ever removed it. The switch was
+// only ever able to hide, never to show.
+{
+  const html = '<div id=sb data-test=sidebar>'
+    + '<a>New chat</a><a>Leaderboard</a><a>Search</a>'
+    + '<button>someone@example.com</button></div>';
+  const doc = run(html);
+  okThat('the panel is hidden while the switch is on',
+    hidden(doc).includes('sidebar'), `hidden=${JSON.stringify(hidden(doc))}`);
+  // Now the same code the switch runs when it is turned off.
+  const w = doc.defaultView;
+  w.eval('(function(){try{' + REVEAL + '}catch(e){console.log("ERR",e.message)}})();');
+  okThat('switching it off gives the panel back, in place',
+    hidden(doc).length === 0, `hidden=${JSON.stringify(hidden(doc))}`);
+  okThat('the rule that hid it cannot find it any more (its marker is gone)',
+    doc.querySelectorAll('[data-agon-hid]').length === 0);
+
+  // And the switch can be turned back on again in the same document.
+  w.eval('(function(){try{' + HELPERS + WATCH + SIDEBAR + 'scanNow();}catch(e){}})();');
+  okThat('switching it back on hides it again',
+    hidden(doc).includes('sidebar'), `hidden=${JSON.stringify(hidden(doc))}`);
+  w.eval('(function(){try{' + REVEAL + '}catch(e){}})();');
+  okThat('and off again, repeatedly - no drift either way',
+    hidden(doc).length === 0, `hidden=${JSON.stringify(hidden(doc))}`);
+}
+
+// --- the Java side: the switch really runs it ------------------------------------------
+{
+  okThat('hide() marks what it hid, so it can be found again',
+    /data-agon-hid/.test(SRC) && /setAttribute\('data-agon-hid'/.test(SRC));
+  okThat('the activity runs the reveal when the switch goes off',
+    /if \(!value && tabs != null\) tabs\.showPagePanels\(\)/.test(
+      fs.readFileSync(path.join(__dirname, '..', '..', 'app', 'src', 'main', 'java',
+        'ai', 'arena', 'webapp', 'MainActivity.java'), 'utf8')));
+  okThat('every warm tab gets it, not just the one on screen',
+    /public void showPagePanels\(\)/.test(SRC)
+      && /for \(WebView w : views\.values\(\)\)/.test(
+        SRC.slice(SRC.indexOf('public void showPagePanels()'),
+          SRC.indexOf('Applies the current chrome insets to every warm tab'))));
+  okThat('a pass with nothing to hide starts by giving the page back',
+    /\(hideSidebar \|\| hideHeader \? "" : unwrapFromHide\(\)\)/.test(SRC));
+}
+
+const total = 24;
 console.log(`\n${total - bad}/${total} PASS`);
 process.exit(bad === 0 ? 0 : 1);
 })();

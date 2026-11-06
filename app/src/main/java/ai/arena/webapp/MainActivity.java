@@ -745,11 +745,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private void closeWindowById(int id) {
         if (tabs == null) return;
         if (!TabWebViews.isWindow(id)) {
-            // The cross is only drawn while more than one tab exists, but the strip is
-            // rebuilt asynchronously: a tap that lands after the last other tab closed must
-            // not leave the app with no page behind it.
-            toast(R.string.strip_last_tab);
-            return;
+            // The chat tab is the app's home page, and it is the tab the strip draws with
+            // no cross at all. A close that still arrives for it (a tap that lands just as
+            // the strip is rebuilt) closes whatever window is open instead, so the press
+            // visibly does something. It never answers with "that is the last tab": the
+            // message was a report the strip itself already shows - there is no cross on
+            // the last chip - and on a phone it landed on top of the page for two seconds.
+            java.util.List<Integer> open = tabs.windows();
+            if (open.isEmpty()) return;
+            id = open.get(open.size() - 1);
         }
         boolean wasCurrent = pageId() == id;
         tabs.closeWindow(id);
@@ -1735,10 +1739,14 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             case Settings.K_HIDE_WEB_SIDEBAR:
             case Settings.K_HIDE_WEB_HEADER:
                 // The rules are a <style> element that is replaced on every pass, so the
-                // change lands immediately. Turning a hiding rule *off* also needs a
-                // reload, because the JS fallback hid a container with an inline style.
+                // change lands immediately. Turning a hiding rule *off* is the case that
+                // did not work: the JS rule hides by writing an inline display:none, and an
+                // inline style outlives both the script and the setting - the panel stayed
+                // hidden with the switch off ("i disabled the button but it still hides
+                // that"). So the panels are given back explicitly, on every warm tab, and
+                // the stylesheet is rewritten without the rule.
+                if (!value && tabs != null) tabs.showPagePanels();
                 applyChromeInsets();
-                if (!value && tabs != null) tabs.reloadAll();
                 break;
             case Settings.K_DESKTOP_UA:
                 if (tabs != null) tabs.applyUserAgentToAll();

@@ -170,6 +170,7 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
 | Tab strip arrows | the two arrows look identical (never dimmed) and **go round**: from the last tab `>` lands on the first, from the first `<` lands on the last. No "this is the last tab" message anywhere |
+| Closing a tab | the cross closes a tab and says nothing. Closing the last chip closes the window that is open, and with nothing else open it is simply nothing — the strip already draws no cross on the last chip |
 
 ### Copying text out of the app
 
@@ -177,13 +178,26 @@ Two routes, because they fail in different places:
 
 | Route | How |
 | --- | --- |
-| Android's own menu | a **long press** on a reply or a command selects it and offers *Copy*. A quick drag still never selects anything — that is what "App-style text" means now, and the setting's description says so |
+| Hold to select | hold a reply or a command for about half a second and the app selects that block itself — it is highlighted, Android's *Copy* menu appears over it, and it is what *More → Copy selected text* reads |
+| A quick drag | still never selects anything — that is what "App-style text" means now, and the setting's description says so |
 | *More → Copy selected text* | asks the page for its current selection and puts it on the clipboard. Works even if the WebView decides not to show its own menu |
 
 The old rule switched off `-webkit-touch-callout` on everything and cancelled every
 selection, which is why a command in a code block could not be copied at all. The long-press
 callout is no longer suppressed, and the guard now refuses only a selection that a **drag**
-starts (under ~320 ms of press) — a held press is let through.
+starts (under ~320 ms of press).
+
+Letting a long press *through* was not enough on the device, because whether a hold starts
+a selection at all is the engine's decision. So the app now makes the selection itself:
+after ~450 ms of a still finger it hit-tests the point, takes the smallest block that holds
+that text, hands that one block `user-select: text` back, and selects it. The document stays
+unselectable everywhere else, which is why the setting still means what it says.
+
+The composer is the other half of the same rule: it is exempt from `user-select: none`
+entirely — `input`, `textarea`, `form` and everything inside it, `[role="textbox"]`,
+`[contenteditable]` — because arena's composer is usually a rich-text box rather than a
+`<textarea>`, and a document-wide rule took the caret away from it. That was "I can't move
+the line of entering in chat": the tap focused the box and no caret could be placed.
 
 ### Panels that do not fit the phone
 
@@ -299,6 +313,12 @@ Everything a developer needs is behind one row — **Enable Developer Settings**
 taps on the build line in the footer, the Android gesture) — which adds a *Developer
 options* section: sign-in diagnostics, the page switches (Arena's sidebar and header), every
 test toggle, the version line, reset settings, and a lock row to hide it all again.
+
+**Hide Arena's sidebar** goes both ways. The rule hides the panel by writing an inline
+`display: none` and tagging the element it touched; switching the switch off runs one pass
+over those tags and takes the style away again, on every warm tab, without a reload and
+without losing the conversation on screen. (Before this, the switch could only ever hide:
+nothing removed the inline style, so the panel stayed away with the switch off.)
 
 ### Navigation, animation, theme
 

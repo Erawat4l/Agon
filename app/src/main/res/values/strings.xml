@@ -74,7 +74,6 @@
     <string name="strip_close_tab">Close this tab</string>
     <string name="strip_at_start">This tab has nothing before it</string>
     <string name="strip_window_gone">That window had closed - dropped it</string>
-    <string name="strip_last_tab">That is the last tab - the + adds another</string>
     <string name="reload">Reload</string>
     <string name="menu_copy">Copy selected text</string>
     <string name="menu_copy_sub">Select a reply first; this copies it to the clipboard</string>
@@ -199,7 +198,7 @@
     <string name="settings_offline">Saved pages</string>
     <string name="settings_offline_sub">Keep a copy of each page so the app still opens on a bad connection. Turning this off deletes the copies</string>
     <string name="settings_selectable">App-style text</string>
-    <string name="settings_selectable_sub">A drag never selects text, like a real app. A long press still does, so replies and commands can be copied</string>
+    <string name="settings_selectable_sub">A drag never selects text, like a real app. Hold a reply or a command for half a second and it is selected, ready to copy</string>
     <string name="history_title">Your chats</string>
     <string name="history_looking">Looking for your chats…</string>
     <string name="history_empty">Arena is not showing a chat list right now. Open Arena\'s own history page, or start a new chat.</string>

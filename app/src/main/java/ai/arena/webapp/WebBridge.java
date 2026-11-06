@@ -49,6 +49,21 @@ public final class WebBridge {
     }
 
     /**
+     * The text under a held finger, found BY THE PAGE on request from the app.
+     *
+     * This is the route that does not depend on the page's own timers or on Android's
+     * selection menu: the WebView times the hold, asks for the text at that point, and the
+     * answer is written to the clipboard here.
+     */
+    @JavascriptInterface
+    public void text(final String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) ((MainActivity) activity).onPageCopied(text);
+        });
+    }
+
+    /**
      * The page copied a block for the user: put it on the clipboard as well, and say so.
      *
      * This is the second half of "i still cant copy". The page's own copy path can be

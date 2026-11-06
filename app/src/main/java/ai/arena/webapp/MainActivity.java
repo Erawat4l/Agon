@@ -608,26 +608,17 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * tab rather than as "nowhere" - so the first press always moves somewhere.
      */
     private void stepTab(int direction) {
-        java.util.List<Integer> ids = openTabs();
-        if (ids.isEmpty()) return;
-        if (ids.size() < 2) {
-            // Nothing to move to, and nothing to explain: with one tab open the second
-            // arrow cannot be pointing anywhere except back at the page already on screen.
-            selectPage(ids.get(0));
-            return;
-        }
-        int index = ids.indexOf(pageId());
-        if (index < 0) index = direction > 0 ? -1 : 0;
-        // Wrap instead of stopping at an end.
+        if (tabs == null) return;
+        // One implementation for the arrows and for Ctrl/Cmd+Tab, in TabWebViews: the row is
+        // chat-tab-first, the step wraps, and a single tab means nowhere to go.
         //
-        // The old code refused at the last tab and put "This is the last tab" on screen -
-        // a message about a list that visibly has tabs on both sides of it. The arrows are
-        // navigation along the row of tabs, so they go round: from the last chip, > lands
-        // on the first, and from the first, < lands on the last. Nothing to explain, and
-        // no press is ever spent on nothing.
-        int count = ids.size();
-        int next = ((index + direction) % count + count) % count;
-        selectPage(ids.get(next));
+        // `pageId()` is what used to break this: it answers "the chat tab" whenever no
+        // window is in front, so with one extra tab open and the chat on screen `<` computed
+        // the same tab it was already showing and the press did nothing. The row and the
+        // tab on screen are two different questions, and now both are asked properly.
+        int next = tabs.steppedTab(pageId(), direction < 0 ? -1 : 1);
+        if (next < 0) return;
+        selectPage(next);
     }
 
     /**
@@ -679,18 +670,58 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     void onCloseTabShortcut() {
         if (isFinishing() || isDestroyed()) return;
         int id = pageId();
-        if (!TabWebViews.isWindow(id)) {
-            java.util.List<Integer> open = tabs == null ? null : tabs.windows();
-            if (open == null || open.isEmpty()) return;
-            id = open.get(open.size() - 1);
+        if (TabWebViews.isWindow(id)) {
+            closeWindowById(id);
+            return;
         }
-        closeWindowById(id);
+        // Ctrl/Cmd+W on the chat tab closes *that* tab - the one the user is on - and the
+        // tab next to it takes its place. It used to close the newest extra window instead,
+        // so with two tabs open and the chat on screen the wrong one disappeared.
+        closeChatTab();
     }
 
-    /** Called from the page when Ctrl/Cmd+N is pressed there. */
+    /**
+     * Closes the chat tab: the tab on screen steps aside for its neighbour.
+     *
+     * The chat tab is the app's own page and cannot be destroyed - every "another chat"
+     * opens in it, so it has to keep existing. Closing it therefore means handing the
+     * screen to the tab beside it and starting the chat tab empty again, which is what
+     * closing a browser tab looks like: the tab goes, the ones around it stay, and nothing
+     * about the user's other tabs changes.
+     */
+    private void closeChatTab() {
+        if (tabs == null) return;
+        int next = tabs.neighbourAfterClosing(AppUi.TAB_CHAT);
+        WebView chat = tabs.get(AppUi.TAB_CHAT);
+        // Empty the chat tab first, so the next visit to it is a fresh conversation rather
+        // than the one that was just closed.
+        if (chat != null) {
+            chat.loadUrl(TabWebViews.urlFor(AppUi.TAB_CHAT));
+            chat.postDelayed(() -> {
+                if (tabs != null && tabs.get(AppUi.TAB_CHAT) == chat) {
+                    TabWebViews.startNewChat(chat);
+                }
+            }, 900L);
+        }
+        if (next == AppUi.TAB_CHAT) {
+            // Nothing else is open: the chat tab is now the only tab and it is empty.
+            tabs.show(AppUi.TAB_CHAT);
+            currentTab = AppUi.TAB_CHAT;
+            applyChromeInsets();
+            AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
+            refreshStrip();
+            return;
+        }
+        switchWindow(next);
+    }
+
+    /** Called from the page when Ctrl/Cmd+N is pressed there: a new chat, here. */
     void onNewChatShortcut() {
         if (isFinishing() || isDestroyed()) return;
-        newChatTab();
+        // A new chat in the tab on screen. Ctrl/Cmd+N *inside a page* is that page's own
+        // "new chat", so it must not open a second tab the user did not ask for - the strip's
+        // + is the thing that opens tabs.
+        openNewChat();
     }
 
     /**
@@ -961,10 +992,13 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
     /** Three taps: a fresh chat, using arena's own "new chat" affordance. */
     private void openNewChat() {
-        if (currentTab != AppUi.TAB_CHAT) showTab(AppUi.TAB_CHAT);
-        WebView chat = tabs.get(AppUi.TAB_CHAT);
-        if (chat == null) return;
-        TabWebViews.startNewChat(chat);
+        // "A new chat" belongs to the tab the user is looking at: three taps on Chat while a
+        // conversation tab is in front means a new conversation in that tab, not a quiet
+        // one in the tab behind it that the user would never see.
+        if (tabs == null) return;
+        WebView page = tabs.current();
+        if (page == null) return;
+        TabWebViews.startNewChat(page);
         toast(R.string.new_chat_started);
     }
 

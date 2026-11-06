@@ -114,5 +114,56 @@ function method(src, signature) {
     /R\.string\.strip_new_tab/.test(fs.readFileSync(path.join(NAV, 'TabStrip.java'), 'utf8')));
 }
 
+// --- closing a tab closes the tab you are ON --------------------------------------------
+//
+// "i was on default and pressed ctrl + w the second one closed but i wanted default one to
+// close". onCloseTabShortcut() looked at pageId(), got the chat tab, decided "that is not a
+// window" and closed the newest extra window instead - the opposite of what was asked.
+{
+  const close = method(MAIN, 'void onCloseTabShortcut()');
+  check('the close key closes the tab on screen when it is a window',
+    /if \(TabWebViews\.isWindow\(id\)\)\s*\{\s*closeWindowById\(id\)/.test(
+      close.replace(/\s+/g, ' ').replace(/\{ /g, '{')), close.replace(/\s+/g, ' '));
+  check('and closes the chat tab itself when that is the tab on screen',
+    /closeChatTab\(\)/.test(close) &&
+    !/open\.get\(open\.size\(\) - 1\)/.test(close),
+    close.replace(/\s+/g, ' '));
+  check('closing the chat tab hands the screen to its neighbour',
+    /neighbourAfterClosing\(AppUi\.TAB_CHAT\)/.test(method(MAIN, 'private void closeChatTab()')));
+
+  const tabsSrc = fs.readFileSync(path.join(NAV, 'TabWebViews.java'), 'utf8');
+  const neighbour = method(tabsSrc, 'public int neighbourAfterClosing(int closing)');
+  // The row is chat-first, so the tab after the chat tab is the first extra one; the tab
+  // after the LAST extra tab is the one before it.
+  const land = (row, closing) => {
+    const i = row.indexOf(closing);
+    if (i < 0) return 'chat';
+    return String(i + 1 < row.length ? row[i + 1] : row[i - 1]);
+  };
+  check('closing a middle tab lands on the one to its right',
+    land([0, 1000, 1001, 1002], 1000) === '1001');
+  check('closing the last tab lands on the one to its left',
+    land([0, 1000, 1001], 1001) === '1000');
+  check('closing the chat tab lands on the first extra tab',
+    land([0, 1000, 1001], 0) === '1000');
+  check('the neighbour is decided before the tab is dropped',
+    /final int next = wasCurrent \? neighbourAfterClosing\(id\)/ .test(neighbour) === false &&
+    /neighbourAfterClosing\(id\)/.test(method(tabsSrc, 'public boolean closeWindow(int id)')));
+  check('a closed tab is never "the first one" by accident',
+    !/views\.remove\(id\)[\s\S]{0,200}show\(AppUi\.TAB_CHAT\)/.test(
+      method(tabsSrc, 'public boolean closeWindow(int id)')));
+}
+
+// --- a new chat belongs to the tab on screen -------------------------------------------
+{
+  const open = method(MAIN, 'private void openNewChat()');
+  check('three taps on Chat make a new chat in the tab on screen',
+    /tabs\.current\(\)/.test(open) && /startNewChat\(page\)/.test(open),
+    open.replace(/\s+/g, ' '));
+  check('Ctrl+N does not silently open a second tab',
+    !/newChatTab\(\)/.test(method(MAIN, 'void onNewChatShortcut()')),
+    method(MAIN, 'void onNewChatShortcut()').replace(/\s+/g, ' '));
+}
+
 console.log(`\n${bad === 0 ? 'all destination tests passed' : bad + ' FAILED'}`);
 process.exit(bad === 0 ? 0 : 1);

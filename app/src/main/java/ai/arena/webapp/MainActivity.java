@@ -927,7 +927,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * page, drawn with the app's styling, and a tap opens that conversation.
      */
     private void openSidebar() {
-        if (currentTab != AppUi.TAB_CHAT) showTab(AppUi.TAB_CHAT);
+        // The chat tab is only forced when the chat is not what is in front. A conversation
+        // TAB is a chat too, and its own page carries the history button - so switching to
+        // the chat tab first would take the list away from the page the user is reading.
+        if (!onConversationTab() && pageId() != AppUi.TAB_CHAT) showTab(AppUi.TAB_CHAT);
         if (historySheet == null) {
             historySheet = new ChatHistorySheet(this, window, new ChatHistorySheet.Host() {
                 @Override
@@ -950,7 +953,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             historySheet.dismiss();
             return;
         }
-        historySheet.show(tabs.get(AppUi.TAB_CHAT));
+        // The list comes from the page on screen, whichever tab that is: arena renders its
+        // history inside a conversation, and the chat tab may be sitting on the front page.
+        WebView front = tabs == null ? null : tabs.current();
+        historySheet.show(front != null ? front : tabs.get(AppUi.TAB_CHAT));
     }
 
     /** Three taps: a fresh chat, using arena's own "new chat" affordance. */
@@ -1095,9 +1101,43 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         return out;
     }
 
+    /**
+     * Is there a conversation tab in front of the chat?
+     *
+     * The nav's Chat icon stays lit while one is, because a window is another chat, not
+     * another destination - so "the page on screen" and "the chat tab" are different
+     * questions, and this is how the rest of the activity tells them apart.
+     */
+    private boolean onConversationTab() {
+        int id = pageId();
+        return TabWebViews.isWindow(id) && tabs != null && tabs.get(id) != null;
+    }
+
     /** Switches the visible page (the tabs that are not sheets). */
     private void showTab(int tab) {
         if (tab == AppUi.TAB_UPDATE || tab == AppUi.TAB_MORE) return;
+        // A destination opens in the tab the user is looking at.
+        //
+        // Tapping Ask/Search while a conversation tab is in front used to swap the page
+        // over to the chat tab and load the destination there: the user asked for search in
+        // tab 2 and watched tab 1 change instead, losing whatever tab 2 was showing. The
+        // destination is loaded into the window that is on screen, so the tab they are in
+        // is the tab that follows them. The chat tab is only used when the chat itself is
+        // what is in front.
+        if (tab != AppUi.TAB_CHAT && onConversationTab()) {
+            String url = TabWebViews.urlFor(tab);
+            // The nav highlight follows the destination; which TAB is in front is the tab
+            // layer's business, and showChat() already asks it rather than trusting this.
+            currentTab = tab;
+            hideError();
+            closeWebWindow();
+            tabs.loadInCurrent(url);
+            TabWebViews.applyTheme(tabs.current(), AppUi.isDark(this));
+            applyChromeInsets();
+            AppUi.styleNav(this, nav, tab, updateDotWanted(), navExpanded, true);
+            refreshStrip();
+            return;
+        }
         currentTab = tab;
         hideError();
         boolean firstVisit = tabs.get(tab) == null;
@@ -1676,6 +1716,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onReload() {
                 hideError();
                 if (tabs != null) tabs.reloadCurrent();
+            }
+
+            @Override
+            public void onOpenHistory() {
+                openSidebar();
             }
 
             @Override

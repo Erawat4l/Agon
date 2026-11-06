@@ -125,10 +125,21 @@ function method(src, signature) {
 // route moved to the landing page is the flash of "What would you like to do?" over a
 // conversation that was already there.
 {
+  // The timer is gone entirely now: a tab keeps the page it was given, so nothing can
+  // re-route it to the landing page at all - on screen or in the background.
   const src = fs.readFileSync(path.join(NAV, 'TabWebViews.java'), 'utf8');
   const ensure = method(src, 'private WebView ensure(int tab)');
-  check('the new-chat timer is skipped for the tab on screen',
-    /if \(currentTab == tab\) return;/.test(ensure), ensure.slice(-420));
+  check('no timer asks a tab for a new chat behind the user',
+    !/startNewChat/.test(ensure), ensure.slice(-420));
+  check('and neither does opening a tab in the background',
+    !/startNewChat/.test(method(src, 'public int openTabInBackground()')),
+    method(src, 'public int openTabInBackground()'));
+
+  // A new tab is a browser tab: it starts on arena's front page, which is where arena's
+  // own history button lives. That is the second report - "on chats there sidebar history
+  // button but not on home page" - and the reason a new tab can no longer be a chat.
+  check('a new tab is not a new chat',
+    /return openWindow\(\);/.test(method(src, 'public int openTabInBackground()')));
 }
 
 // --- and the tab strip still reports where it is, for the code that asks ---------------

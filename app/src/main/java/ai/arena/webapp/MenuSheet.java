@@ -26,6 +26,9 @@ public final class MenuSheet {
          */
         void onCopySelection();
 
+        /** Opens the conversation list (the native chat history sheet). */
+        void onOpenHistory();
+
         void onOpenUpdate();
 
         void onSignIn();
@@ -107,6 +110,17 @@ public final class MenuSheet {
         // still be connected deliberately from Settings, and the page's own prompt is what
         // a new user actually sees.
         //
+
+        // Chats: the conversation list, read out of the page on screen. Arena's own panel
+        // only exists inside a conversation (it is the sidebar of a chat), so the front
+        // page - and any tab sitting on it - had no way to reach it at all. One row here
+        // reaches it from every page.
+        addRow(activity, sheet, R.string.menu_history,
+                activity.getString(R.string.menu_history_sub),
+                R.drawable.ic_nav_history, false, v -> {
+                    dismiss(parent, scrim, callback);
+                    callback.onOpenHistory();
+                });
 
         addRow(activity, sheet, R.string.menu_settings,
                 activity.getString(R.string.menu_settings_sub), R.drawable.ic_nav_settings,

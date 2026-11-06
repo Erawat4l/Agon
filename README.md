@@ -188,6 +188,9 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
 | Tab strip arrows | the two arrows look identical (never dimmed) and **go round**: from the last tab `>` lands on the first, from the first `<` lands on the last. No "this is the last tab" message anywhere |
 | Closing a tab | the cross closes a tab and says nothing. Closing the last chip closes the window that is open, and with nothing else open it is simply nothing — the strip already draws no cross on the last chip |
+| A new tab | is a **browser tab**, not a new chat: it opens on arena's front page and stays wherever the user drives it. Nothing re-routes it behind their back |
+| Destinations | Ask / Search open **in the tab on screen**, not in the chat tab — with a conversation tab in front, tapping Search loads it in that tab and leaves the other tab alone |
+| Chat history | *More → Chats* reaches the conversation list from any page. Arena only draws its own history button inside a chat, so the front page had no route to it; the sheet also reads the page actually in front rather than always the chat tab |
 
 ### Copying text out of the app
 

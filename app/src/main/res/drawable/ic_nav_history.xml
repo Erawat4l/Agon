@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chats: a list of conversations, each row a line with its own marker - the shape the
+     history sheet draws, not a speech bubble (a bubble reads as "one message"). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,5h2v2H4zM8,6h12v1.6H8zM4,10h2v2H4zM8,11h12v1.6H8zM4,15h2v2H4zM8,16h12v1.6H8zM4,20h2v2H4zM8,21h8v1.6H8z" />
+</vector>

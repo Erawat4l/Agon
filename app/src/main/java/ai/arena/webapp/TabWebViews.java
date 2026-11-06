@@ -136,6 +136,15 @@ public final class TabWebViews {
      *     or moving the route, when that button is hidden with the sidebar - is what
      *     guarantees the tab opens empty.
      *
+     * "New tab" and "new chat" are not the same thing, which is the distinction the strip
+     * gets wrong when it is treated as a conversation list only. A new TAB is a new
+     * browser tab: it starts at arena's own front page and then the user drives it - that
+     * page's history button, its search, a conversation from the list. It is not asked for
+     * a new chat, because asking for one moves the route to the bare root and takes the
+     * history button away with it (that button belongs to a conversation). A new chat is a
+     * deliberate request, made from the nav's three taps or Ctrl/Cmd+N, and it opens in the
+     * tab on screen.
+     *
      * The tab starts loading immediately, so by the time the user looks at it there is
      * nothing left to fetch.
      */
@@ -169,15 +178,9 @@ public final class TabWebViews {
      * then lists it, and switching to it costs a visibility change.
      */
     public int openTabInBackground() {
-        int id = openWindow();
-        if (id < 0) return -1;
-        WebView w = views.get(id);
-        if (w != null) {
-            // Loads immediately (ensure() did that); asking for a new chat here means the
-            // tab is empty by the time anyone looks at it.
-            w.postDelayed(() -> startNewChat(w, null), 700L);
-        }
-        return id;
+        // Loads immediately (ensure() did that) and stays on arena's front page: a new tab
+        // is a browser tab, not a new conversation. See openWindow().
+        return openWindow();
     }
 
     /** Windows the user has actually opened (as opposed to one built ahead of time). */
@@ -1595,24 +1598,15 @@ public final class TabWebViews {
             // network work overlaps with the user reading the current screen.
             w.loadUrl(startUrl);
         }
-        // A tab created for a *new chat* must not stop at whatever conversation the root
-        // route restores: once its document exists, ask the page for a fresh one. This
-        // runs once per tab, and only for tabs the user asked for (never for the chat tab
-        // restored on launch, which must come back to what it was showing).
+        // No automatic "new chat" here any more.
         //
-        // Never while that tab is the one on screen. Asking the page for a new chat moves
-        // its route to the root, and the root is the "What would you like to do?" page: on
-        // the device that is a tab that flashes the landing page and then puts the
-        // conversation back a moment later, for no reason the user can see. The tab is
-        // already showing arena's own new-chat page at that point, so nothing is lost by
-        // leaving it alone - a fresh conversation is what the root is.
-        if (isWindow(tab)) {
-            w.postDelayed(() -> {
-                if (views.get(tab) != w) return;
-                if (currentTab == tab) return;
-                startNewChat(w, null);
-            }, 900L);
-        }
+        // A window used to be asked for a fresh conversation 900 ms after it was created,
+        // whether or not anyone was looking at it. Two things were wrong with that. It made
+        // the tab flash arena's landing page over whatever the user had just opened, and it
+        // threw away the page they were on - so a new tab could never hold the front page,
+        // which is the one place arena shows its own history button and search. A tab now
+        // keeps the page it was given: the root when it is created, and then whatever the
+        // user opens in it.
         trim();
         return w;
     }

@@ -485,7 +485,7 @@ fi
 %(marker)s
 
 echo '  ... building (the slow part; a phone can take half an hour)'
-./gradlew --no-daemon assembleDebug -PVERSION_NAME="$AGON_VERSION" -PAGON_DEBUG_KEY=1
+./gradlew --no-daemon assembleDebug -PVERSION_NAME="$AGON_VERSION"
 echo "APK: $(pwd)/app/build/outputs/apk/debug/app-debug.apk"
 """
 
@@ -812,8 +812,16 @@ def build_android(host_name, version, sdk):
         return run_termux_build(version)
     wrapper = "gradlew.bat" if host_name == "windows" else "./gradlew"
     write_local_properties(sdk)
+    # No key flag: app/build.gradle signs with the project's own key for every build type,
+    # so a build started here, in Android Studio, or by hand all produce an APK that
+    # installs over the one on the phone.
     return run([wrapper, "--no-daemon", "assembleDebug",
-                "-PVERSION_NAME=%s" % version, "-PAGON_DEBUG_KEY=1"])
+                "-PVERSION_NAME=%s" % version])
+
+
+# True while a `publish` run is going on, so a local build never takes the name of the
+# release asset it was built from.
+PUBLISHING = False
 
 
 def collect_apk(host_name, version):
@@ -836,6 +844,14 @@ def collect_apk(host_name, version):
                                shell=True, stdout=fh) != 0 or os.path.getsize(target) == 0:
                 fail("Could not copy the APK out of the container.",
                      "It is at %s inside the container." % container)
+        # A file called Agon-<version>.apk is the PUBLISHED asset of that release. A local
+        # build must not take that name, or a later "grab the release" step (publish.py,
+        # the updater, a download by URL) quietly picks up the phone's own build instead.
+        if not PUBLISHING:
+            local = os.path.join(dest, "Agon-%s-local.apk" % version)
+            shutil.move(target, local)
+            say("        local build, not the release asset: %s" % local)
+            return local
         return target
     source = os.path.join(ROOT, APK_RELEASE if "--release" in sys.argv else APK_OUT)
     if DRY:
@@ -944,6 +960,8 @@ def main(argv):
     beta = "--beta" in argv or "beta" in argv
     channel = "beta" if beta else "stable"
     host_name = host()
+    global PUBLISHING
+    PUBLISHING = mode == "publish"
 
     total = 5 if mode in ("desktop", "publish") else 4
     say("=" * 52)

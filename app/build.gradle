@@ -114,32 +114,41 @@ android {
             //   same file on the PC when it is missing)
             //
             // Order: the shared key, then any keystore.properties (what earlier phone
-            // builds wrote), then Gradle's own ~/.android/debug.keystore. Gated on
-            // -PAGON_DEBUG_KEY=1, so a deliberate plain `assembleDebug` is untouched.
-            if (project.hasProperty('AGON_DEBUG_KEY')) {
-                def sharedPropsFile = rootProject.file('agon-build.properties')
-                if (sharedPropsFile.exists()) {
-                    // A properties file naming a missing .jks would otherwise make AGP
-                    // fall back to the default debug key, silently producing the very APK
-                    // that gets refused - so say it instead.
-                    def chk = new Properties()
-                    sharedPropsFile.withInputStream { chk.load(it) }
-                    if (!rootProject.file(chk['storeFile']).exists()) {
-                        throw new GradleException("agon-build.properties names "
-                                + chk['storeFile'] + ", which is not in " + rootProject
-                                + ". Restore the key file, or delete both so a new one is made.")
-                    }
-                    signingConfig signingConfigs.shared
-                } else if (rootProject.file('keystore.properties').exists()) {
-                    signingConfig signingConfigs.release
+            // builds wrote), then Gradle's own ~/.android/debug.keystore.
+            //
+            // ALWAYS, with no opt-in flag. It used to need -PAGON_DEBUG_KEY=1, which
+            // build.py passes but a hand-typed `gradlew assembleDebug` and Android Studio
+            // do not - and that is exactly how a build made somewhere else ends up signed
+            // with that machine's ~/.android/debug.keystore: it installs, then every
+            // published APK is refused over it with "App not installed as package
+            // conflicts with an existing package", and the only cure is uninstalling -
+            // which wipes the arena session. Signing with the project's own key is never
+            // the wrong thing, so it is not a switch any more.
+            def sharedPropsFile = rootProject.file('agon-build.properties')
+            if (sharedPropsFile.exists()) {
+                // A properties file naming a missing .jks would otherwise make AGP
+                // fall back to the default debug key, silently producing the very APK
+                // that gets refused - so say it instead.
+                def chk = new Properties()
+                sharedPropsFile.withInputStream { chk.load(it) }
+                if (!rootProject.file(chk['storeFile']).exists()) {
+                    throw new GradleException("agon-build.properties names "
+                            + chk['storeFile'] + ", which is not in " + rootProject
+                            + ". Restore the key file, or delete both so a new one is made.")
                 }
+                signingConfig signingConfigs.shared
+            } else if (rootProject.file('keystore.properties').exists()) {
+                signingConfig signingConfigs.release
             }
         }
         release {
-            // Same installer-permission rule for release builds (sideload installs).
+            // Same installer-permission rule for release builds (sideload installs): the
+            // project's own key wins, because that is the one the installed app carries.
             minifyEnabled false
             shrinkResources false
-            if (rootProject.file('keystore.properties').exists()) {
+            if (rootProject.file('agon-build.properties').exists()) {
+                signingConfig signingConfigs.shared
+            } else if (rootProject.file('keystore.properties').exists()) {
                 signingConfig signingConfigs.release
             }
         }

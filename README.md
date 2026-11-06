@@ -71,6 +71,23 @@ Nothing is ever uninstalled or deleted, and the signing key is never regenerated
 key means Android refuses the update ("package conflicts with an existing package") and the
 app has to be removed, which wipes the arena session.
 
+### Building in Android Studio, or by hand
+
+It is safe now, and it was not before. The package name is fixed
+(`app.erawat.agon`, no `.debug` suffix), so the only thing that can make one build refuse
+another is the **signing key** — and the project's own `agon-build.jks` used to be wired to
+the debug build type behind a `-PAGON_DEBUG_KEY=1` flag that only `build.py` and
+`publish.ps1` passed. A build started from Android Studio, or with a plain
+`./gradlew assembleDebug`, was therefore signed with *that machine's* `~/.android/debug.keystore`:
+it installed, and then every published APK was refused over it.
+
+Both build types now sign with `agon-build.jks` whenever it exists — no flag, no opt-in — and
+the release build prefers it too. So an APK from the PC, from the phone, from Android Studio
+or from CI all update each other. The one thing that still breaks it is a **missing key**:
+without `agon-build.jks` + `agon-build.properties` in the project root, Gradle falls back to
+the local debug key. Copy both over (or `build.bat sign` on the PC, `bash build.sh sign` on
+the phone) before building anywhere new.
+
 ### Where the signing key lives
 
 | Host | File | Why there |

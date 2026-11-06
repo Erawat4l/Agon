@@ -219,8 +219,11 @@ if ((Test-Path $sharedJks) -and (Get-Command keytool -ErrorAction SilentlyContin
 }
 
 Write-Host "[1/3] Building..."
+# No key flag: app/build.gradle signs with the project's own agon-build.jks for both build
+# types, so this APK and one built by hand (or by Android Studio) are interchangeable on the
+# phone instead of refusing each other with "package conflicts".
 & (Join-Path $root "gradlew.bat") --no-daemon assembleDebug `
-    "-PVERSION_NAME=$Version" "-PVERSION_CODE=$code" "-PAGON_DEBUG_KEY=1" | Out-Host
+    "-PVERSION_NAME=$Version" "-PVERSION_CODE=$code" | Out-Host
 if ($LASTEXITCODE -ne 0) { Fail "Gradle build failed." }
 if (-not (Test-Path $apk)) { Fail "APK not found at $apk" }
 

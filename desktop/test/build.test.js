@@ -252,5 +252,40 @@ for (const file of ['build.py', 'tools/needs.py']) {
     refs.length === 0, refs.join(', '));
 }
 
+// --- package identity: a build from anywhere must install over the app on the phone ------
+//
+// "If i build with android then would there be a package problem?" The two things that make
+// an APK refuse another are the *package name* and the *signing key*. The name is fixed, so
+// only the key can drift - and it did: the shared key was gated behind -PAGON_DEBUG_KEY=1,
+// which build.py passes but a hand-typed `gradlew assembleDebug`, Android Studio and a
+// plain `./gradlew installDebug` do not. Those builds were signed with that machine's
+// ~/.android/debug.keystore and could never be updated by a release.
+{
+  const gradle = fs.readFileSync(path.join(ROOT, 'app', 'build.gradle'), 'utf8');
+  check('the debug build is signed with the project key, with no opt-in flag',
+    !/hasProperty\('AGON_DEBUG_KEY'\)/.test(gradle) &&
+    /signingConfig signingConfigs\.shared/.test(gradle),
+    (gradle.match(/AGON_DEBUG_KEY[^\n]*/g) || []).join(' | '));
+  check('the release build prefers the same key (never a different one)',
+    /release \{[\s\S]*agon-build\.properties[\s\S]*signingConfig signingConfigs\.shared/
+      .test(gradle));
+  check('a properties file naming a missing key fails the build instead of falling back',
+    /is not in /.test(gradle) && /throw new GradleException/.test(gradle));
+  check('the package name has no debug suffix, so both build types are one app',
+    /applicationId 'app\.erawat\.agon'/.test(gradle) && !/applicationIdSuffix/.test(gradle));
+  // The only mention left may be prose: a comment is not a flag being passed.
+  const passes = (src) => src.split('\n')
+    .filter((line) => !/^\s*(\/\/|#)/.test(line))
+    .filter((line) => /AGON_DEBUG_KEY=1/.test(line));
+  check('no build path still passes the removed flag',
+    passes(gradle).length === 0 &&
+    passes(fs.readFileSync(path.join(ROOT, 'build.py'), 'utf8')).length === 0 &&
+    passes(fs.readFileSync(path.join(ROOT, 'tools', 'publish.ps1'), 'utf8')).length === 0,
+    [...passes(gradle), ...passes(fs.readFileSync(path.join(ROOT, 'build.py'), 'utf8'))]
+      .join(' | '));
+  check('a local phone build does not take the name of the published asset',
+    /PUBLISHING/.test(fs.readFileSync(path.join(ROOT, 'build.py'), 'utf8')));
+}
+
 console.log(`\n${bad === 0 ? 'all build-script tests passed' : bad + ' FAILED'}`);
 process.exit(bad === 0 ? 0 : 1);

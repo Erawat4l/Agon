@@ -76,6 +76,12 @@ function jsFor(methodName, flag) {
   } else {
     picked = body;                      // no branch: the same script either way
   }
+  // Comments are not code: a Java comment explaining why a rule exists must not be
+  // mistaken for part of the script it explains (it once was, and the page received a
+  // sentence in the middle of a statement).
+  picked = picked.split('\n')
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join('\n');
   let out = '';
   for (const m of picked.matchAll(/"((?:[^"\\]|\\.)*)"/g)) out += m[1];
   return out.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
@@ -96,11 +102,14 @@ function check(name, ok, detail) {
 check('selection off puts user-select:none on everything',
   /user-select:\s*none\s*!important/.test(cssOff) &&
   /-webkit-user-select:\s*none\s*!important/.test(cssOff), cssOff);
-check('the long-press callout is switched off too',
-  /-webkit-touch-callout:\s*none\s*!important/.test(cssOff), cssOff);
 check('the composer keeps a normal caret',
   /input\s*,\s*textarea/.test(cssOff.replace(/\n/g, '')) &&
   /user-select:\s*text\s*!important/.test(cssOff), cssOff);
+// "i cant copy cmd from app": a reply has to be copyable. The callout used to be switched
+// off globally, which removed the WebView's own Copy route for chat text as well.
+check('chat text and code stay copyable', /pre\s*,\s*code/.test(cssOff.replace(/\n/g, '')), cssOff);
+check('nothing removes the OS copy menu any more',
+  !/-webkit-touch-callout/.test(cssOff), cssOff);
 check('selection ON writes no rules at all', cssOn === '', JSON.stringify(cssOn));
 
 // --- the listener, driven for real ------------------------------------------------------
@@ -125,8 +134,18 @@ function startsSelection(w, id) {
 
 {
   const w = page();
-  check('a drag or long press over chat text cannot start a selection',
+  const press = () => w.document.getElementById('txt')
+    .dispatchEvent(new w.Event('touchstart', { bubbles: true }));
+  // A stray drag must not select (that is the "app-style" part)...
+  press();
+  check('a drag over chat text does not start a selection',
     startsSelection(w, 'txt') === false);
+  // ...but a deliberate press-and-hold must, or a reply could never be copied.
+  press();
+  w.__agonDown = Date.now() - 600;      // the finger has been down for 600 ms
+  check('a long press on chat text DOES start a selection, so Copy is offered',
+    startsSelection(w, 'txt') === true);
+  w.__agonDown = 0;
   check('the composer still accepts a caret and a selection',
     startsSelection(w, 'composer') === true);
   check('an editable area keeps normal behaviour',
@@ -139,7 +158,7 @@ function startsSelection(w, id) {
 
   // and re-installing it must not stack listeners (each pass would add one otherwise)
   w.eval('(function(){try{' + guardOff + guardOff + '}catch(e){}})();');
-  const one = startsSelection(w, 'txt') === false;
+  const one = startsSelection(w, 'txt') === false && w.__agonNoSelect !== null;
   w.eval('(function(){try{' + guardOn + '}catch(e){}})();');
   check('installed twice, it still lifts in one go',
     one && startsSelection(w, 'txt') === true);

@@ -16,6 +16,16 @@ public final class MenuSheet {
     public interface Callback {
         void onReload();
 
+        /**
+         * Copies whatever is selected in the page.
+         *
+         * Android's own Copy menu is the normal route, but it depends on a selection the
+         * page has to allow - and this app deliberately refuses selections that a stray
+         * drag starts. When a person needs the text of a reply or a command and long-press
+         * does not offer it, there has to be one deliberate way in, and this is it.
+         */
+        void onCopySelection();
+
         void onOpenUpdate();
 
         void onSignIn();
@@ -109,6 +119,15 @@ public final class MenuSheet {
             dismiss(parent, scrim, callback);
             callback.onReload();
         });
+
+        // Copying: the menu entry that makes "i cannot copy this" fixable from inside the
+        // app, whatever the page's own selection rules are doing.
+        addRow(activity, sheet, R.string.menu_copy,
+                activity.getString(R.string.menu_copy_sub),
+                R.drawable.ic_nav_copy, false, v -> {
+                    dismiss(parent, scrim, callback);
+                    callback.onCopySelection();
+                });
 
         // ---- conversation tabs
         //

@@ -1117,9 +1117,15 @@ public final class TabWebViews {
      */
     private static String selectCss(boolean selectable) {
         if (selectable) return "";
-        return "*{-webkit-user-select:none !important;user-select:none !important;"
-                + "-webkit-touch-callout:none !important;}"
-                + "input,textarea,[contenteditable=\"true\"]{"
+        return "*{-webkit-user-select:none !important;user-select:none !important;}"
+                // Chat text stays copyable.
+                //
+                // "App-style text" means the app does not behave like a browser tab - a tap
+                // does not start a selection you did not ask for. It must not mean a reply
+                // cannot be copied: on a phone that is the one thing a user needs from a
+                // message. So the guard below refuses a selection that a DRAG starts, and
+                // lets through one that a deliberate long press starts.
+                + "input,textarea,pre,code,[contenteditable=\"true\"],[data-agon-pick]{"
                 + "-webkit-user-select:text !important;user-select:text !important;}";
     }
 
@@ -1131,19 +1137,35 @@ public final class TabWebViews {
                     + "window.__agonNoSelect=null;}}catch(e){}";
         }
         return "try{if(!window.__agonNoSelect){"
+                // How long the finger has been down when a selection tries to start. A
+                // long press is meant, a drag is not, and that is the only difference the
+                // app needs to see. `contextmenu` cannot be used for it: it does not fire
+                // for a hold on text in every WebView, and when it does it arrives after
+                // the selection has already been refused.
+                + "window.__agonDown=0;"
+                + "function markDown(){window.__agonDown=Date.now();}"
+                + "document.addEventListener('touchstart',markDown,true);"
+                + "document.addEventListener('mousedown',markDown,true);"
                 + "window.__agonNoSelect=function(e){"
                 + "var t=e.target;"
-                // The composer, and anything inside it: a rich-text box puts the caret in a
-                // child element, so the event target is often a span rather than the
-                // editable itself. `closest` is what catches that.
                 + "try{"
+                // The composer, and anything inside it: a rich-text box puts the caret in a
+                // child element, so the target is often a span - `closest` catches that.
+                // A selection menu over the text you are typing is only in the way.
                 + "if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||"
                 + "t.isContentEditable===true))return;"
                 + "if(t&&t.closest&&t.closest("
                 + "'input,textarea,[contenteditable=\\\"\\\"],[contenteditable=true]'))return;"
                 + "}catch(x){}"
-                + "e.preventDefault();};"
-                + "document.addEventListener('selectstart',window.__agonNoSelect,true);}}catch(e){}";
+                // A press that has been held is a deliberate copy: let it through, so
+                // Android's own Copy menu can appear over a reply or over a command in a
+                // code block - the "i cannot copy a command out of the app" report.
+                + "var held=window.__agonDown?Date.now()-window.__agonDown:0;"
+                + "if(held>320)return;"
+                + "if(t&&t.closest&&t.closest('pre,code[data-agon-pick]'))return;"
+                + "if(e.cancelable)e.preventDefault();};"
+                + "document.addEventListener('selectstart',window.__agonNoSelect,true);"
+                + "}}catch(e){}";
     }
 
     /**
@@ -1621,6 +1643,69 @@ public final class TabWebViews {
     public void reloadCurrent() {
         WebView w = current();
         if (w != null) w.reload();
+    }
+
+    /**
+     * The text currently selected in the page, or "" when nothing is.
+     *
+     * Reported through the callback, on the UI thread, because evaluating JavaScript is
+     * asynchronous. The page is asked for its own selection rather than the app keeping a
+     * copy: a selection is made and changed by the WebView's own selection engine, and a
+     * second record of it would only be a thing to get out of date.
+     */
+    public void selectedText(WebView web, java.util.function.Consumer<String> answer) {
+        if (web == null) {
+            answer.accept("");
+            return;
+        }
+        try {
+            web.evaluateJavascript(
+                    "(function(){try{return String(window.getSelection()||'');}"
+                            + "catch(e){return '';}})()",
+                    value -> answer.accept(unquoteJs(value)));
+        } catch (Exception e) {
+            answer.accept("");
+        }
+    }
+
+    /** Turns a serializeValue() string ("Hello", \"quoted\", null) into plain text. */
+    static String unquoteJs(String value) {
+        if (value == null) return "";
+        String v = value.trim();
+        if (v.isEmpty() || "null".equals(v) || "undefined".equals(v)) return "";
+        if (v.length() >= 2 && v.charAt(0) == '"' && v.charAt(v.length() - 1) == '"') {
+            // The JSON string form: undo the escapes a JSON decoder would undo. Written out
+            // rather than parsed so it cannot fail on a stray backslash in a code block.
+            StringBuilder out = new StringBuilder(v.length());
+            for (int i = 1; i < v.length() - 1; i++) {
+                char c = v.charAt(i);
+                if (c != '\\' || i + 1 >= v.length() - 1) {
+                    out.append(c);
+                    continue;
+                }
+                char n = v.charAt(++i);
+                switch (n) {
+                    case 'n': out.append('\n'); break;
+                    case 't': out.append('\t'); break;
+                    case 'r': out.append('\r'); break;
+                    case 'b': out.append('\b'); break;
+                    case 'f': out.append('\f'); break;
+                    case 'u':
+                        if (i + 4 < v.length()) {
+                            try {
+                                out.append((char) Integer.parseInt(v.substring(i + 1, i + 5), 16));
+                                i += 4;
+                            } catch (NumberFormatException ignored) {
+                                out.append("\\u");
+                            }
+                        }
+                        break;
+                    default: out.append(n);
+                }
+            }
+            return out.toString();
+        }
+        return v;
     }
 
     /** Silent refresh used when returning to the app (keeps scroll position). */

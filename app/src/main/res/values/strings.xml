@@ -75,6 +75,8 @@
     <string name="strip_at_start">This tab has nothing before it</string>
     <string name="strip_window_gone">That window had closed - dropped it</string>
     <string name="reload">Reload</string>
+    <string name="menu_history">Chats</string>
+    <string name="menu_history_sub">The conversation list from the page on screen. Arena only draws it inside a chat, so this is the way to it from the front page</string>
     <string name="menu_copy">Copy selected text</string>
     <string name="menu_copy_sub">Select a reply first; this copies it to the clipboard</string>
     <string name="copy_empty">Nothing selected - press and hold a reply first</string>

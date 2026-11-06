@@ -79,6 +79,9 @@
     <string name="menu_copy_sub">Select a reply first; this copies it to the clipboard</string>
     <string name="copy_empty">Nothing selected - press and hold a reply first</string>
     <string name="copy_done">Copied</string>
+    <string name="copy_needs_menu">Selected - now use More → Copy selected text</string>
+    <string name="select_unlocked">Text selection on - three taps again to turn it off</string>
+    <string name="select_locked">Text selection off</string>
     <string name="clear_data">Clear app data</string>
     <string name="clear_data_sub">Signs out and clears the cache</string>
 

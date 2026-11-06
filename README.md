@@ -178,7 +178,7 @@ Two routes, because they fail in different places:
 
 | Route | How |
 | --- | --- |
-| Hold to select | hold a reply or a command for about half a second and the app selects that block itself — it is highlighted, Android's *Copy* menu appears over it, and it is what *More → Copy selected text* reads |
+| Hold to copy | hold a reply or a command for about half a second and the app **copies that block itself** — the page's clipboard API, then a native `ClipData` write through the bridge, which needs no permission — and says *Copied …*. It no longer depends on Android's selection menu appearing |
 | A quick drag | still never selects anything — that is what "App-style text" means now, and the setting's description says so |
 | *More → Copy selected text* | asks the page for its current selection and puts it on the clipboard. Works even if the WebView decides not to show its own menu |
 
@@ -187,11 +187,32 @@ selection, which is why a command in a code block could not be copied at all. Th
 callout is no longer suppressed, and the guard now refuses only a selection that a **drag**
 starts (under ~320 ms of press).
 
-Letting a long press *through* was not enough on the device, because whether a hold starts
-a selection at all is the engine's decision. So the app now makes the selection itself:
-after ~450 ms of a still finger it hit-tests the point, takes the smallest block that holds
-that text, hands that one block `user-select: text` back, and selects it. The document stays
-unselectable everywhere else, which is why the setting still means what it says.
+Letting a long press *through* was not enough — whether a hold starts a selection at all is
+the engine's decision, and the menu that follows is the part that kept not appearing. So the
+app does the whole job: after ~450 ms of a still finger it hit-tests the point, walks out to
+the smallest block that holds that text, and copies it. Two routes are tried in order — the
+page's clipboard API, and a native `ClipData` write through the bridge — and the block is
+only left selected for the page's own menu if both are refused, in which case a toast says
+*Selected – now use More → Copy selected text* rather than leaving the press silent.
+
+### Three taps to unlock selection
+
+A phone has no Ctrl key, so the same switch is reachable from the page: **three quick taps in
+the same place** toggle *App-style text*. Three more lock it again. Taps in the composer, a
+textarea or an editable box never count, and the setting is written either way — so the
+Settings switch and the next launch agree with what the gesture did.
+
+### Keyboard shortcuts
+
+| Keys | What it does |
+| --- | --- |
+| Ctrl/Cmd + Tab | next tab (wraps, like `>` in the strip) |
+| Ctrl/Cmd + Shift + Tab | previous tab |
+| Ctrl/Cmd + W | close the tab on screen — never the app, never a message |
+| Ctrl/Cmd + N | new chat tab |
+
+Arena's page listens for some of these itself, so the app stops the key first and does the
+thing in the strip, where the tabs are.
 
 The composer is the other half of the same rule: it is exempt from `user-select: none`
 entirely — `input`, `textarea`, `form` and everything inside it, `[role="textbox"]`,

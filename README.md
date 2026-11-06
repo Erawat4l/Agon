@@ -487,6 +487,13 @@ and generated locally** — committing it made every later `git pull` fail with
 *"Your local changes to version.txt would be overwritten by merge"* — so the bump
 counts locally even before the first tag exists, without ever conflicting.
 
+A **build** never reads it any more. It used to, and that is what made a plain `build.bat`
+stop dead on a machine that had published a while ago: `version.txt` still named the old
+version, so the run said *"1.4.48 is lower than 1.4.59, which is already published"* with
+nothing typed on the command line. With no version given, `build.py` now takes the next free
+number (`needs.next_version`); a number typed *on purpose* that is below what is published is
+a warning — the APK still installs over the app by hand — not a refusal.
+
 Because the two can disagree (a fresh clone, or a stale `version.txt` left behind by an
 older checkout), `publish.bat` takes the **higher** of the two, and `publish.ps1` refuses
 to publish a version lower than the highest release already on GitHub. That refusal

@@ -107,16 +107,19 @@ MODES = ("apk", "desktop", "publish", "doctor", "clean", "sign")
 
 
 def version_from_args(argv):
+    """The version typed on the command line, and nothing else.
+
+    version.txt used to be consulted here as well, and that is what made a plain
+    `build.bat` refuse itself: the file is a *record of what was published last*, written by
+    publish.bat and git-ignored, so on a machine that published four releases ago it still
+    names that old version - "1.4.48 is lower than 1.4.59, which is already published", with
+    nothing on the command line at all. A stale note about the past must never become a
+    request for the future. With no version on the command line the next free one is taken
+    (needs.next_version), which is always right.
+    """
     for arg in argv:
         if re.match(r"^\d+\.\d+(\.\d+)?$", arg):
             return arg
-    try:
-        with open(os.path.join(ROOT, "version.txt")) as fh:
-            found = fh.read().strip().lstrip("vV")
-        if re.match(r"^\d+\.\d+\.\d+$", found):
-            return found
-    except OSError:
-        pass
     return None
 
 
@@ -1000,12 +1003,22 @@ def main(argv):
                or needs.next_version(channel))
     # A version below anything already published is invisible for ever: releases/latest
     # only offers something newer, so the app would say "you are up to date" from then on.
-    # Refuse it here rather than after a ten-minute build.
+    #
+    # That is a fact about the NUMBER, not a reason to refuse the BUILD: the APK is for the
+    # phone in the user's hand, and a build that will not be offered as an update is still
+    # the build they asked for. So it is said loudly, once, and the build goes ahead. (It
+    # used to fail here, which turned a stale version.txt into a dead end - see
+    # version_from_args.)
     never = max(needs.known_versions() or {"0.0.0"}, key=needs.code_of)
     if needs.code_of(version) < needs.code_of(never):
-        fail("%s is lower than %s, which is already published." % (version, never),
-             "A build numbered below what is installed is never offered as an update.\n"
-             "    Use %s or higher, or no version at all to take the next free one." % never)
+        say()
+        say("  [!] %s is lower than %s, which is already published." % (version, never))
+        say("      Android will install this APK over the app, but no phone will be")
+        say("      offered it as an update, because an update has to be a higher number.")
+        say("      Building it anyway. For a published release use %s or higher,"
+            % needs.next_version(channel))
+        say("      or pass no version at all to take the next free one.")
+        say()
     say("        version: %s%s" % (version, "  (beta)" if beta else ""))
     key = needs.find_key()
     if key:

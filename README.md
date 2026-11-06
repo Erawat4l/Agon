@@ -6,11 +6,18 @@ Agon puts arena.ai in a real Android app instead of a bookmark in Chrome.
 > the two files the repository deliberately does not contain (the APK signing key and the
 > GitHub credential), the toolchain, and the publish-then-delete-the-old-release routine.
 
-One command builds a ready-to-install APK — on Windows **or** on the phone itself:
+One command builds a ready-to-install APK — on Windows **or** on the phone itself. On
+Windows it is **two lines**: cmd has to be *inside* the project folder before it can find
+`build.bat` (a prompt reading `C:\Users\<you> ~ ➜` means you are in the fish shell, where no
+`.bat` file runs — type `cmd` first).
 
 ```bat
-build.bat                 :: Windows
-bash build.sh             :: Termux / Linux
+cd /d "%USERPROFILE%\Desktop\Erawat\Agon"
+build.bat
+```
+
+```bash
+cd ~/Agon && bash build.sh     # Termux / Linux
 ```
 
 That produces **`Agon-<version>.apk`**. Copy it to your phone, tap it, allow *"install
@@ -30,8 +37,17 @@ is x86-64 only) — then checks every prerequisite, **downloads what is missing*
 then builds.
 
 ```bat
-build.bat                 :: Windows (double-click it, or run it in cmd)
+:: Windows - TWO lines, not one. The prompt in the line below the first must show
+:: C:\Users\<you>\Desktop\Erawat\Agon before the second line is typed.
+cd /d "%USERPROFILE%\Desktop\Erawat\Agon"
+build.bat publish 1.4.60
 ```
+
+> Typing the build in the wrong place is the single most common failure:
+> `'build.bat' is not recognized as an internal or external command` means cmd is not
+> inside the project folder (a prompt of `C:\Users\<you> ~ ➜` means you are in the fish
+> shell, where no `.bat` file can run - type `cmd` first). `build.bat` changes into the
+> project folder *after* it starts, which cannot help cmd find the file it was asked to run.
 
 ```bash
 bash build.sh             # Termux / Linux / macOS

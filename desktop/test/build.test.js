@@ -287,5 +287,34 @@ for (const file of ['build.py', 'tools/needs.py']) {
     /PUBLISHING/.test(fs.readFileSync(path.join(ROOT, 'build.py'), 'utf8')));
 }
 
+// --- the command in the docs has to work when it is pasted -----------------------------
+//
+// "build.bat -> 'build.bat' is not recognized" happened because the documented command
+// started with build.bat while the shell was still one folder up: build.bat changes into
+// the project folder itself, which cannot help cmd find the file it was asked to run. The
+// docs now show the cd on its own line, and a test that pastes the block must find the cd
+// first and the build second.
+{
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  // The block that carries the cd is the one with "publish" in it; an older snippet higher
+  // up the file still shows a bare `build.bat` as shorthand.
+  const blocks = [...readme.matchAll(/```bat\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const real = blocks.find((b) => /publish/.test(b));
+  check('README has a paste-able Windows block', !!real);
+  if (real) {
+    const lines = real.split('\n').filter((l) => !/^\s*(::|#)/.test(l) && l.trim());
+    check('it starts by entering the project folder', /^cd \/d /.test(lines[0].trim()),
+      lines[0]);
+    check('and only then runs the build', /^build\.bat\b/.test(lines[1].trim()), lines[1]);
+  }
+  const setup = fs.readFileSync(path.join(ROOT, 'SETUP.md'), 'utf8');
+  check('SETUP explains why "not recognized" happens',
+    /not recognized/.test(setup) && /fish/.test(setup) && /project folder/.test(setup));
+  check('build.bat changes into its own folder after it has started',
+    /cd \/d "%~dp0"/.test(fs.readFileSync(path.join(ROOT, 'build.bat'), 'utf8')));
+  check('build.sh does the same, so it works from any directory',
+    /cd "\$\(dirname "\$0"\)"/.test(fs.readFileSync(path.join(ROOT, 'build.sh'), 'utf8')));
+}
+
 console.log(`\n${bad === 0 ? 'all build-script tests passed' : bad + ' FAILED'}`);
 process.exit(bad === 0 ? 0 : 1);

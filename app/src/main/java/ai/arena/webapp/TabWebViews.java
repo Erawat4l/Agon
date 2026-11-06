@@ -189,18 +189,62 @@ public final class TabWebViews {
     /** Closes an extra window. The one on screen is never left as the current page. */
     public boolean closeWindow(int id) {
         if (!isWindow(id)) return false;
-        WebView w = views.remove(id);
+        WebView w = views.get(id);
         if (w == null) return false;
+        // Which tab takes over is decided BEFORE the closed one is dropped: its place in the
+        // row is what says where the user should land.
+        final boolean wasCurrent = currentTab == id;
+        final int next = wasCurrent ? neighbourAfterClosing(id) : currentTab;
+        views.remove(id);
         loaded.remove(id);
         reportedTitles.remove(id);
         container.removeView(w);
         w.destroy();
-        if (currentTab == id) {
-            currentTab = AppUi.TAB_CHAT;
-            WebView chat = show(AppUi.TAB_CHAT);
-            if (chat != null) chat.bringToFront();
-        }
+        if (wasCurrent) show(next);
         return true;
+    }
+
+    /**
+     * The tab that takes the screen when `closing` goes away.
+     *
+     * The one immediately after it in the row, or the one before it when it was last - a
+     * browser's rule, and the only one that does not feel like a jump. The chat tab is the
+     * leftmost tab, so closing an extra tab lands on the tab to its left, and closing a
+     * window that is not last lands on the one to its right. It is never "whatever happened
+     * to be first", which is what made closing the current tab look like it had closed a
+     * different one.
+     */
+    public int neighbourAfterClosing(int closing) {
+        java.util.List<Integer> row = rowWithChat();
+        int index = row.indexOf(closing);
+        if (index < 0) return AppUi.TAB_CHAT;
+        if (index + 1 < row.size()) return row.get(index + 1);
+        if (index - 1 >= 0) return row.get(index - 1);
+        return AppUi.TAB_CHAT;
+    }
+
+    /** Every tab in strip order, chat first - the same order MainActivity.openTabs() uses. */
+    private java.util.List<Integer> rowWithChat() {
+        java.util.List<Integer> row = new java.util.ArrayList<>();
+        row.add(AppUi.TAB_CHAT);
+        row.addAll(windows());
+        return row;
+    }
+
+    /**
+     * The tab the strip's arrows step to, or -1 when there is only one tab.
+     *
+     * The arrows and Ctrl/Cmd+Tab are the same gesture, so they share this: both move to the
+     * next tab in the row and wrap round at the end. They used to work off `pageId()`, which
+     * answers "the chat tab" whenever no window is in front - so with one extra tab open and
+     * the chat on screen, `<` did not move at all, which is what "same for arrow" was.
+     */
+    public int steppedTab(int onScreen, int direction) {
+        java.util.List<Integer> row = rowWithChat();
+        if (row.size() < 2) return -1;
+        int index = row.indexOf(onScreen);
+        if (index < 0) index = direction > 0 ? -1 : 0;
+        return row.get(((index + direction) % row.size() + row.size()) % row.size());
     }
 
     /** Conversation names reported by the pages themselves, keyed by tab id. */
@@ -358,6 +402,61 @@ public final class TabWebViews {
     }
 
     /**
+     * Copies the text under a point in the page, from the app side.
+     *
+     * The page's own hold timer does this in JavaScript, but a hold is also timed in
+     * SelectionSafeWebView, and this is what that one calls - so the copy does not depend on
+     * the page's script having been installed or on its timers running. The script reports
+     * the text through AgonCopy; a page that answers nothing (an old document, a script
+     * error) is topped up by {@link #copySelectionFallback()}, which asks for whatever is
+     * selected instead.
+     *
+     * `x` and `y` are device pixels, because that is what a MotionEvent carries.
+     */
+    public void copyUnder(String pointScript) {
+        WebView w = current();
+        if (w == null) return;
+        // The page answers by itself when it finds text (AgonCopyNative.text). When it finds
+        // none - a tap on a margin, a run of pure layout - the answer never comes, so the
+        // selection is asked for as well after a moment. A copy that silently does nothing
+        // is the one thing this route must not be.
+        try {
+            w.evaluateJavascript(pointScript, null);
+        } catch (RuntimeException ignored) {
+            return;
+        }
+        w.postDelayed(this::copySelectionFallback, 260L);
+    }
+
+    /**
+     * The script form of a hold at a point.
+     *
+     * The MotionEvent carries device pixels and the page hit-tests in CSS pixels, so the
+     * scale is passed through rather than assumed: at zoom 1 they are equal and at any other
+     * zoom they are not, and guessing wrong copies the text under where the finger was not.
+     */
+    private static String pointJs(int xPx, int yPx) {
+        return "(function(){try{"
+                + "if(window.AgonCopy&&AgonCopy.under){"
+                + "AgonCopy.under(" + xPx + "," + yPx + ",window.devicePixelRatio||1);"
+                + "}}catch(e){}})();";
+    }
+
+    /** Reads whatever is selected in the page and hands it to the app. */
+    public void copySelectionFallback() {
+        WebView w = current();
+        if (w == null) return;
+        try {
+            w.evaluateJavascript(
+                    "(function(){try{var t=String(window.getSelection()||'');"
+                            + "if(window.AgonCopy&&AgonCopy.text)AgonCopy.text(t);}"
+                            + "catch(e){}})();", null);
+        } catch (RuntimeException ignored) {
+            // a destroyed view has nothing to say
+        }
+    }
+
+    /**
      * Arena reads its palette from a "?__theme=light|dark" query parameter (and stores
      * it in localStorage), so the page follows the app's Appearance setting instead of
      * the system default. Re-applied whenever the tab is shown.
@@ -440,9 +539,18 @@ public final class TabWebViews {
                     + "var st=document.getElementById('arena-select-policy');"
                     + "if(st)st.remove();"
                     + "st=document.createElement('style');st.id='arena-select-policy';"
-                    + "st.textContent=" + quote(selectCss(selectable)) + ";"
+                    // Three taps unlock selection from the page, and that unlock has to
+                    // survive the next injection - applyChromeInsets() runs on every page
+                    // finish and every tab switch, so without this flag the unlock lasted
+                    // about a second ("i cant select" straight after unlocking).
+                    // One decision, made in the page: the CSS is written only while the
+                    // page is locked. An unlocked page gets an empty rule instead of a
+                    // re-lock one injection later.
+                    + "st.textContent=window.__agonSelectUnlocked?'':"
+                    + "(" + quote(selectCss(selectable)) + ");"
                     + "if(st.textContent)(document.head||document.documentElement)"
                     + ".appendChild(st);"
+                    // The lock checks the unlock flag itself; see selectGuard().
                     + selectGuard(selectable)
                     + "})();"
                     // Arena's own menus still have to fit the window...
@@ -1040,6 +1148,71 @@ public final class TabWebViews {
                 + "},true);"
             + "})();";
 
+    /**
+     * The page side of a hold: find the block under a point and hand its text over.
+     *
+     * The app times the hold in Java too, so the page is asked rather than trusted to
+     * act: AgonCopy.under() is called from the native long press, and answers through
+     * AgonCopyNative.text() with the text of the smallest block that holds it. A point
+     * inside the composer is ignored - that is where the user types, not where they
+     * read - and nothing here touches the selection, so the page keeps whatever
+     * selection it already had.
+     */
+    private static final String JS_COPY_API =
+            "(function(){"
+                + "if(window.__agonCopyApi)return;window.__agonCopyApi=1;"
+                + "function report(text){"
+                + "try{"
+                + "if(!text)return false;"
+                + "if(window.AgonCopyNative&&AgonCopyNative.text)AgonCopyNative.text(text);"
+                + "return true;"
+                + "}catch(e){return false;}"
+                + "}"
+                + "function blockAt(x,y,scale){"
+                + "var px=x/(scale||1),py=y/(scale||1);"
+                + "var range=null;"
+                + "try{"
+                + "if(document.caretRangeFromPoint)range=document.caretRangeFromPoint(px,py);"
+                + "else if(document.caretPositionFromPoint){"
+                + "var cp=document.caretPositionFromPoint(px,py);"
+                + "if(cp){range=document.createRange();range.setStart(cp.offsetNode,cp.offset);range.setEnd(cp.offsetNode,cp.offset);}"
+                + "}"
+                + "}catch(e){return null;}"
+                + "if(!range||!range.startContainer)return null;"
+                + "var node=range.startContainer;"
+                + "var el=node.nodeType===3?node.parentElement:node;"
+                + "if(!el)return null;"
+                + "if(el.closest&&el.closest('input,textarea,[contenteditable]'))return null;"
+                + "var block=el;"
+                + "while(block&&block!==document.body){"
+                + "var disp=getComputedStyle(block).display;"
+                + "if(/block|list-item|flow-root|table|flex|grid/.test(disp))break;"
+                + "block=block.parentElement;"
+                + "}"
+                + "if(!block||block===document.body)block=el;"
+                + "return block;"
+                + "}"
+                + "window.AgonCopy={"
+                + "under:function(x,y,scale){"
+                + "var block=blockAt(x,y,scale);"
+                + "if(!block)return;"
+                + "var text=(block.innerText||block.textContent||'').replace(/\\u00a0/g,' ').trim();"
+                + "if(text)report(text);"
+                + "},"
+                + "text:function(t){if(t)report(String(t).trim());},"
+                + "select:function(x,y,scale){"
+                + "var block=blockAt(x,y,scale);"
+                + "if(!block)return;"
+                + "try{"
+                + "block.style.setProperty('-webkit-user-select','text','important');"
+                + "block.style.setProperty('user-select','text','important');"
+                + "var sel=window.getSelection();"
+                + "if(sel){sel.removeAllRanges();var r=document.createRange();r.selectNodeContents(block);sel.addRange(r);}"
+                + "}catch(e){}"
+                + "}"
+                + "};"
+                + "})();";
+
     private static final String JS_NEW_CHAT_LISTENER =
             "(function(){"
             + "if(window.__arenaNewChatKey)return;window.__arenaNewChatKey=1;"
@@ -1263,7 +1436,8 @@ public final class TabWebViews {
             return "try{if(window.__agonNoSelect){document.removeEventListener('selectstart',window.__agonNoSelect,true);window.__agonNoSelect=null;}if(window.__agonHold){document.removeEventListener('touchstart',window.__agonHold,true);document.removeEventListener('touchmove',window.__agonHoldMove,true);document.removeEventListener('touchend',window.__agonHoldEnd,true);document.removeEventListener('touchcancel',window.__agonHoldEnd,true);document.removeEventListener('touchstart',window.__agonCopyTap,true);if(window.__agonPicked&&window.__agonPicked.style){window.__agonPicked.style.removeProperty('-webkit-user-select');window.__agonPicked.style.removeProperty('user-select');}window.__agonPicked=null;window.__agonCopyTap=null;window.__agonHold=null;window.__agonHoldMove=null;window.__agonHoldEnd=null;}}catch(e){}";
         }
         return ""
-                + "try{if(!window.__agonNoSelect){"
+                + "try{window.__agonLock=function(){"
+                + "if(!window.__agonNoSelect){"
                 + "window.__agonDown=0;"
                 + "function markDown(){window.__agonDown=Date.now();}"
                 + "document.addEventListener('touchstart',markDown,true);"
@@ -1393,7 +1567,12 @@ public final class TabWebViews {
                 + "document.addEventListener('touchmove',window.__agonHoldMove,true);"
                 + "document.addEventListener('touchend',clearHold,true);"
                 + "document.addEventListener('touchcancel',clearHold,true);"
-                + "}}}catch(e){}";
+                + "}"
+                + "}};"
+                // The page decides whether the lock is installed at all: three taps
+                // unlock selection, and a re-injection must not undo that.
+                + "if(!window.__agonSelectUnlocked)try{window.__agonLock();}catch(e){}"
+                + "}catch(e){}";
     }
 
     /**
@@ -1613,9 +1792,11 @@ public final class TabWebViews {
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     private WebView createWebView(int tab) {
-        WebView w = new SelectionSafeWebView(activity);
+        SelectionSafeWebView w = new SelectionSafeWebView(activity);
         w.setBackgroundColor(AppUi.color(activity, R.color.bg));
         w.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
+        // A hold is timed in Java as well as in the page; see SelectionSafeWebView.
+        w.setHoldListener((x, y) -> copyUnder(pointJs(x, y)));
         w.setLongClickable(true);
         // Priority follows VISIBILITY, not a permanent pin.
         //
@@ -1683,6 +1864,8 @@ public final class TabWebViews {
         CookieManager.getInstance().setAcceptThirdPartyCookies(w, true);
 
         w.addJavascriptInterface(new WebBridge(activity, w), "ArenaNative");
+        // The answer to "what text is under this point", for the hold timed in Java.
+        w.addJavascriptInterface(new WebBridge(activity, w), "AgonCopyNative");
         // Answers pressEscape(): "did that close anything?" Only that one boolean crosses
         // the bridge, and it is read back on the UI thread.
         w.addJavascriptInterface(new EscapeBridge(), "AgonEscape");
@@ -1720,6 +1903,8 @@ public final class TabWebViews {
                 // Three taps toggle "App-style text", which is the only way to unlock a
                 // selection on a phone - there is no Ctrl to press.
                 view.evaluateJavascript(JS_TRIPLE_TAP_SELECT, null);
+                // A hold that the app timed in Java asks this for the text under the finger.
+                view.evaluateJavascript(JS_COPY_API, null);
                 // The chat tab's chip is a fixed label, but its name still matters: it is
                 // what the history sheet and the window list show for the conversation that
                 // is open. Every tab is asked, and only the extra tabs display it.
@@ -2193,8 +2378,80 @@ public final class TabWebViews {
      */
     static final class SelectionSafeWebView extends WebView {
 
+        /** Told when the user holds a finger on the page, with no selection engine involved. */
+        interface HoldListener {
+            /** A finger has been down on the page for {@link #HOLD_MS}. */
+            void onHold(int x, int y);
+        }
+
+        /** How long a still finger has to stay down to count as a deliberate copy. */
+        static final long HOLD_MS = 460L;
+        /** How far the finger may drift and still be a hold rather than a scroll. */
+        private static final float SLOP_DP = 14f;
+
+        private HoldListener holdListener;
+        private final android.os.Handler holdHandler =
+                new android.os.Handler(android.os.Looper.getMainLooper());
+        private final Runnable fire = this::fireHold;
+        private final float slop;
+        private float downX;
+        private float downY;
+        private boolean holding;
+
         SelectionSafeWebView(Context context) {
             super(context);
+            float density = context.getResources().getDisplayMetrics().density;
+            slop = SLOP_DP * density;
+        }
+
+        void setHoldListener(HoldListener listener) {
+            holdListener = listener;
+        }
+
+        private void fireHold() {
+            holding = false;
+            if (holdListener != null) holdListener.onHold(Math.round(downX), Math.round(downY));
+        }
+
+        private void cancelHold() {
+            holding = false;
+            holdHandler.removeCallbacks(fire);
+        }
+
+        /**
+         * Android's own long press would otherwise be the only reaction to a hold, and it
+         * does exactly nothing here: it does not select and it does not offer a menu.
+         *
+         * A hold is a deliberate request for the text under the finger, so it is timed here
+         * in Java as well as in the page. Whichever of the two notices first does the copy,
+         * which is why "i cant copy" cannot come back as silently as it kept doing: the
+         * page's own timer needs JavaScript to be alive and the touches to arrive, and this
+         * one needs only the touch.
+         */
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    downX = event.getX();
+                    downY = event.getY();
+                    holding = true;
+                    holdHandler.removeCallbacks(fire);
+                    holdHandler.postDelayed(fire, HOLD_MS);
+                    break;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    if (holding && (Math.abs(event.getX() - downX) > slop
+                            || Math.abs(event.getY() - downY) > slop)) {
+                        cancelHold();
+                    }
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    cancelHold();
+                    break;
+                default:
+                    break;
+            }
+            return super.onTouchEvent(event);
         }
 
         @Override

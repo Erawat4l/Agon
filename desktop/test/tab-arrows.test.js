@@ -68,15 +68,26 @@ function method(src, signature) {
 // --- 2. an arrow always moves ----------------------------------------------------------
 {
   const step = method(MAIN, 'private void stepTab(int direction)');
+  const tabsSrc = fs.readFileSync(path.join(NAV, 'TabWebViews.java'), 'utf8');
+  const walked = method(tabsSrc, 'public int steppedTab(int onScreen, int direction)');
   check('the left arrow goes to the previous tab and the right one to the next',
     /stepTab\(-1\)/.test(MAIN) && /stepTab\(1\)/.test(MAIN));
   check('there is no toast on the arrow path at all',
     !/toast\(/.test(step), step.replace(/\s+/g, ' ').slice(0, 260));
+  // The walk itself moved into TabWebViews, so the arrows and Ctrl/Cmd+Tab cannot disagree.
+  check('the arrows and Ctrl+Tab share one step',
+    /tabs\.steppedTab\(pageId\(\),/.test(step), step.replace(/\s+/g, ' ').slice(0, 240));
   check('moving wraps around instead of stopping at an end',
-    /%\s*count\)?\s*\+\s*count\)\s*%\s*count/.test(step.replace(/\s+/g, ' ')),
-    step.replace(/\s+/g, ' ').slice(0, 300));
+    /%\s*row\.size\(\)\s*\+\s*row\.size\(\)\)\s*%\s*row\.size\(\)/
+      .test(walked.replace(/\s+/g, ' ')), walked.replace(/\s+/g, ' ').slice(0, 300));
   check('a press is never spent on nothing',
-    /if \(ids\.isEmpty\(\)\) return;/.test(step) && /selectPage\(/.test(step));
+    /if \(row\.size\(\) < 2\) return -1;/.test(walked) && /selectPage\(next\)/.test(step));
+  // "same for arrow": the chat tab is part of the row, so a step from it lands on the
+  // first extra tab - which was impossible while the step worked off pageId().
+  const row = [0, 1000, 1001];
+  const step2 = (i, d) => row[((i + d) % row.length + row.length) % row.length];
+  check('from the chat tab, > goes to the first extra tab', step2(0, 1) === 1000);
+  check('from the chat tab, < wraps to the last tab', step2(0, -1) === 1001);
 
   // The arithmetic, exactly as the source writes it.
   const land = (index, direction, count) => ((index + direction) % count + count) % count;

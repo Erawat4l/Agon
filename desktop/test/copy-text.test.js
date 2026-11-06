@@ -195,5 +195,50 @@ function press(w, id) {
     unquoteJs('"say \\"hi\\""') === 'say "hi"');
 }
 
+// --- the hold is timed in Java too, so a copy cannot be silently absent ----------------
+//
+// "I cant copy yaar. I cant select." Two page-side attempts had already failed on the
+// device, and the common factor is that everything went through the page: its timers, its
+// script, its selection. A hold is now also timed in the WebView itself and the text is
+// asked for by point, so the copy works even if the page's script never ran.
+{
+  check('the WebView times the hold itself',
+    /class SelectionSafeWebView extends WebView/.test(TABS) &&
+    /onTouchEvent\(android\.view\.MotionEvent event\)/.test(TABS),
+    'SelectionSafeWebView');
+  check('a hold is ~460 ms and a travelling finger cancels it',
+    /HOLD_MS = 460L/.test(TABS) && /ACTION_MOVE/.test(TABS) && /cancelHold\(\)/.test(TABS));
+  check('the app asks the page for the text under the point',
+    /AgonCopy\.under/.test(TABS) && /setHoldListener/.test(TABS));
+  check('the page answers through the bridge',
+    /AgonCopyNative/.test(TABS) &&
+    /@JavascriptInterface\s+public void text\(final String text\)/.test(
+      fs.readFileSync(path.join(NAV, 'WebBridge.java'), 'utf8')));
+  check('the answer is written to the clipboard natively',
+    /void onPageCopied\(String text\)/.test(MAIN) && /setPrimaryClip/.test(MAIN));
+  // A hold that finds nothing must not do nothing: the selection is asked for as well.
+  check('a hold with no text falls back to the selection',
+    /copySelectionFallback/.test(TABS));
+  check('the point is scaled for the page, not assumed to be CSS pixels',
+    /devicePixelRatio/.test(TABS));
+}
+
+// --- three taps stay unlocked -----------------------------------------------------------
+//
+// applyChromeInsets() re-injects the policy on every page finish and every tab switch, so an
+// unlock that the page did not record was undone a second later - "i cant select" straight
+// after unlocking it.
+{
+  check('the policy is written only while the page is locked',
+    /st\.textContent=window\.__agonSelectUnlocked\?'':/.test(TABS));
+  check('the lock script checks the flag itself before installing',
+    /if\(!window\.__agonSelectUnlocked\)try\{window\.__agonLock\(\);\}/.test(TABS));
+  check('and the lock is a named function the page can re-run',
+    /window\.__agonLock=function\(\)\{/.test(TABS));
+  check('unlocking clears the listener reference, so a re-injection can install a new one',
+    /window\.__agonSavedGuard=/.test(
+      fs.readFileSync(path.join(NAV, 'TabWebViews.java'), 'utf8')));
+}
+
 console.log(`\n${bad === 0 ? 'all copy-text tests passed' : bad + ' FAILED'}`);
 process.exit(bad === 0 ? 0 : 1);

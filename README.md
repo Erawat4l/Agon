@@ -214,7 +214,7 @@ Two routes, because they fail in different places:
 
 | Route | How |
 | --- | --- |
-| Hold to copy | hold a reply or a command for about half a second and the app **copies that block itself** — the page's clipboard API, then a native `ClipData` write through the bridge, which needs no permission — and says *Copied …*. It no longer depends on Android's selection menu appearing |
+| Hold to copy | hold a reply or a command for about half a second and the app copies **that paragraph, not the page**: what you already had selected if anything, otherwise the smallest text block under your finger. It copies when your **finger lifts**, not on the timer, so a hold-and-drag extends a selection first and a press you thought better of copies nothing |
 | A quick drag | still never selects anything — that is what "App-style text" means now, and the setting's description says so |
 | *More → Copy selected text* | asks the page for its current selection and puts it on the clipboard. Works even if the WebView decides not to show its own menu |
 
@@ -230,6 +230,18 @@ the smallest block that holds that text, and copies it. Two routes are tried in 
 page's clipboard API, and a native `ClipData` write through the bridge — and the block is
 only left selected for the page's own menu if both are refused, in which case a toast says
 *Selected – now use More → Copy selected text* rather than leaving the press silent.
+
+### What a hold actually does
+
+| One still press | Nothing is copied while the finger is down. The copy happens on **lift** |
+| After ~520 ms, then lift | One copy: the text you had selected, else the smallest block under the finger (`AgonCopy.under`), written natively through the bridge |
+| Travel more than ~10 px before or after the hold | No copy. That is a scroll, or you extended a selection by hand |
+| Press in the composer | Never. That is where you type |
+| Three taps, or *Settings → App-style text* | Turns selection on and off; the unlock survives page re-injection |
+
+The page has no copy timer of its own. There were two holds for one press at one point —
+the page's (fires on a timer, copies the whole block) and the WebView's (fires on the lift) —
+which is why a single press could copy twice and always looked like it grabbed everything.
 
 ### Three taps to unlock selection
 

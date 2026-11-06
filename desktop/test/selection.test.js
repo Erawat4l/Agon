@@ -195,34 +195,24 @@ function startsSelection(w, id) {
 // long press starts one is the engine's decision. The guard takes the block under the
 // finger after ~450 ms and selects it, so the text is really selected - highlighted, with
 // Android's Copy menu over it, and readable by More -> Copy selected text.
+// --- a hold selects nothing by itself ---------------------------------------------------
+//
+// It used to: a 450 ms timer in the page selected the whole block under the finger, which
+// is the "holding screen text copies everything" report. The page now has no hold timer at
+// all - the WebView times the press and copies on the lift - so installing the guard must
+// leave the page's selection alone.
 const held = (async () => {
   const w = page();
-  // jsdom has no hit-testing: point caretRangeFromPoint at the reply.
-  w.document.caretRangeFromPoint = () => {
-    const r = w.document.createRange();
-    const node = w.document.getElementById('txt').firstChild;
-    r.setStart(node, 0);
-    r.setEnd(node, 0);
-    return r;
-  };
   const reply = w.document.getElementById('txt');
   reply.dispatchEvent(new w.Event('touchstart', { bubbles: true }));
-  // the hold fires on a timer; run it
-  w.eval('void 0');
-  const started = Date.now();
-  // jsdom timers are real timers, so wait for the 450 ms hold
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const sel = w.document.getSelection ? w.document.getSelection() : w.getSelection();
-      const text = sel ? String(sel) : '';
-      check('a still finger selects the text under it', /message in the chat/.test(text), text);
-      check('the selected block is handed back for the highlight',
-        /text/.test(reply.style.getPropertyValue('user-select')) ||
-        !!w.__agonPicked, reply.getAttribute('style') || '(no style)');
-      check('it takes about half a second, not instantly', Date.now() - started >= 400);
-      resolve();
-    }, 700);
-  });
+  await new Promise((r) => setTimeout(r, 700));
+  const sel = w.getSelection();
+  check('holding text does not select anything by itself', String(sel || '') === '',
+    JSON.stringify(String(sel || '')));
+  check('and it does not hand the page a block to re-style',
+    !reply.getAttribute('style'), reply.getAttribute('style') || '(no style)');
+  check('the lock leaves no hold listener behind',
+    !w.__agonHold && !w.__agonHoldMove && !w.__agonHoldEnd);
 })();
 
 // --- the fix has to be in both branches of applyChromeInsets() --------------------------

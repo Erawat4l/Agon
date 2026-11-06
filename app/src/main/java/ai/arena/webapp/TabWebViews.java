@@ -413,6 +413,16 @@ public final class TabWebViews {
      *
      * `x` and `y` are device pixels, because that is what a MotionEvent carries.
      */
+    /**
+     * What the page has selected right now, as a JSON string for the callback.
+     *
+     * Asked once when a hold fires: if the user had already selected a word or a run of
+     * text, that selection is what they meant to copy - replacing it with the whole
+     * paragraph under the finger is what made a hold feel like it grabbed everything.
+     */
+    private static final String SELECTION_PROBE =
+            "(function(){try{return String(window.getSelection()||'');}catch(e){return '';}})();";
+
     public void copyUnder(String pointScript) {
         WebView w = current();
         if (w == null) return;
@@ -1168,6 +1178,26 @@ public final class TabWebViews {
                 + "return true;"
                 + "}catch(e){return false;}"
                 + "}"
+                + "/* The smallest element that holds readable text, walking UP from the hit point."
+                + "   A hold used to take the first block-shaped ancestor, which on arena is often the"
+                + "   message column or the whole conversation pane - so holding one line copied everything."
+                + "   This stops at the nearest thing that is text and not a container: it must have its own"
+                + "   text, must not be a layout/scroll/flex/grid wrapper, and must not already contain"
+                + "   several paragraphs - if it does, the child that holds the point is the answer. */"
+                + "function isWrapper(el){"
+                + "var cs=getComputedStyle(el);"
+                + "if(cs.display==='contents')return true;"
+                + "if(/flex|grid/.test(cs.display)&&el.children.length>1)return true;"
+                + "if(cs.overflowY==='auto'||cs.overflowY==='scroll'||cs.overflow==='auto'||cs.overflow==='scroll')return true;"
+                + "var role=(el.getAttribute&&el.getAttribute('role'))||'';"
+                + "if(/list|table|grid|navigation|main|region|tabpanel|log|feed/i.test(role))return true;"
+                + "if(/^(MAIN|NAV|SECTION|ARTICLE|BODY|HTML|FORM|UL|OL|TABLE)$/.test(el.tagName))return true;"
+                + "if(el.querySelector&&el.querySelector('main,form,textarea,[contenteditable]'))return true;"
+                + "return false;"
+                + "}"
+                + "function textOf(el){"
+                + "return ((el.innerText||el.textContent||'')).replace(/\\u00a0/g,' ').trim();"
+                + "}"
                 + "function blockAt(x,y,scale){"
                 + "var px=x/(scale||1),py=y/(scale||1);"
                 + "var range=null;"
@@ -1181,22 +1211,26 @@ public final class TabWebViews {
                 + "if(!range||!range.startContainer)return null;"
                 + "var node=range.startContainer;"
                 + "var el=node.nodeType===3?node.parentElement:node;"
-                + "if(!el)return null;"
+                + "if(!el||el===document.body)return null;"
                 + "if(el.closest&&el.closest('input,textarea,[contenteditable]'))return null;"
-                + "var block=el;"
-                + "while(block&&block!==document.body){"
-                + "var disp=getComputedStyle(block).display;"
-                + "if(/block|list-item|flow-root|table|flex|grid/.test(disp))break;"
-                + "block=block.parentElement;"
+                + "/* Walk up, but stop at the first ancestor that is a real text block: one that is not a"
+                + "   wrapper and whose own text is not the whole page. Never go past a few levels, so a hold"
+                + "   on a message cannot escape into the conversation. */"
+                + "var best=null,node2=el;"
+                + "for(var i=0;i<6&&node2&&node2!==document.body;i++){"
+                + "if(isWrapper(node2))break;"
+                + "var t=textOf(node2);"
+                + "if(t&&t.length<=600){best=node2;break;}"
+                + "node2=node2.parentElement;"
                 + "}"
-                + "if(!block||block===document.body)block=el;"
-                + "return block;"
+                + "if(!best)best=el;"
+                + "return best;"
                 + "}"
                 + "window.AgonCopy={"
                 + "under:function(x,y,scale){"
                 + "var block=blockAt(x,y,scale);"
                 + "if(!block)return;"
-                + "var text=(block.innerText||block.textContent||'').replace(/\\u00a0/g,' ').trim();"
+                + "var text=textOf(block);"
                 + "if(text)report(text);"
                 + "},"
                 + "text:function(t){if(t)report(String(t).trim());},"
@@ -1211,7 +1245,7 @@ public final class TabWebViews {
                 + "}catch(e){}"
                 + "}"
                 + "};"
-                + "})();";
+            + "})();";
 
     private static final String JS_NEW_CHAT_LISTENER =
             "(function(){"
@@ -1433,7 +1467,7 @@ public final class TabWebViews {
      */
     private static String selectGuard(boolean selectable) {
         if (selectable) {
-            return "try{if(window.__agonNoSelect){document.removeEventListener('selectstart',window.__agonNoSelect,true);window.__agonNoSelect=null;}if(window.__agonHold){document.removeEventListener('touchstart',window.__agonHold,true);document.removeEventListener('touchmove',window.__agonHoldMove,true);document.removeEventListener('touchend',window.__agonHoldEnd,true);document.removeEventListener('touchcancel',window.__agonHoldEnd,true);document.removeEventListener('touchstart',window.__agonCopyTap,true);if(window.__agonPicked&&window.__agonPicked.style){window.__agonPicked.style.removeProperty('-webkit-user-select');window.__agonPicked.style.removeProperty('user-select');}window.__agonPicked=null;window.__agonCopyTap=null;window.__agonHold=null;window.__agonHoldMove=null;window.__agonHoldEnd=null;}}catch(e){}";
+            return "try{if(window.__agonNoSelect){document.removeEventListener('selectstart',window.__agonNoSelect,true);window.__agonNoSelect=null;}if(window.__agonHold){document.removeEventListener('touchstart',window.__agonCopyTap,true);if(window.__agonPicked&&window.__agonPicked.style){window.__agonPicked.style.removeProperty('-webkit-user-select');window.__agonPicked.style.removeProperty('user-select');}window.__agonPicked=null;window.__agonCopyTap=null;}}catch(e){}";
         }
         return ""
                 + "try{window.__agonLock=function(){"
@@ -1454,121 +1488,39 @@ public final class TabWebViews {
                 + "var t=e.target;"
                 + "if(composer(t))return;"
                 + "var held=window.__agonDown?Date.now()-window.__agonDown:0;"
-                + "if(held>320)return;"
+                // 240 ms, not 320: a press that starts a selection and then becomes a drag
+                // ("hold a word, then pull") is still a deliberate selection, and refusing
+                // it cancelled the drag the user was in the middle of.
+                + "if(held>240)return;"
                 + "if(t&&t.closest&&t.closest('pre,code[data-agon-pick]'))return;"
                 + "if(e.cancelable)e.preventDefault();};"
                 + "document.addEventListener('selectstart',window.__agonNoSelect,true);"
-                + "if(!window.__agonHold){"
-                + "var holdTimer=null,startX=0,startY=0;"
-                + "function clearHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}"
-                + "function copyText(text){"
-                + "if(!text)return false;"
-                + "var done=false;"
-                + "try{if(window.ArenaNative&&ArenaNative.copied){ArenaNative.copied(text);done=true;}}catch(x){}"
-                + "try{"
-                + "if(document.execCommand){"
-                + "var ta=document.createElement('textarea');"
-                + "ta.value=text;"
-                + "ta.setAttribute('readonly','');"
-                + "ta.style.position='fixed';"
-                + "ta.style.top='0';"
-                + "ta.style.left='0';"
-                + "ta.style.width='1px';"
-                + "ta.style.height='1px';"
-                + "ta.style.opacity='0';"
-                + "ta.style.fontSize='16px';"
-                + "document.body.appendChild(ta);"
-                + "ta.select();"
-                + "ta.setSelectionRange(0,text.length);"
-                + "if(document.execCommand('copy'))done=true;"
-                + "document.body.removeChild(ta);"
-                + "}"
-                + "}catch(x){}"
-                + "try{if(window.__agonFocus&&window.__agonFocus.focus)window.__agonFocus.focus();}catch(x){}"
-                + "if(!done){"
-                + "try{"
-                + "if(navigator.clipboard&&navigator.clipboard.writeText){"
-                + "navigator.clipboard.writeText(text);"
-                + "done=true;"
-                + "}"
-                + "}catch(x){}"
-                + "}"
-                + "return done;}"
-                + "function pick(x,y){"
-                + "var range=null;"
-                + "try{"
-                + "if(document.caretRangeFromPoint)range=document.caretRangeFromPoint(x,y);"
-                + "else if(document.caretPositionFromPoint){"
-                + "var cp=document.caretPositionFromPoint(x,y);"
-                + "if(cp){"
-                + "range=document.createRange();"
-                + "range.setStart(cp.offsetNode,cp.offset);"
-                + "range.setEnd(cp.offsetNode,cp.offset);"
-                + "}"
-                + "}"
-                + "}catch(e){return;}"
-                + "if(!range||!range.startContainer)return;"
-                + "var node=range.startContainer;"
-                + "if(node.nodeType!==3)return;"
-                + "var block=node.parentElement;"
-                + "while(block&&block!==document.body){"
-                + "var disp=getComputedStyle(block).display;"
-                + "if(/block|list-item|flow-root|table|flex|grid/.test(disp))break;"
-                + "block=block.parentElement;}"
-                + "if(!block||block===document.body)block=node.parentElement;"
-                + "if(!block)return;"
-                + "var text=(block.innerText||block.textContent||'').replace(/\\u00a0/g,' ').trim();"
-                + "if(!text)return;"
-                + "if(copyText(text))return;"
-                + "try{"
-                + "block.style.setProperty('-webkit-user-select','text','important');"
-                + "block.style.setProperty('user-select','text','important');"
-                + "window.__agonPicked=block;"
-                + "var sel=window.getSelection();"
-                + "if(sel){"
-                + "sel.removeAllRanges();"
-                + "var r=document.createRange();"
-                + "r.selectNodeContents(block);"
-                + "sel.addRange(r);"
-                + "}"
-                + "}catch(e){}"
-                + "try{if(window.ArenaNative&&ArenaNative.copyHint)ArenaNative.copyHint();}catch(x){}"
-                + "}"
+                // Three taps unlocks selection on a phone; the SECOND long press over the
+                // block the app selected copies it. That is the only page-side copy left:
+                // the hold itself is timed in the WebView (SelectionSafeWebView), which
+                // asks this page for the text under the finger.
                 + "window.__agonCopyTap=function(e){"
-                + "if(!composer(e.target))return;"
+                + "if(!window.__agonPicked)return;"
                 + "try{"
-                + "var sel=window.getSelection();"
-                + "if(!sel)return;"
-                + "var block=sel.anchorNode?(sel.anchorNode.nodeType===3?sel.anchorNode.parentElement:sel.anchorNode):null;"
-                + "if(!block)return;"
-                + "var text=(block.innerText||block.textContent||'').replace(/\\u00a0/g,' ').trim();"
-                + "if(copyText(text))return;"
+                + "var t=(window.__agonPicked.innerText||window.__agonPicked.textContent||'')"
+                + ".replace(/\\u00a0/g,' ').trim();"
+                + "if(t&&window.ArenaNative&&ArenaNative.copied){ArenaNative.copied(t);return;}"
                 + "}catch(x){}"
-                + "try{if(window.ArenaNative&&ArenaNative.copyHint)ArenaNative.copyHint();}catch(x){}"
                 + "};"
                 + "document.addEventListener('touchstart',window.__agonCopyTap,true);"
-                + "window.__agonHold=function(e){"
-                + "var t=e.target;"
-                + "try{if(document.activeElement&&document.activeElement.blur)window.__agonFocus=document.activeElement;}catch(x){}"
-                + "if(composer(t))return;"
-                + "if(t&&t.closest&&t.closest('input,textarea,[contenteditable]'))return;"
-                + "var touch=e.touches&&e.touches[0];"
-                + "startX=touch?touch.clientX:(e.clientX||0);"
-                + "startY=touch?touch.clientY:(e.clientY||0);"
-                + "clearHold();"
-                + "holdTimer=setTimeout(function(){holdTimer=null;pick(startX,startY);},450);};"
-                + "window.__agonHoldMove=function(e){"
-                + "if(!holdTimer)return;"
-                + "var touch=e.touches&&e.touches[0];"
-                + "var x=touch?touch.clientX:(e.clientX||0);"
-                + "var y=touch?touch.clientY:(e.clientY||0);"
-                + "if(Math.abs(x-startX)>12||Math.abs(y-startY)>12)clearHold();};"
-                + "document.addEventListener('touchstart',window.__agonHold,true);"
-                + "document.addEventListener('touchmove',window.__agonHoldMove,true);"
-                + "document.addEventListener('touchend',clearHold,true);"
-                + "document.addEventListener('touchcancel',clearHold,true);"
+                // No page-side hold timer any more.
+                //
+                // There were two: this one (a setTimeout that copied after 450 ms) and the
+                // one timed in the WebView. Both fired on the same press, so a single hold
+                // copied twice - and this one copied on the timer rather than on the lift,
+                // so it fired even while the user was still dragging to extend a
+                // selection. The WebView's is the one kept: it needs no script, and it
+                // copies when the finger lifts. See SelectionSafeWebView.
+                // Closers: the `if(!window.__agonNoSelect)` inside the lock, then the lock
+                // function itself. (The `if(!window.__agonHold)` that used to wrap a page
+                // hold is gone with the page hold.)
                 + "}"
-                + "}};"
+                + "};"
                 // The page decides whether the lock is installed at all: three taps
                 // unlock selection, and a re-injection must not undo that.
                 + "if(!window.__agonSelectUnlocked)try{window.__agonLock();}catch(e){}"
@@ -1796,7 +1748,16 @@ public final class TabWebViews {
         w.setBackgroundColor(AppUi.color(activity, R.color.bg));
         w.setOverScrollMode(android.view.View.OVER_SCROLL_NEVER);
         // A hold is timed in Java as well as in the page; see SelectionSafeWebView.
-        w.setHoldListener((x, y) -> copyUnder(pointJs(x, y)));
+        w.setHoldListener((x, y, chosen) -> {
+            // What the user had already selected wins, and it is copied as-is.
+            if (chosen != null && !chosen.trim().isEmpty()) {
+                if (activity instanceof MainActivity) {
+                    ((MainActivity) activity).onPageCopied(chosen.trim());
+                }
+                return;
+            }
+            copyUnder(pointJs(x, y));
+        });
         w.setLongClickable(true);
         // Priority follows VISIBILITY, not a permanent pin.
         //
@@ -2380,23 +2341,51 @@ public final class TabWebViews {
 
         /** Told when the user holds a finger on the page, with no selection engine involved. */
         interface HoldListener {
-            /** A finger has been down on the page for {@link #HOLD_MS}. */
-            void onHold(int x, int y);
+            /**
+             * A finger has been down on the page for {@link #HOLD_MS}.
+             *
+             * `selection` is what the page reports as already selected at that moment - a
+             * word the user dragged over, twice-tapped, or picked with a handle. When it is
+             * non-empty it is the copy: the user has already said which text they mean, and
+             * replacing it with the whole paragraph under the finger is what made a hold
+             * feel like it grabs everything.
+             */
+            void onHold(int x, int y, String selection);
         }
 
-        /** How long a still finger has to stay down to count as a deliberate copy. */
-        static final long HOLD_MS = 460L;
+        /**
+         * How long a still finger has to stay down to count as a deliberate copy.
+         *
+         * A quick tap, a scroll and a flick are all under this, and so is the moment a
+         * page's own long-press menu appears. 520 ms is long enough that nothing accidental
+         * reaches it and still short enough to feel like a deliberate press.
+         */
+        static final long HOLD_MS = 520L;
         /** How far the finger may drift and still be a hold rather than a scroll. */
-        private static final float SLOP_DP = 14f;
+        private static final float SLOP_DP = 10f;
+        /**
+         * A finger that stays still for this long AFTER the hold has been fired stops
+         * counting as a hold.
+         *
+         * The copy is no longer done on the timer: the hold only marks the point, and the
+         * work happens when the finger lifts. That is what lets a hold-then-drag extend a
+         * selection before anything is copied, and it means a press the user thought better
+         * of - sliding away, or leaving the finger to rest on a button - copies nothing.
+         */
+        private static final long ARM_MS = 900L;
 
         private HoldListener holdListener;
         private final android.os.Handler holdHandler =
                 new android.os.Handler(android.os.Looper.getMainLooper());
-        private final Runnable fire = this::fireHold;
+        private final Runnable arm = this::armHold;
         private final float slop;
         private float downX;
         private float downY;
         private boolean holding;
+        /** The point that is ready to copy when the finger lifts, or null when none is. */
+        private android.graphics.Point armed;
+        /** What the page said is already selected, read once per hold. */
+        private String selection = "";
 
         SelectionSafeWebView(Context context) {
             super(context);
@@ -2408,14 +2397,30 @@ public final class TabWebViews {
             holdListener = listener;
         }
 
-        private void fireHold() {
+        /**
+         * The finger has been still long enough: remember the point and ask the page what is
+         * selected there. Nothing is copied yet - see onTouchEvent.
+         */
+        private void armHold() {
             holding = false;
-            if (holdListener != null) holdListener.onHold(Math.round(downX), Math.round(downY));
+            armed = new android.graphics.Point(Math.round(downX), Math.round(downY));
+            selection = "";
+            // On the view, not on this class: evaluateJavascript is WebView's.
+            SelectionSafeWebView.this.evaluateJavascript(SELECTION_PROBE, value -> {
+                String text = unquoteJs(value);
+                if (text != null && !text.isEmpty()) selection = text;
+            });
         }
 
         private void cancelHold() {
             holding = false;
-            holdHandler.removeCallbacks(fire);
+            holdHandler.removeCallbacks(arm);
+        }
+
+        /** The finger moved away from where it was pressed: this is a scroll, not a copy. */
+        private void cancelArmed() {
+            armed = null;
+            selection = "";
         }
 
         /**
@@ -2435,18 +2440,35 @@ public final class TabWebViews {
                     downX = event.getX();
                     downY = event.getY();
                     holding = true;
-                    holdHandler.removeCallbacks(fire);
-                    holdHandler.postDelayed(fire, HOLD_MS);
+                    cancelArmed();
+                    holdHandler.removeCallbacks(arm);
+                    holdHandler.postDelayed(arm, HOLD_MS);
                     break;
                 case android.view.MotionEvent.ACTION_MOVE:
-                    if (holding && (Math.abs(event.getX() - downX) > slop
-                            || Math.abs(event.getY() - downY) > slop)) {
+                    float dx = Math.abs(event.getX() - downX);
+                    float dy = Math.abs(event.getY() - downY);
+                    if (holding && (dx > slop || dy > slop)) {
+                        // The finger travelled before the hold fired: a scroll.
                         cancelHold();
+                    } else if (armed != null && (dx > slop * 3 || dy > slop * 3)) {
+                        // It was a hold, and then the finger kept going: the user is
+                        // extending a selection by hand, so leave the copy to them.
+                        cancelArmed();
                     }
                     break;
                 case android.view.MotionEvent.ACTION_UP:
+                    cancelHold();
+                    if (armed != null) {
+                        final int x = armed.x;
+                        final int y = armed.y;
+                        final String chosen = selection;
+                        cancelArmed();
+                        if (holdListener != null) holdListener.onHold(x, y, chosen);
+                    }
+                    break;
                 case android.view.MotionEvent.ACTION_CANCEL:
                     cancelHold();
+                    cancelArmed();
                     break;
                 default:
                     break;

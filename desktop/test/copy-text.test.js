@@ -206,8 +206,24 @@ function press(w, id) {
     /class SelectionSafeWebView extends WebView/.test(TABS) &&
     /onTouchEvent\(android\.view\.MotionEvent event\)/.test(TABS),
     'SelectionSafeWebView');
-  check('a hold is ~460 ms and a travelling finger cancels it',
-    /HOLD_MS = 460L/.test(TABS) && /ACTION_MOVE/.test(TABS) && /cancelHold\(\)/.test(TABS));
+  check('a hold is ~520 ms and a travelling finger cancels it',
+    /HOLD_MS = 520L/.test(TABS) && /ACTION_MOVE/.test(TABS) && /cancelHold\(\)/.test(TABS));
+  // The copy happens when the finger LIFTS, not on the timer: that is what lets a
+  // hold-then-drag extend a selection before anything is copied.
+  check('the copy waits for the finger to lift',
+    /ACTION_UP:[\s\S]{0,400}holdListener\.onHold/.test(TABS),
+    'onHold is called from ACTION_UP');
+  // ...and a press the user thought better of copies nothing.
+  check('a finger that keeps travelling before or after the hold copies nothing',
+    /cancelArmed\(\)/.test(TABS) && /SLOP_DP = 10f/.test(TABS));
+  // One copy per press: the page has no hold timer of its own any more.
+  check('the page no longer has a hold timer of its own',
+    !/__agonHold=function/.test(TABS) && !/holdTimer=setTimeout/.test(TABS));
+  // A word the user already selected wins over the paragraph under the finger.
+  check('an existing selection is what gets copied',
+    /SELECTION_PROBE/.test(TABS) && /void onHold\(int x, int y, String selection\)/.test(TABS));
+  check('and it is copied as the user selected it',
+    /chosen != null && !chosen\.trim\(\)\.isEmpty\(\)/.test(TABS));
   check('the app asks the page for the text under the point',
     /AgonCopy\.under/.test(TABS) && /setHoldListener/.test(TABS));
   check('the page answers through the bridge',
@@ -238,6 +254,74 @@ function press(w, id) {
   check('unlocking clears the listener reference, so a re-injection can install a new one',
     /window\.__agonSavedGuard=/.test(
       fs.readFileSync(path.join(NAV, 'TabWebViews.java'), 'utf8')));
+}
+
+// --- a hold copies the line, not the page ----------------------------------------------
+//
+// "just holding screen text copies everything": the first version walked up to the nearest
+// block-shaped ancestor and took all of it, which on arena is the message column or the
+// whole conversation pane. The script is driven for real here, in a fixture shaped like a
+// conversation (a scrolling pane, a flex column, three paragraphs).
+{
+  const SRC = TABS;
+  const from = SRC.indexOf('private static final String JS_COPY_API =');
+  const to = SRC.indexOf('\n\n', from);
+  let js = '';
+  for (const m of SRC.slice(from, to).matchAll(/"((?:[^"\\]|\\.)*)"/g)) js += m[1];
+  js = js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+  check('the copy script is valid JavaScript', (() => {
+    try { new Function(js); return true; } catch (e) { return false; }
+  })(), js.slice(0, 160));
+
+  const dom = new JSDOM('<!doctype html><html><body>'
+    + '<div id=pane role="log" style="overflow-y:auto">'
+    + '<div id=column style="display:flex">'
+    + '<p id=p1>first paragraph of the reply</p>'
+    + '<p id=p2>the command to copy: docker run nginx</p>'
+    + '<p id=p3>third paragraph</p>'
+    + '</div></div></body></html>',
+  { runScripts: 'outside-only', url: 'https://arena.ai/' });
+  const w = dom.window;
+  Object.defineProperty(w.HTMLElement.prototype, 'innerText', {
+    get() { return this.textContent; },
+    configurable: true,
+  });
+  const display = { pane: 'block', column: 'flex' };
+  w.getComputedStyle = (el) => ({
+    display: display[el.id] || 'block',
+    overflow: el.id === 'pane' ? 'auto' : 'visible',
+    overflowY: el.id === 'pane' ? 'auto' : 'visible',
+  });
+  let got = null;
+  w.AgonCopyNative = { text: (t) => { got = t; } };
+  w.document.caretRangeFromPoint = () => {
+    const r = w.document.createRange();
+    const node = w.document.getElementById('p2').firstChild;
+    r.setStart(node, 4);
+    r.setEnd(node, 4);
+    return r;
+  };
+  w.eval(js);
+  w.AgonCopy.under(10, 10, 1);
+  check('a hold copies the paragraph under it, not the whole reply',
+    !!got && /docker run nginx/.test(got) && !/first paragraph/.test(got),
+    JSON.stringify(got));
+  check('a hold in the composer copies nothing',
+    (() => {
+      got = null;
+      const ta = w.document.createElement('textarea');
+      w.document.body.appendChild(ta);
+      w.document.caretRangeFromPoint = () => {
+        const r = w.document.createRange();
+        const node = w.document.createTextNode('typing');
+        ta.appendChild(node);
+        r.setStart(node, 0);
+        r.setEnd(node, 0);
+        return r;
+      };
+      w.AgonCopy.under(10, 10, 1);
+      return got === null;
+    })(), JSON.stringify(got));
 }
 
 console.log(`\n${bad === 0 ? 'all copy-text tests passed' : bad + ' FAILED'}`);

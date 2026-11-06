@@ -192,8 +192,14 @@ function taps() {
 
 // --- copying does not depend on Android's selection menu any more -----------------------
 {
-  check('a held press copies the text itself',
-    /ArenaNative\.copied/.test(TABS) && /execCommand\('copy'\)/.test(TABS));
+  // The page used to copy on its own 450 ms timer as well; that is gone (it fired while the
+  // user was still dragging). The hold is the WebView's, and the page only answers with the
+  // text under the point, or copies the block the app selected.
+  check('a held press copies the text under it',
+    /AgonCopy\.under/.test(TABS) && /AgonCopyNative/.test(TABS) &&
+    /window\.__agonCopyTap/.test(TABS));
+  check('the page has no copy timer of its own any more',
+    !/holdTimer=setTimeout/.test(TABS) && !/__agonHold=function/.test(TABS));
   check('the app writes a native clip when the page hands the text over',
     /@JavascriptInterface\s+public void copied\(final String text\)/.test(BRIDGE) &&
     /void onPageCopied\(String text\)/.test(MAIN) &&

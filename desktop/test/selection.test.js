@@ -108,6 +108,14 @@ check('the composer keeps a normal caret',
 // "i cant copy cmd from app": a reply has to be copyable. The callout used to be switched
 // off globally, which removed the WebView's own Copy route for chat text as well.
 check('chat text and code stay copyable', /pre\s*,\s*code/.test(cssOff.replace(/\n/g, '')), cssOff);
+// "i cant move the line of entering in chat": the composer is not always a <textarea>,
+// so the caret has to come back for the whole box the page actually uses.
+check('the composer keeps its caret whatever element it is really made of',
+  /form/.test(cssOff.replace(/\n/g, '')) &&
+  /\[role="textbox"\]/.test(cssOff.replace(/\n/g, '')) &&
+  /\[contenteditable\]/.test(cssOff), cssOff);
+check('a box the page explicitly locked stays locked',
+  /:not\(\[contenteditable=false\]\)/.test(cssOff), cssOff);
 check('nothing removes the OS copy menu any more',
   !/-webkit-touch-callout/.test(cssOff), cssOff);
 check('selection ON writes no rules at all', cssOn === '', JSON.stringify(cssOn));
@@ -118,6 +126,7 @@ function page() {
     '<div id=txt>a message in the chat</div>' +
     '<textarea id=composer></textarea>' +
     '<div id=edit contenteditable="true">editable</div>' +
+    '<form id=box><div id=rte role="textbox" contenteditable="true"><span id=rte-in>typing</span></div></form>' +
     '</body></html>', { runScripts: 'outside-only', url: 'https://arena.ai/' });
   const w = dom.window;
   // jsdom does not implement selectstart; any cancellable event does the same job here.
@@ -164,6 +173,58 @@ function startsSelection(w, id) {
     one && startsSelection(w, 'txt') === true);
 }
 
+// --- the composer is exempt wherever the tap lands inside it ----------------------------
+{
+  const w = page();
+  const starts = (id) => {
+    const el = w.document.getElementById(id);
+    const ev = new w.Event('selectstart', { bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    return !ev.defaultPrevented;
+  };
+  check('a tap straight on the rich-text box keeps its caret',
+    starts('rte') === true);
+  check('a tap on a span INSIDE the box keeps its caret (that is the usual target)',
+    starts('rte-in') === true);
+  check('the text area is still the text area', starts('composer') === true);
+}
+
+// --- a held press makes the selection itself --------------------------------------------
+//
+// "i cant select in chat": letting a selection through is not enough, because whether a
+// long press starts one is the engine's decision. The guard takes the block under the
+// finger after ~450 ms and selects it, so the text is really selected - highlighted, with
+// Android's Copy menu over it, and readable by More -> Copy selected text.
+const held = (async () => {
+  const w = page();
+  // jsdom has no hit-testing: point caretRangeFromPoint at the reply.
+  w.document.caretRangeFromPoint = () => {
+    const r = w.document.createRange();
+    const node = w.document.getElementById('txt').firstChild;
+    r.setStart(node, 0);
+    r.setEnd(node, 0);
+    return r;
+  };
+  const reply = w.document.getElementById('txt');
+  reply.dispatchEvent(new w.Event('touchstart', { bubbles: true }));
+  // the hold fires on a timer; run it
+  w.eval('void 0');
+  const started = Date.now();
+  // jsdom timers are real timers, so wait for the 450 ms hold
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const sel = w.document.getSelection ? w.document.getSelection() : w.getSelection();
+      const text = sel ? String(sel) : '';
+      check('a still finger selects the text under it', /message in the chat/.test(text), text);
+      check('the selected block is handed back for the highlight',
+        /text/.test(reply.style.getPropertyValue('user-select')) ||
+        !!w.__agonPicked, reply.getAttribute('style') || '(no style)');
+      check('it takes about half a second, not instantly', Date.now() - started >= 400);
+      resolve();
+    }, 700);
+  });
+})();
+
 // --- the fix has to be in both branches of applyChromeInsets() --------------------------
 {
   // The early-return branch clears the frame stylesheet. If the selection rule is written
@@ -179,5 +240,8 @@ function startsSelection(w, id) {
     /selectGuard\(selectable\)/.test(inline));
 }
 
-console.log(`\n${bad === 0 ? 'all selection tests passed' : bad + ' FAILED'}`);
-process.exit(bad === 0 ? 0 : 1);
+(async () => {
+  await held;
+  console.log(`\n${bad === 0 ? 'all selection tests passed' : bad + ' FAILED'}`);
+  process.exit(bad === 0 ? 0 : 1);
+})();

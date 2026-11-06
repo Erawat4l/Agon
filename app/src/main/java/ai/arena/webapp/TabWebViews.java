@@ -447,8 +447,17 @@ public final class TabWebViews {
                     // ...and the page's own panel still has to go, if that is what was asked.
                     + (hideSidebar || hideHeader ? "(function(){try{"
                     + "var undo=[];"
+                    // Nothing is hidden this pass, so anything an earlier pass hid is given
+                    // back. This is the line that makes turning the switch OFF work:
+                    // hide(el) writes an inline display:none, and an inline style outlives
+                    // both the script and the setting - which is why "i disabled the button
+                    // but it still hides that". It is only ever emitted while nothing is
+                    // meant to be hidden, so a pass that is hiding cannot make the panel
+                    // blink by showing it for a frame first.
+                    + (hideSidebar || hideHeader ? "" : unwrapFromHide())
                     + "function hide(el){undo.push(el);"
-                    + "el.style.setProperty('display','none','important');}"
+                    + "el.style.setProperty('display','none','important');"
+                    + "el.setAttribute('data-agon-hid','1');}"
                     + "function shown(el){var r=el.getBoundingClientRect();"
                     + "return r.width>0&&r.height>0;}"
                     + "function empty(el){return !el.querySelector("
@@ -481,8 +490,10 @@ public final class TabWebViews {
                 + "document.documentElement.style.height='100%';"
                 + "document.body.style.height='auto';"
                 + "var undo=[];"
+                + (hideSidebar || hideHeader ? "" : unwrapFromHide())
                 + "function hide(el){undo.push(el);"
-                + "el.style.setProperty('display','none','important');}"
+                + "el.style.setProperty('display','none','important');"
+                + "el.setAttribute('data-agon-hid','1');}"
                 + "function shown(el){var r=el.getBoundingClientRect();"
                 + "return r.width>0&&r.height>0;}"
                 + "function empty(el){return !el.querySelector("
@@ -1125,16 +1136,51 @@ public final class TabWebViews {
                 // cannot be copied: on a phone that is the one thing a user needs from a
                 // message. So the guard below refuses a selection that a DRAG starts, and
                 // lets through one that a deliberate long press starts.
-                + "input,textarea,pre,code,[contenteditable=\"true\"],[data-agon-pick]{"
+                //
+                // The composer is a box you have to be able to put a caret in, and arena's
+                // composer is not always a real <textarea> - often it is a rich-text box,
+                // or a div with role="textbox", inside a form that also holds the model and
+                // attach controls. A document-wide `user-select: none` takes the caret away
+                // from all of those, which is the "i cant move the line of entering in
+                // chat" report: the tap lands, the page focuses the box, and no caret can
+                // be placed to move it. So the whole composer subtree is exempt, not just
+                // the two tag names.
+                //
+                // `:not([contenteditable=false])` because a bare [contenteditable] also
+                // matches a box that was explicitly switched off, and text that a page
+                // locked must stay locked.
+                + "input,textarea,pre,code,[data-agon-pick],"
+                + "form,form *,[role=\"textbox\"],[role=\"textbox\"] *,"
+                + "[contenteditable]:not([contenteditable=false]),"
+                + "[contenteditable]:not([contenteditable=false]) *{"
                 + "-webkit-user-select:text !important;user-select:text !important;}";
     }
 
-    /** The matching listener, as a function body the injection calls. */
+    /**
+     * The matching listener: refuse the selections nobody asked for, allow the two that
+     * are asked for (a held press, and anything in the composer).
+     *
+     * A held press does not just get "let through" any more. On the device the selection
+     * was allowed and still produced nothing to copy, because whether a long press starts
+     * one is the engine's decision and it also depends on where the finger landed. So the
+     * app makes the selection itself: after ~450 ms of a still finger it takes the block
+     * of text under that point, makes that block selectable, and selects it. That is a
+     * real selection - it is highlighted, Android offers its Copy menu over it, and
+     * More -> "Copy selected text" reads it out of window.getSelection().
+     */
     private static String selectGuard(boolean selectable) {
         if (selectable) {
             return "try{if(window.__agonNoSelect){"
                     + "document.removeEventListener('selectstart',window.__agonNoSelect,true);"
-                    + "window.__agonNoSelect=null;}}catch(e){}";
+                    + "window.__agonNoSelect=null;}"
+                    + "if(window.__agonHold){"
+                    + "document.removeEventListener('touchstart',window.__agonHold,true);"
+                    + "document.removeEventListener('touchmove',window.__agonHoldMove,true);"
+                    + "document.removeEventListener('touchend',window.__agonHoldEnd,true);"
+                    + "document.removeEventListener('touchcancel',window.__agonHoldEnd,true);"
+                    + "window.__agonHold=null;window.__agonHoldMove=null;"
+                    + "window.__agonHoldEnd=null;}"
+                    + "}catch(e){}";
         }
         return "try{if(!window.__agonNoSelect){"
                 // How long the finger has been down when a selection tries to start. A
@@ -1146,17 +1192,20 @@ public final class TabWebViews {
                 + "function markDown(){window.__agonDown=Date.now();}"
                 + "document.addEventListener('touchstart',markDown,true);"
                 + "document.addEventListener('mousedown',markDown,true);"
+                // Anything the composer owns is exempt: a rich-text box puts the caret in
+                // a child element, so the target is often a span - `closest` catches that.
+                + "function composer(t){"
+                + "try{"
+                + "if(!t)return false;"
+                + "if(t.tagName==='INPUT'||t.tagName==='TEXTAREA')return true;"
+                + "if(t.isContentEditable===true)return true;"
+                + "if(t.closest&&t.closest('input,textarea,form,[role=\"textbox\"],"
+                + "[contenteditable]:not([contenteditable=false])'))return true;"
+                + "}catch(e){}"
+                + "return false;}"
                 + "window.__agonNoSelect=function(e){"
                 + "var t=e.target;"
-                + "try{"
-                // The composer, and anything inside it: a rich-text box puts the caret in a
-                // child element, so the target is often a span - `closest` catches that.
-                // A selection menu over the text you are typing is only in the way.
-                + "if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||"
-                + "t.isContentEditable===true))return;"
-                + "if(t&&t.closest&&t.closest("
-                + "'input,textarea,[contenteditable=\\\"\\\"],[contenteditable=true]'))return;"
-                + "}catch(x){}"
+                + "if(composer(t))return;"
                 // A press that has been held is a deliberate copy: let it through, so
                 // Android's own Copy menu can appear over a reply or over a command in a
                 // code block - the "i cannot copy a command out of the app" report.
@@ -1165,6 +1214,72 @@ public final class TabWebViews {
                 + "if(t&&t.closest&&t.closest('pre,code[data-agon-pick]'))return;"
                 + "if(e.cancelable)e.preventDefault();};"
                 + "document.addEventListener('selectstart',window.__agonNoSelect,true);"
+                // The held press itself: select the block under the finger, so "select in
+                // chat" is something the app does rather than something it hopes for.
+                + "if(!window.__agonHold){"
+                + "var holdTimer=null,startX=0,startY=0;"
+                + "function clearHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}"
+                + "function pick(x,y){"
+                + "var range=null;"
+                + "try{"
+                + "if(document.caretRangeFromPoint)"
+                + "range=document.caretRangeFromPoint(x,y);"
+                + "else if(document.caretPositionFromPoint){"
+                + "var p=document.caretPositionFromPoint(x,y);"
+                + "if(p){range=document.createRange();"
+                + "range.setStart(p.offsetNode,p.offset);range.setEnd(p.offsetNode,p.offset);}}"
+                + "}catch(e){return;}"
+                + "if(!range||!range.startContainer)return;"
+                + "var node=range.startContainer;"
+                + "if(node.nodeType!==3)return;"
+                // The smallest block that holds this text, so a hold selects the reply or
+                // the command, not the whole conversation.
+                + "var block=node.parentElement;"
+                + "while(block&&block!==document.body){"
+                + "var disp=getComputedStyle(block).display;"
+                + "if(/block|list-item|flow-root|table|flex|grid/.test(disp))break;"
+                + "block=block.parentElement;}"
+                + "if(!block||block===document.body)block=node.parentElement;"
+                + "if(!block)return;"
+                + "try{"
+                // The doc-wide rule still says "not selectable", which would suppress the
+                // highlight; this one block is handed back for the duration.
+                + "block.style.setProperty('-webkit-user-select','text','important');"
+                + "block.style.setProperty('user-select','text','important');"
+                + "window.__agonPicked=block;"
+                + "var sel=window.getSelection();"
+                + "if(!sel)return;"
+                + "sel.removeAllRanges();"
+                + "var r=document.createRange();"
+                + "r.selectNodeContents(block);"
+                + "sel.addRange(r);"
+                + "}catch(e){}"
+                + "}"
+                + "window.__agonHold=function(e){"
+                + "var t=e.target;"
+                + "if(composer(t))return;"
+                + "if(t&&t.closest&&t.closest('input,textarea,[contenteditable]'))return;"
+                + "var touch=e.touches&&e.touches[0];"
+                + "startX=touch?touch.clientX:(e.clientX||0);"
+                + "startY=touch?touch.clientY:(e.clientY||0);"
+                + "clearHold();"
+                + "holdTimer=setTimeout(function(){"
+                + "holdTimer=null;"
+                + "pick(startX,startY);"
+                + "},450);};"
+                + "window.__agonHoldMove=function(e){"
+                + "if(!holdTimer)return;"
+                + "var touch=e.touches&&e.touches[0];"
+                + "var x=touch?touch.clientX:(e.clientX||0);"
+                + "var y=touch?touch.clientY:(e.clientY||0);"
+                // A finger that travels is scrolling, not selecting.
+                + "if(Math.abs(x-startX)>12||Math.abs(y-startY)>12)clearHold();};"
+                + "document.addEventListener('touchstart',window.__agonHold,true);"
+                + "document.addEventListener('touchmove',window.__agonHoldMove,true);"
+                + "window.__agonHoldEnd=clearHold;"
+                + "document.addEventListener('touchend',clearHold,true);"
+                + "document.addEventListener('touchcancel',clearHold,true);"
+                + "}"
                 + "}}catch(e){}";
     }
 
@@ -1249,6 +1364,32 @@ public final class TabWebViews {
             + "if(el.querySelector('main,textarea,form,[contenteditable]'))continue;"
             + "hide(el);window.__agonPanelHidden=1;return;}}";
 
+    /**
+     * The first statement of every hiding pass: give back whatever an earlier pass hid.
+     *
+     * The rules hide by writing an inline `display: none !important` onto the element, and
+     * an inline style outlives the script that wrote it - it survives the panel being
+     * re-rendered, and it survives the switch being turned off. That is why "Hide Arena's
+     * sidebar" could be switched off and the panel stayed away: nothing in the app ever
+     * removed the inline style. Every element the rules touch is tagged, so putting the
+     * page back is one query and two property removals - and it is idempotent, which is
+     * what makes it safe to run at the top of every pass.
+     */
+    private static String unwrapFromHide() {
+        return "try{var hd=document.querySelectorAll('[data-agon-hid]');"
+                + "for(var hi=0;hi<hd.length;hi++){"
+                + "hd[hi].style.removeProperty('display');"
+                + "hd[hi].removeAttribute('data-agon-hid');}}catch(e){}"
+                + "window.__agonPanelHidden=0;window.__agonHeaderHidden=0;";
+    }
+
+    /** Gives every element a hiding pass removed back to the page, immediately. */
+    private static final String JS_SHOW_PANELS =
+            "(function(){try{"
+            + unwrapFromHide()
+            + "window.dispatchEvent(new Event('arena-insets'));"
+            + "}catch(e){}})();";
+
     /** Text/size based fallback for the page's own top header. */
     private static final String JS_HEADER =
             "function scanHeader(){"
@@ -1282,6 +1423,21 @@ public final class TabWebViews {
             }
         }
         return out.append('\'').toString();
+    }
+
+    /**
+     * Undoes the page-panel hiding on every warm tab.
+     *
+     * Called the moment the switch is turned off, before the reload that
+     * MainActivity.applySetting() also does. The reload is the thorough answer, but it is
+     * also the slow one - it throws away the conversation on screen - and it is not needed
+     * for something that is one attribute lookup per document.
+     */
+    public void showPagePanels() {
+        for (WebView w : views.values()) {
+            if (w == null) continue;
+            w.evaluateJavascript(JS_SHOW_PANELS, null);
+        }
     }
 
     /** Applies the current chrome insets to every warm tab. */
@@ -1333,9 +1489,18 @@ public final class TabWebViews {
         // route restores: once its document exists, ask the page for a fresh one. This
         // runs once per tab, and only for tabs the user asked for (never for the chat tab
         // restored on launch, which must come back to what it was showing).
+        //
+        // Never while that tab is the one on screen. Asking the page for a new chat moves
+        // its route to the root, and the root is the "What would you like to do?" page: on
+        // the device that is a tab that flashes the landing page and then puts the
+        // conversation back a moment later, for no reason the user can see. The tab is
+        // already showing arena's own new-chat page at that point, so nothing is lost by
+        // leaving it alone - a fresh conversation is what the root is.
         if (isWindow(tab)) {
             w.postDelayed(() -> {
-                if (views.get(tab) == w) startNewChat(w, null);
+                if (views.get(tab) != w) return;
+                if (currentTab == tab) return;
+                startNewChat(w, null);
             }, 900L);
         }
         trim();

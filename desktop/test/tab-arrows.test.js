@@ -101,6 +101,36 @@ function method(src, signature) {
     /R\.string\.window_limit/.test(MAIN));
 }
 
+// --- closing a tab never answers with a message -----------------------------------------
+//
+// "Also closing a tab shows (default one) that screenshot": closing the last chip put
+// "That is the last tab - the + adds another" on screen for two seconds, over the page.
+// The strip already says it there is nothing left to close - it draws no cross - so the
+// press is answered by closing something, never by a message.
+{
+  const close = method(MAIN, 'private void closeWindowById(int id)');
+  check('closing never puts "that is the last tab" on screen',
+    !/R\.string\.strip_last_tab/.test(MAIN) && !/name="strip_last_tab"/.test(STRINGS),
+    (close.match(/toast\([^;]*\)/g) || []).join(' | '));
+  check('a close for the chat tab closes the window that is open instead',
+    /tabs\.windows\(\)/.test(close) && /id = open\.get\(/.test(close),
+    close.replace(/\s+/g, ' ').slice(0, 300));
+  check('with nothing else open the close is simply nothing',
+    /if \(open\.isEmpty\(\)\) return;/.test(close), close.replace(/\s+/g, ' '));
+}
+
+// --- a background tab is not turned into a new chat while it is on screen ---------------
+//
+// The other half of the same complaint: bringing a window to the front and then having its
+// route moved to the landing page is the flash of "What would you like to do?" over a
+// conversation that was already there.
+{
+  const src = fs.readFileSync(path.join(NAV, 'TabWebViews.java'), 'utf8');
+  const ensure = method(src, 'private WebView ensure(int tab)');
+  check('the new-chat timer is skipped for the tab on screen',
+    /if \(currentTab == tab\) return;/.test(ensure), ensure.slice(-420));
+}
+
 // --- and the tab strip still reports where it is, for the code that asks ---------------
 {
   check('the strip is still told which tab is current', /paintSelection\(current\)/.test(STRIP));

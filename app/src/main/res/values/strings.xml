@@ -75,13 +75,9 @@
     <string name="strip_at_start">This tab has nothing before it</string>
     <string name="strip_window_gone">That window had closed - dropped it</string>
     <string name="reload">Reload</string>
-    <string name="menu_history">Chats</string>
-    <string name="menu_history_sub">The conversation list from the page on screen. Arena only draws it inside a chat, so this is the way to it from the front page</string>
-    <string name="menu_copy">Copy selected text</string>
-    <string name="menu_copy_sub">Select a reply first; this copies it to the clipboard</string>
     <string name="copy_empty">Nothing selected - press and hold a reply first</string>
     <string name="copy_done">Copied</string>
-    <string name="copy_needs_menu">Selected - now use More → Copy selected text</string>
+    <string name="copy_needs_menu">Selected - tap the selection to copy it</string>
     <string name="select_unlocked">Text selection on - three taps again to turn it off</string>
     <string name="select_locked">Text selection off</string>
     <string name="tap_watch_on">Watching - each press will name what it hit</string>

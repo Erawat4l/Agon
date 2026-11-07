@@ -788,35 +788,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     /**
-     * Copies whatever is selected in the page, and says so.
-     *
-     * The one deliberate way to get text out of the app when Android's own Copy menu does
-     * not appear - which it may not, because this app refuses a selection that a stray drag
-     * starts. Nothing selected is answered with a hint rather than silence, because a menu
-     * entry that does nothing is indistinguishable from a broken one.
-     */
-    private void copySelection() {
-        WebView page = tabs == null ? null : tabs.current();
-        if (page == null || tabs == null) {
-            toast(R.string.copy_empty);
-            return;
-        }
-        tabs.selectedText(page, text -> {
-            if (text == null || text.isEmpty()) {
-                toast(R.string.copy_empty);
-                return;
-            }
-            putOnClipboard(text);
-        });
-    }
-
-    /**
      * Puts text on the clipboard and says what was copied.
      *
-     * One place, because there are now two callers and they must agree about what a copy
-     * looks like: More -> "Copy selected text", which reads the page's selection, and the
-     * page itself after a long press (WebBridge.copied), which hands the block over
-     * because the page's own clipboard call was refused.
+     * One place, because both callers must agree about what a copy looks like: a hold,
+     * which picks the block under the finger and hands it over through WebBridge.copied,
+     * and the page's own long press, which hands over the same thing when its clipboard
+     * call was refused. (This used to have a third caller - More -> "Copy selected text",
+     * which read the page's selection on demand. That row is gone; the app copies by
+     * itself now, so an entry that asked the user to select something first was a worse
+     * way to do what a hold already does.)
      */
     private void putOnClipboard(String text) {
         if (text == null || text.trim().isEmpty()) {
@@ -856,8 +836,9 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     /**
      * The page could not copy at all - no clipboard access and execCommand refused.
      *
-     * Says the one thing that still works instead of leaving the long press silent, which
-     * is indistinguishable from the app ignoring the finger.
+     * The block is left selected, so the useful instruction is the one that still works:
+     * Android's own Copy on that selection. It must not name a menu row, because the row
+     * that used to read the selection ("More -> Copy selected text") is gone.
      */
     void onCopyUnavailable() {
         if (isFinishing() || isDestroyed()) return;
@@ -1783,16 +1764,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onReload() {
                 hideError();
                 if (tabs != null) tabs.reloadCurrent();
-            }
-
-            @Override
-            public void onOpenHistory() {
-                openSidebar();
-            }
-
-            @Override
-            public void onCopySelection() {
-                copySelection();
             }
 
             @Override

@@ -1,19 +1,21 @@
 /**
  * Tests for getting text OUT of the app - "i cant copy cmd from app".
  *
- * There are two routes, and both have to exist because they fail in different places:
+ * 1. Android's own Copy menu, from a selection in the page. The app deliberately refuses a
+ *    selection that a stray drag starts ("app-style text"), and the old rule also switched
+ *    off -webkit-touch-callout on everything, which removed the WebView's copy route as
+ *    well. Both are fixed: a press that has been HELD is let through, and the callout is no
+ *    longer suppressed.
  *
- *  1. Android's own Copy menu, from a selection in the page. The app deliberately refuses
- *     a selection that a stray drag starts ("app-style text"), and the old rule also
- *     switched off -webkit-touch-callout on everything, which removed the WebView's copy
- *     route as well. Both are fixed: a press that has been HELD is let through, and the
- *     callout is no longer suppressed.
+ * 2. The hold itself: the app times the press, picks the block under the finger and writes
+ *    the clip natively.
  *
- *  2. More -> Copy selected text, which asks the page for its selection and puts it on the
- *     clipboard. That one does not depend on the WebView offering a menu at all.
+ * There is deliberately NO "Copy selected text" row in More any more - the app copies by
+ * itself, and the row only made sense when it did not. The suite now asserts it is gone, so
+ * it cannot creep back as a third route that needs a selection the app usually refuses.
  *
- * The guard in (1) is driven for real in jsdom; the clipboard plumbing in (2) is read out of
- * the Java, because there is no Android here.
+ * The guard is driven for real in jsdom; the clipboard plumbing is read out of the Java,
+ * because there is no Android here.
  *
  *   cd desktop && node test/copy-text.test.js
  */
@@ -135,23 +137,36 @@ function press(w, id) {
     selectionStarts(w, 'composer') === true);
 }
 
-// --- 4. More -> Copy selected text -----------------------------------------------------
+// --- 4. the copy path that exists, and the row that does not ---------------------------
+//
+// "Remove chats, copy selected button from more." The row was a manual third route to
+// something the app now does by itself on a hold: it asked the user to select text first,
+// in an app whose whole point is that a drag does not select. It is gone, and this is the
+// test that keeps it gone.
 {
-  check('the More sheet has a Copy row', /R\.string\.menu_copy/.test(MENU));
-  check('the row reaches the activity',
-    /onCopySelection\(\)/.test(MENU) && /void onCopySelection\(\)/.test(MENU));
-  check('the activity answers it', /public void onCopySelection\(\)/.test(MAIN)
-    && /copySelection\(\)/.test(MAIN));
-  check('it puts the text on the clipboard',
+  check('the More sheet has no Copy row', !/menu_copy/.test(MENU));
+  check('and the activity has no handler for one', !/onCopySelection/.test(MENU)
+    && !/onCopySelection/.test(MAIN));
+  check('the strings for the removed row are gone too',
+    !/name="menu_copy"/.test(STRINGS) && !/name="menu_copy_sub"/.test(STRINGS));
+
+  // What does the copying: a hold hands the block over, and the app writes the clip.
+  const BRIDGE = fs.readFileSync(path.join(__dirname, '..', '..', 'app', 'src', 'main',
+    'java', 'ai', 'arena', 'webapp', 'WebBridge.java'), 'utf8');
+  check('the hold hands its text to the app through the bridge',
+    /@JavascriptInterface\s+public void copied\(final String text\)/.test(BRIDGE));
+  check('the app writes the clip natively',
     /setPrimaryClip\(ClipData\.newPlainText/.test(MAIN));
-  check('it says what happened (a row that does nothing looks broken)',
+  check('and says what happened',
     /R\.string\.copy_done/.test(MAIN) && /R\.string\.copy_empty/.test(MAIN));
-  check('the strings exist',
-    /name="menu_copy"/.test(STRINGS) && /name="copy_empty"/.test(STRINGS)
-      && /name="copy_done"/.test(STRINGS));
-  check('there is an icon for the row',
-    fs.existsSync(path.join(__dirname, '..', '..', 'app', 'src', 'main', 'res', 'drawable',
-      'ic_nav_copy.xml')));
+  check('the strings it says it with exist',
+    /name="copy_empty"/.test(STRINGS) && /name="copy_done"/.test(STRINGS));
+
+  // The one instruction left over must not name the row that no longer exists:
+  // "Selected - now use More -> Copy selected text" would send the user to an empty sheet.
+  check('the "could not copy" hint does not point at a removed row',
+    /name="copy_needs_menu">[^<]*tap the selection/.test(STRINGS) &&
+    !/=.[^<]*More/.test((STRINGS.match(/name="copy_needs_menu">[^<]*/) || [''])[0]));
 }
 
 // --- 5. the page's selection is read correctly ----------------------------------------

@@ -16,19 +16,6 @@ public final class MenuSheet {
     public interface Callback {
         void onReload();
 
-        /**
-         * Copies whatever is selected in the page.
-         *
-         * Android's own Copy menu is the normal route, but it depends on a selection the
-         * page has to allow - and this app deliberately refuses selections that a stray
-         * drag starts. When a person needs the text of a reply or a command and long-press
-         * does not offer it, there has to be one deliberate way in, and this is it.
-         */
-        void onCopySelection();
-
-        /** Opens the conversation list (the native chat history sheet). */
-        void onOpenHistory();
-
         void onOpenUpdate();
 
         void onSignIn();
@@ -88,9 +75,15 @@ public final class MenuSheet {
         sheet.addView(title);
 
         boolean updateAvailable = UpdateManager.isUpdateAvailable(activity);
-        // Four rows, no more: everything else lives inside Settings. The sheet had grown to
-        // seven entries, several of which were a second copy of things Settings already
-        // owns (clear data, appearance, reload).
+        // Rows that must earn their place: everything else lives inside Settings. The sheet
+        // had grown to seven entries, several of which were a second copy of things
+        // Settings already owns (clear data, appearance, reload).
+        //
+        // "Chats" and "Copy selected text" were removed on request. Chats duplicated the
+        // history that two taps on the Chat tab already open, and copying is now something
+        // the app does by itself - a hold selects and copies the block under the finger -
+        // so a menu entry telling the user to select something first was a second, worse
+        // way to do it.
         addRow(activity, sheet, R.string.app_update,
                 updateAvailable
                         ? activity.getString(R.string.update_available_short,
@@ -111,17 +104,6 @@ public final class MenuSheet {
         // a new user actually sees.
         //
 
-        // Chats: the conversation list, read out of the page on screen. Arena's own panel
-        // only exists inside a conversation (it is the sidebar of a chat), so the front
-        // page - and any tab sitting on it - had no way to reach it at all. One row here
-        // reaches it from every page.
-        addRow(activity, sheet, R.string.menu_history,
-                activity.getString(R.string.menu_history_sub),
-                R.drawable.ic_nav_history, false, v -> {
-                    dismiss(parent, scrim, callback);
-                    callback.onOpenHistory();
-                });
-
         addRow(activity, sheet, R.string.menu_settings,
                 activity.getString(R.string.menu_settings_sub), R.drawable.ic_nav_settings,
                 false, v -> {
@@ -133,15 +115,6 @@ public final class MenuSheet {
             dismiss(parent, scrim, callback);
             callback.onReload();
         });
-
-        // Copying: the menu entry that makes "i cannot copy this" fixable from inside the
-        // app, whatever the page's own selection rules are doing.
-        addRow(activity, sheet, R.string.menu_copy,
-                activity.getString(R.string.menu_copy_sub),
-                R.drawable.ic_nav_copy, false, v -> {
-                    dismiss(parent, scrim, callback);
-                    callback.onCopySelection();
-                });
 
         // ---- conversation tabs
         //

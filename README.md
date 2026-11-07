@@ -207,6 +207,7 @@ Every tab is its own WebView that is created once and **kept alive**:
 | A new tab | is a **browser tab**, not a new chat: it opens on arena's front page and stays wherever the user drives it. Nothing re-routes it behind their back |
 | Destinations | Ask / Search open **in the tab on screen**, not in the chat tab — with a conversation tab in front, tapping Search loads it in that tab and leaves the other tab alone |
 | Chat history | *More → Chats* reaches the conversation list from any page. Arena only draws its own history button inside a chat, so the front page had no route to it; the sheet also reads the page actually in front rather than always the chat tab |
+| A press you did not make | the app used to make three of its own: *new chat* ended its selector list with a link to the front page, so it clicked the site logo or the sidebar's Home row; the unstick repair pressed a fixed point on the left edge without looking, which on a phone is often a row or a toggle; and closing the chat tab started a new chat 900 ms later, into a half-loaded page. All three are gone — *new chat* only ever presses a button labelled as one, the repair picks the first genuinely empty point (and presses nothing if there is none), and closing only loads |
 
 ### Copying text out of the app
 
@@ -242,6 +243,14 @@ only left selected for the page's own menu if both are refused, in which case a 
 The page has no copy timer of its own. There were two holds for one press at one point —
 the page's (fires on a timer, copies the whole block) and the WebView's (fires on the lift) —
 which is why a single press could copy twice and always looked like it grabbed everything.
+
+### Seeing where a tap landed
+
+*Settings → For developers → Show what a tap lands on* (off by default) makes every press toast
+the element under the finger: `<button> Send the message   @50,220  80×40   (felt: <span>)`.
+The name is what the app would call the control, the box is where the page put it, and
+*"felt"* is the element that actually received the press — when the two differ, something is
+drawn over the control, and that overlay is the bug.
 
 ### Three taps to unlock selection
 

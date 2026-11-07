@@ -47,6 +47,16 @@ public final class Settings {
     public static final String K_KEEP_SCROLL = "keep_scroll";
     /** Crash guard: show the trace on screen instead of closing. */
     public static final String K_CRASH_SCREEN = "crash_screen";
+    /**
+     * Show which element a press landed on.
+     *
+     * For the "random touches" report: a tap that visibly does something somewhere else is
+     * hard to describe and impossible to reproduce on purpose. With this on, every press
+     * names the control it reached - its label, its box, and whether the press was on the
+     * thing that reacted or on a container around it. Off by default: it is a diagnostic,
+     * not something to live with.
+     */
+    public static final String K_TAP_WATCH = "tap_watch";
     /** The app behaves like an app: no text selection, no long-press copy menu. */
     public static final String K_NO_SELECT = "no_select";
     /** Version name + build number in the nav bar footer. */
@@ -180,6 +190,11 @@ public final class Settings {
      * for the app's bars, so the page stayed selectable regardless - see selectCss() in
      * TabWebViews.
      */
+    /** True when a press should name the element it landed on. Developer diagnostic. */
+    public static boolean tapWatch(Context c) {
+        return get(c, K_TAP_WATCH, false);
+    }
+
     public static boolean selectText(Context c) {
         return !get(c, K_NO_SELECT, true);
     }

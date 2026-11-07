@@ -247,6 +247,8 @@ public final class SettingsSheet {
                 R.string.settings_offline_sub, true);
         toggle(Settings.K_NO_SELECT, R.string.settings_selectable,
                 R.string.settings_selectable_sub, true);
+        toggle(Settings.K_TAP_WATCH, R.string.settings_tap_watch,
+                R.string.settings_tap_watch_sub, false);
         toggle(Settings.K_DESKTOP_UA, R.string.settings_ua,
                 R.string.settings_ua_sub, true);
         toggle(Settings.K_CRASH_SCREEN, R.string.settings_crash,

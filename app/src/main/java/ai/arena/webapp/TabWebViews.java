@@ -1052,13 +1052,24 @@ public final class TabWebViews {
             + "var seg=p.split('/').filter(function(x){return x.length>0;});"
             + "if(seg.length<2)return false;"
             + "return /^(c|chat|conversation|thread|chats)$/i.test(seg[0]);}"
-            // 1. arena's own control, when it is on screen
+            // 1. arena's own "new chat" control, and nothing else.
+            //
+            // This list used to end with a[href="/"] and a[href$="/chat"], which match
+            // the site LOGO, the sidebar's home row, and any other link back to the front
+            // page. Clicking one of those on the user's behalf is the "random touch I did
+            // not make" report: something on screen visibly reacted - a menu opened, a row
+            // highlighted, the page jumped - and it was not the finger. Only an element
+            // that says "new chat" in its own label is clicked now, and never a link (a
+            // click on an <a> is a navigation). With none found, the route is changed
+            // instead, which touches no element at all.
             + "var sel=['[aria-label*=\"new chat\" i]','[data-testid*=\"new-chat\" i]',"
             + "'button[title*=\"new chat\" i]','a[title*=\"new chat\" i]',"
-            + "'a[href=\"/\"]','a[href$=\"/chat\"]'];"
+            + "'[data-testid=\"new-chat-button\" i]'];"
             + "for(var i=0;i<sel.length;i++){"
             + "var el=document.querySelector(sel[i]);"
-            + "if(el&&el.offsetParent!==null){el.click();tell('clicked');return;}}"
+            + "if(!el||el.offsetParent===null)continue;"
+            + "if(el.tagName==='A')continue;"
+            + "el.click();tell('clicked');return;}"
             // 2. route changes, cheapest first
             + "if(!onConversation()){tell('already-new');return;}"
             + "var tries=['/','/chat','/new'];"
@@ -1104,6 +1115,79 @@ public final class TabWebViews {
      * The lock direction restores the stylesheet it removed, rather than re-deriving
      * it: the policy is one element and its text is what the app already wrote.
      */
+    /**
+     * Reports every press to the app, with the element under the finger.
+     *
+     * "Something got clicked that I did not click" cannot be answered from the outside:
+     * the app sees a press and the page decides what it meant. So the page names it.
+     * The honest question behind the report is "what did I actually hit", and the label
+     * of the control the press reaches answers it - including the case where the press
+     * landed on the wrong thing, which is the case worth seeing.
+     *
+     * Reading the element touches nothing: no click, no focus, no preventDefault. This
+     * watcher cannot itself cause a press.
+     */
+    private static final String JS_TAP_WATCH =
+            "(function(){"
+            + "if(window.__agonTapWatch)return;window.__agonTapWatch=1;"
+            + "/* \"Something got clicked that I did not click.\""
+            + "   Every press is reported to the app with the element under the finger: its role, its"
+            + "   label, and where it sits. The app decides whether to show it, so nothing is drawn over"
+            + "   the page unless the switch is on. Reading the element never changes it - no click, no"
+            + "   focus, no preventDefault - so watching cannot itself cause a touch. */"
+            + "function label(el){"
+            + "if(!el)return '';"
+            + "var out=[];"
+            + "try{"
+            + "var aria=el.getAttribute&&(el.getAttribute('aria-label')||el.getAttribute('title'));"
+            + "if(aria)out.push(aria);"
+            + "var txt=(el.innerText||el.textContent||'').replace(/\\s+/g,' ').trim();"
+            + "if(txt)out.push(txt.length>40?txt.slice(0,40)+'\\u2026':txt);"
+            + "var ph=el.getAttribute&&(el.getAttribute('placeholder')||el.getAttribute('alt'));"
+            + "if(ph)out.push(ph);"
+            + "}catch(e){}"
+            + "return out.join(' \\u00b7 ');"
+            + "}"
+            + "function describe(el){"
+            + "if(!el)return null;"
+            + "var tag=(el.tagName||'').toLowerCase();"
+            + "var role=(el.getAttribute&&el.getAttribute('role'))||'';"
+            + "var name=label(el);"
+            + "/* The control the press will actually reach: a tap on a <span> inside a button is a tap on"
+            + "   the button, and that is what the user sees react. */"
+            + "var owner=el.closest&&el.closest('a,button,[role=\"button\"],[role=\"link\"],[role=\"menuitem\"],[role=\"tab\"],input,select,textarea,summary,label');"
+            + "var hit=owner||el;"
+            + "var hitTag=(hit.tagName||'').toLowerCase();"
+            + "var hitRole=(hit.getAttribute&&hit.getAttribute('role'))||'';"
+            + "var hitName=owner?label(hit):name;"
+            + "var r=null;"
+            + "try{r=hit.getBoundingClientRect();}catch(e){}"
+            + "return {"
+            + "tag:tag,"
+            + "role:role,"
+            + "name:name,"
+            + "hit:hitTag,"
+            + "hitRole:hitRole,"
+            + "hitName:hitName,"
+            + "x:r?Math.round(r.left+r.width/2):0,"
+            + "y:r?Math.round(r.top+r.height/2):0,"
+            + "w:r?Math.round(r.width):0,"
+            + "h:r?Math.round(r.height):0"
+            + "};"
+            + "}"
+            + "document.addEventListener('touchstart',function(e){"
+            + "try{"
+            + "var t=e.touches&&e.touches[0];"
+            + "var el=document.elementFromPoint?document.elementFromPoint(t?t.clientX:0,t?t.clientY:0):e.target;"
+            + "var info=describe(el);"
+            + "if(!info)return;"
+            + "info.x0=t?Math.round(t.clientX):0;"
+            + "info.y0=t?Math.round(t.clientY):0;"
+            + "if(window.AgonTapWatch&&AgonTapWatch.tap)AgonTapWatch.tap(JSON.stringify(info));"
+            + "}catch(x){}"
+            + "},true);"
+            + "})();";
+
     private static final String JS_TRIPLE_TAP_SELECT =
             "(function(){"
                 + "if(window.__agonTripleTap)return;window.__agonTripleTap=1;"
@@ -1827,6 +1911,8 @@ public final class TabWebViews {
         w.addJavascriptInterface(new WebBridge(activity, w), "ArenaNative");
         // The answer to "what text is under this point", for the hold timed in Java.
         w.addJavascriptInterface(new WebBridge(activity, w), "AgonCopyNative");
+        // Names the element under each press, for "Show what a tap lands on".
+        w.addJavascriptInterface(new WebBridge(activity, w), "AgonTapWatch");
         // Answers pressEscape(): "did that close anything?" Only that one boolean crosses
         // the bridge, and it is read back on the UI thread.
         w.addJavascriptInterface(new EscapeBridge(), "AgonEscape");
@@ -1866,6 +1952,8 @@ public final class TabWebViews {
                 view.evaluateJavascript(JS_TRIPLE_TAP_SELECT, null);
                 // A hold that the app timed in Java asks this for the text under the finger.
                 view.evaluateJavascript(JS_COPY_API, null);
+                // Names the element under every press, for the "random touches" switch.
+                view.evaluateJavascript(JS_TAP_WATCH, null);
                 // The chat tab's chip is a fixed label, but its name still matters: it is
                 // what the history sheet and the window list show for the conversation that
                 // is open. Every tab is asked, and only the extra tabs display it.
@@ -2251,19 +2339,45 @@ public final class TabWebViews {
             // 1. let go of the focused field
             + "var ae=document.activeElement;"
             + "if(ae&&ae!==document.body&&ae.blur)try{ae.blur();}catch(e){}"
-            // 2. a pointer press on an empty area: what closes a click-outside menu
+            // 2. a press on a genuinely EMPTY area: what closes a click-outside menu
+            //
+            // This used to fire pointerdown/up and mousedown/up at a fixed point on the left
+            // edge, without looking at what was there. On a phone that point is often a
+            // control - a row in a list, a toggle, the files panel - so pressing Back could
+            // press a random button on the way past: the "random touches" report. The point
+            // is now chosen by testing candidates and taking the first that is inert: the
+            // page background itself, or a container with no controls in it. If nothing is
+            // inert, no press is sent at all.
             + "try{"
-            + "var target=document.elementFromPoint?"
-            + "document.elementFromPoint(8,Math.round(window.innerHeight*0.5)):document.body;"
-            + "if(!target)target=document.body;"
-            + "var p={bubbles:true,cancelable:true,composed:true,clientX:8,"
-            + "clientY:Math.round(window.innerHeight*0.5),pointerId:1,pointerType:'touch',"
+            + "function inert(el){"
+            + "if(!el||el===document.documentElement)return false;"
+            + "if(el.closest&&el.closest("
+            + "'a,button,input,select,textarea,label,summary,[role=\"button\"],"
+            + "[role=\"link\"],[role=\"menuitem\"],[role=\"tab\"],"
+            + "[role=\"checkbox\"],[role=\"switch\"],[contenteditable]'))return false;"
+            + "var cur=el;"
+            + "for(var up=0;up<4&&cur&&cur!==document.body;up++){"
+            + "if(cur.querySelector&&cur.querySelector("
+            + "'a,button,input,select,textarea,[role=\"button\"],[role=\"link\"]'))"
+            + "return false;"
+            + "cur=cur.parentElement;}"
+            + "return true;}"
+            + "var pts=[[6,Math.round(window.innerHeight*0.62)],"
+            + "[Math.round(window.innerWidth*0.5),Math.round(window.innerHeight*0.06)],"
+            + "[Math.round(window.innerWidth-6),Math.round(window.innerHeight*0.62)]];"
+            + "var target=null;"
+            + "for(var pi=0;pi<pts.length&&!target;pi++){"
+            + "var cand=document.elementFromPoint?document.elementFromPoint(pts[pi][0],pts[pi][1]):null;"
+            + "if(inert(cand))target=cand;}"
+            + "if(target){"
+            + "var p={bubbles:true,cancelable:true,composed:true,"
+            + "clientX:pts[0][0],clientY:pts[0][1],pointerId:1,pointerType:'mouse',"
             + "isPrimary:true};"
             + "if(window.PointerEvent){"
             + "target.dispatchEvent(new PointerEvent('pointerdown',p));"
             + "target.dispatchEvent(new PointerEvent('pointerup',p));}"
             + "target.dispatchEvent(new MouseEvent('mousedown',p));"
-            + "target.dispatchEvent(new MouseEvent('mouseup',p));"
+            + "target.dispatchEvent(new MouseEvent('mouseup',p));}"
             + "}catch(e){}"
             // 3. Escape, at whatever has focus and at the document
             + "try{"

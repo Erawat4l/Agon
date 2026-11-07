@@ -221,8 +221,8 @@ function press(w, id) {
     /class SelectionSafeWebView extends WebView/.test(TABS) &&
     /onTouchEvent\(android\.view\.MotionEvent event\)/.test(TABS),
     'SelectionSafeWebView');
-  check('a hold is ~520 ms and a travelling finger cancels it',
-    /HOLD_MS = 520L/.test(TABS) && /ACTION_MOVE/.test(TABS) && /cancelHold\(\)/.test(TABS));
+  check('a hold is long enough not to be a tap, and a travelling finger cancels it',
+    /HOLD_MS = 700L/.test(TABS) && /ACTION_MOVE/.test(TABS) && /cancelHold\(\)/.test(TABS));
   // The copy happens when the finger LIFTS, not on the timer: that is what lets a
   // hold-then-drag extend a selection before anything is copied.
   check('the copy waits for the finger to lift',
@@ -247,9 +247,12 @@ function press(w, id) {
       fs.readFileSync(path.join(NAV, 'WebBridge.java'), 'utf8')));
   check('the answer is written to the clipboard natively',
     /void onPageCopied\(String text\)/.test(MAIN) && /setPrimaryClip/.test(MAIN));
-  // A hold that finds nothing must not do nothing: the selection is asked for as well.
-  check('a hold with no text falls back to the selection',
-    /copySelectionFallback/.test(TABS));
+  // "just clicking anywhere copies everything": the old route topped the copy up with the
+  // page's selection 260 ms after every hold, so a slow tap on a control copied the reply
+  // behind it. Nothing may copy unless the page found TEXT under the point.
+  check('nothing is copied when the page finds no text under the point',
+    !/copySelectionFallback/.test(TABS) && !/postDelayed\(this::copy/.test(TABS),
+    'no timer may copy without the page reporting text');
   check('the point is scaled for the page, not assumed to be CSS pixels',
     /devicePixelRatio/.test(TABS));
 }
@@ -337,6 +340,123 @@ function press(w, id) {
       w.AgonCopy.under(10, 10, 1);
       return got === null;
     })(), JSON.stringify(got));
+}
+
+// --- a press on a control copies nothing -------------------------------------------------
+//
+// "just clicking anywhere copies everything so fix this shi too". Two causes, both closed
+// here: the page took the caption of whatever control was pressed, and the app topped the
+// copy up with the page's selection a moment later. This drives the real script: a press on
+// a button, a link, a nav row and an overlay must report nothing at all.
+{
+  const SRC = TABS;
+  const from = SRC.indexOf('private static final String JS_COPY_API =');
+  const to = SRC.indexOf('\n\n', from);
+  let js = '';
+  for (const m of SRC.slice(from, to).matchAll(/"((?:[^"\\]|\\.)*)"/g)) js += m[1];
+  js = js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+
+  function world(html, hitId) {
+    const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`,
+      { runScripts: 'outside-only', url: 'https://arena.ai/' });
+    const w = dom.window;
+    Object.defineProperty(w.HTMLElement.prototype, 'innerText', {
+      get() { return this.textContent; }, configurable: true,
+    });
+    w.getComputedStyle = () => ({ display: 'block', overflow: 'visible', overflowY: 'visible' });
+    const reports = [];
+    w.AgonCopyNative = { text: (t) => reports.push(t) };
+    // hit test: whatever element is under the point
+    w.document.elementFromPoint = () => w.document.getElementById(hitId);
+    // caret: the text of the block the point is in, so a text hit does report
+    w.document.caretRangeFromPoint = () => {
+      const el = w.document.getElementById(hitId);
+      const node = el.firstChild || el.appendChild(w.document.createTextNode('the reply text'));
+      const r = w.document.createRange();
+      r.setStart(node, 0);
+      r.setEnd(node, 0);
+      return r;
+    };
+    w.eval(js);
+    w.AgonCopy.under(10, 10, 1);
+    return { w, reports };
+  }
+
+  const refused = [
+    ['a button', '<div id=t><button id=hit>Send the message</button></div>'],
+    ['a link', '<div id=t><a id=hit href=#>Read more</a></div>'],
+    ['a link inside a row', '<nav id=t><span id=hit><a href=#>Chats</a></span></nav>'],
+    ['a nav row', '<nav id=t><div id=hit>Home</div></nav>'],
+    ['a switch', '<div id=t><span id=hit role=switch>On</span></div>'],
+    ['the composer', '<div id=t><textarea id=hit></textarea></div>'],
+  ];
+  for (const [what, html] of refused) {
+    const { reports } = world(html, 'hit');
+    check(`a press on ${what} copies nothing`, reports.length === 0, JSON.stringify(reports));
+  }
+
+  // ...and a press on ordinary text still copies, or the fix would just be "copy is broken".
+  const { reports } = world('<div id=t><p id=hit>the reply text</p></div>', 'hit');
+  check('a press on a plain paragraph still copies it',
+    reports.length === 1 && /the reply text/.test(reports[0]), JSON.stringify(reports));
+}
+
+// --- the hold rules, driven as a state machine ------------------------------------------
+//
+// The timings are Java, so they are only checkable where they are written. These read the
+// same constants and the same action handlers out of the source and replay presses against
+// them: a tap, a scroll, a slow wander, a resting finger, a deliberate hold.
+{
+  const num = (name) => {
+    const m = new RegExp(name + ' = ([0-9.]+)[fL]?').exec(TABS);
+    return m ? Number(m[1]) : NaN;
+  };
+  const hold = num('HOLD_MS');
+  const slop = num('SLOP_DP');
+  const still = num('STILL_MS');
+  const stillSlop = num('STILL_DP');
+  const rest = num('REST_MS');
+  check('the hold, the stillness window and the rest limit are readable',
+    [hold, slop, still, stillSlop, rest].every((n) => !Number.isNaN(n)),
+    [hold, slop, still, stillSlop, rest].join(','));
+
+  /**
+   * Replays one press. Every rule below is one line of onTouchEvent().
+   * Returns what would happen: armed (copied on lift), or nothing.
+   */
+  function press({ moves = [], downMs = 0, upMs = 0, stepPx = 0, stillEvery }) {
+    let dx = 0;
+    let dy = 0;
+    let isStill = true;
+    let lastMove = 0;
+    let resting = false;
+    for (const m of moves) {
+      // a move either goes somewhere (and back) or stays put
+      if (m.away) { dx = stepPx; dy = 0; isStill = false; lastMove = m.t; }
+      else if (isStill && m.t - lastMove > stillEvery) isStill = false;
+      if (rest !== undefined && m.t > rest) resting = true;
+    }
+    const travelled = dx > slop || dy > slop;
+    // ARM_MS/REST_MS is an absolute deadline from the press, exactly as the handler posts it:
+    // a finger still down when REST_MS arrives has its press cancelled.
+    const abandoned = upMs > rest;
+    return !travelled && isStill && !abandoned && upMs >= hold;
+  }
+
+  check('a quick tap copies nothing', press({ upMs: 120 }) === false);
+  check('a tap just under the hold time copies nothing', press({ upMs: hold - 60 }) === false);
+  check('a clean hold copies on the lift', press({ upMs: hold + 120 }) === true);
+  check('a scroll (finger travels) copies nothing even if it is slow',
+    press({ upMs: hold + 500, moves: [{ t: 100, away: true }], stepPx: slop + 5 }) === false);
+  check('a finger left resting on the page copies nothing',
+    press({ upMs: rest + 4000, moves: [{ t: 50 }], stillEvery: 10 ** 6 }) === false);
+  check('a wandering finger that comes back to where it started copies nothing',
+    press({ upMs: hold + 100, moves: [{ t: 40 }, { t: 90 }, { t: 200 }, { t: 400 }, { t: 620 }],
+      stillEvery: still - 40 }) === false);
+  check('and the lift itself is swallowed, so the control underneath is not pressed too',
+    /return true;\n\s*\}\n\s*break;\n\s*case android\.view\.MotionEvent\.ACTION_CANCEL/
+      .test(TABS.replace(/\r/g, '')),
+    'ACTION_UP returns true when the press became a copy');
 }
 
 console.log(`\n${bad === 0 ? 'all copy-text tests passed' : bad + ' FAILED'}`);

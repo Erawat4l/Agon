@@ -864,19 +864,21 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         refreshStrip();
     }
 
-    /** Closes an extra window and keeps the strip, nav and page in step afterwards. */
+    /** Closes the tab that was asked for, and keeps the strip, nav and page in step. */
     private void closeWindowById(int id) {
         if (tabs == null) return;
         if (!TabWebViews.isWindow(id)) {
-            // The chat tab is the app's home page, and it is the tab the strip draws with
-            // no cross at all. A close that still arrives for it (a tap that lands just as
-            // the strip is rebuilt) closes whatever window is open instead, so the press
-            // visibly does something. It never answers with "that is the last tab": the
-            // message was a report the strip itself already shows - there is no cross on
-            // the last chip - and on a phone it landed on top of the page for two seconds.
-            java.util.List<Integer> open = tabs.windows();
-            if (open.isEmpty()) return;
-            id = open.get(open.size() - 1);
+            // The chat tab's own cross. It closes THAT tab, which for the app's home page
+            // means handing the screen to the tab beside it and starting the chat tab empty
+            // again - closeChatTab(), the same thing Ctrl/Cmd+W on the chat tab does.
+            //
+            // It used to close the newest extra window instead, "so the press visibly does
+            // something". On a phone that reads as the opposite of the request: press the x
+            // on the default tab and a tab you never touched disappears while the one you
+            // aimed at is still there. A close closes the tab it was drawn on, and nothing
+            // else - which is what the cross on every other chip already did.
+            closeChatTab();
+            return;
         }
         boolean wasCurrent = pageId() == id;
         tabs.closeWindow(id);

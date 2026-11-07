@@ -91,17 +91,14 @@ function method(src, signature) {
     /if \(!onConversationTab\(\) && pageId\(\) != AppUi\.TAB_CHAT\)/.test(open),
     open.replace(/\s+/g, ' ').slice(0, 300));
 
-  check('More has a Chats row', /R\.string\.menu_history/.test(MENU));
-  check('the row reaches the activity', /onOpenHistory\(\)/.test(MENU) &&
-    /void onOpenHistory\(\)/.test(MENU));
-  check('the activity answers it with the history sheet',
-    /public void onOpenHistory\(\)\s*\{\s*openSidebar\(\);/.test(MAIN.replace(/\s+/g, ' ')
-      .replace(/\(\s+/g, '(')), MAIN.includes('onOpenHistory'));
-  check('the strings exist',
-    /name="menu_history"/.test(STRINGS) && /name="menu_history_sub"/.test(STRINGS));
-  check('and there is an icon for the row',
-    fs.existsSync(path.join(__dirname, '..', '..', 'app', 'src', 'main', 'res', 'drawable',
-      'ic_nav_history.xml')));
+  // The More sheet no longer has its own Chats row: "Remove chats ... from more." Two taps
+  // on the Chat tab open the same sheet, so the row was a second door to one room.
+  check('More has no Chats row', !/menu_history/.test(MENU) && !/onOpenHistory/.test(MENU));
+  check('and the activity has no handler for one',
+    !/onOpenHistory/.test(MAIN) && !/name="menu_history"/.test(STRINGS));
+  check('the history sheet is still reachable without it (two taps on Chat)',
+    /private void openSidebar\(\)/.test(MAIN) &&
+    /else if \(taps == 2\) \{\s*openSidebar\(\);/.test(MAIN));
 }
 
 // --- a new tab is a browser tab ---------------------------------------------------------

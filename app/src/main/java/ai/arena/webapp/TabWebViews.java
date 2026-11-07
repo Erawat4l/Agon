@@ -1546,8 +1546,7 @@ public final class TabWebViews {
      * one is the engine's decision and it also depends on where the finger landed. So the
      * app makes the selection itself: after ~450 ms of a still finger it takes the block
      * of text under that point, makes that block selectable, and selects it. That is a
-     * real selection - it is highlighted, Android offers its Copy menu over it, and
-     * More -> "Copy selected text" reads it out of window.getSelection().
+     * real selection - it is highlighted, and Android offers its Copy menu over it.
      */
     private static String selectGuard(boolean selectable) {
         if (selectable) {
@@ -2149,29 +2148,6 @@ public final class TabWebViews {
     public void reloadCurrent() {
         WebView w = current();
         if (w != null) w.reload();
-    }
-
-    /**
-     * The text currently selected in the page, or "" when nothing is.
-     *
-     * Reported through the callback, on the UI thread, because evaluating JavaScript is
-     * asynchronous. The page is asked for its own selection rather than the app keeping a
-     * copy: a selection is made and changed by the WebView's own selection engine, and a
-     * second record of it would only be a thing to get out of date.
-     */
-    public void selectedText(WebView web, java.util.function.Consumer<String> answer) {
-        if (web == null) {
-            answer.accept("");
-            return;
-        }
-        try {
-            web.evaluateJavascript(
-                    "(function(){try{return String(window.getSelection()||'');}"
-                            + "catch(e){return '';}})()",
-                    value -> answer.accept(unquoteJs(value)));
-        } catch (Exception e) {
-            answer.accept("");
-        }
     }
 
     /** Turns a serializeValue() string ("Hello", \"quoted\", null) into plain text. */

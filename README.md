@@ -211,18 +211,21 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Closing a tab | the cross closes a tab and says nothing. Closing the last chip closes the window that is open, and with nothing else open it is simply nothing — the strip already draws no cross on the last chip |
 | A new tab | is a **browser tab**, not a new chat: it opens on arena's front page and stays wherever the user drives it. Nothing re-routes it behind their back |
 | Destinations | Ask / Search open **in the tab on screen**, not in the chat tab — with a conversation tab in front, tapping Search loads it in that tab and leaves the other tab alone |
-| Chat history | *More → Chats* reaches the conversation list from any page. Arena only draws its own history button inside a chat, so the front page had no route to it; the sheet also reads the page actually in front rather than always the chat tab |
+| Chat history | two taps on the **Chat** tab open the conversation list. Arena only draws its own history button inside a chat, so the front page had no route to it, and the app's sheet reads the page actually in front rather than always the chat tab. There is no *More → Chats* row: it was a second door to a list two taps already open |
 | A press you did not make | the app used to make three of its own: *new chat* ended its selector list with a link to the front page, so it clicked the site logo or the sidebar's Home row; the unstick repair pressed a fixed point on the left edge without looking, which on a phone is often a row or a toggle; and closing the chat tab started a new chat 900 ms later, into a half-loaded page. All three are gone — *new chat* only ever presses a button labelled as one, the repair picks the first genuinely empty point (and presses nothing if there is none), and closing only loads |
 
 ### Copying text out of the app
 
-Two routes, because they fail in different places:
+Two ways, both of them the app's own:
 
 | Route | How |
 | --- | --- |
 | Hold to copy | hold a reply or a command for about half a second and the app copies **that paragraph, not the page**: what you already had selected if anything, otherwise the smallest text block under your finger. It copies when your **finger lifts**, not on the timer, so a hold-and-drag extends a selection first and a press you thought better of copies nothing |
 | A quick drag | still never selects anything — that is what "App-style text" means now, and the setting's description says so |
-| *More → Copy selected text* | asks the page for its current selection and puts it on the clipboard. Works even if the WebView decides not to show its own menu |
+
+There is deliberately no *More → Copy selected text* row. It asked you to select text first,
+in an app whose whole point is that a drag does not select, and the hold already copies the
+block you pressed. One way in that works beats two where one does not.
 
 The old rule switched off `-webkit-touch-callout` on everything and cancelled every
 selection, which is why a command in a code block could not be copied at all. The long-press
@@ -235,7 +238,7 @@ app does the whole job: after ~450 ms of a still finger it hit-tests the point, 
 the smallest block that holds that text, and copies it. Two routes are tried in order — the
 page's clipboard API, and a native `ClipData` write through the bridge — and the block is
 only left selected for the page's own menu if both are refused, in which case a toast says
-*Selected – now use More → Copy selected text* rather than leaving the press silent.
+*Selected – tap the selection to copy it* rather than leaving the press silent.
 
 ### What a hold actually does
 

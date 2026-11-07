@@ -208,7 +208,7 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
 | Tab strip arrows | the two arrows look identical (never dimmed) and **go round**: from the last tab `>` lands on the first, from the first `<` lands on the last. No "this is the last tab" message anywhere |
-| Closing a tab | the cross closes a tab and says nothing. Closing the last chip closes the window that is open, and with nothing else open it is simply nothing — the strip already draws no cross on the last chip |
+| Closing a tab | the cross closes **exactly the tab it is drawn on** and says nothing. The x on the default (chat) chip closes that tab — its neighbour takes the screen and the chat tab starts empty — instead of closing whichever tab was opened last; every other chip already closed only itself. With a single tab open the strip draws no cross at all |
 | A new tab | is a **browser tab**, not a new chat: it opens on arena's front page and stays wherever the user drives it. Nothing re-routes it behind their back |
 | Destinations | Ask / Search open **in the tab on screen**, not in the chat tab — with a conversation tab in front, tapping Search loads it in that tab and leaves the other tab alone |
 | Chat history | two taps on the **Chat** tab open the conversation list. Arena only draws its own history button inside a chat, so the front page had no route to it, and the app's sheet reads the page actually in front rather than always the chat tab. There is no *More → Chats* row: it was a second door to a list two taps already open |
@@ -220,7 +220,8 @@ Two ways, both of them the app's own:
 
 | Route | How |
 | --- | --- |
-| Hold to copy | hold a reply or a command for about half a second and the app copies **that paragraph, not the page**: what you already had selected if anything, otherwise the smallest text block under your finger. It copies when your **finger lifts**, not on the timer, so a hold-and-drag extends a selection first and a press you thought better of copies nothing |
+| Hold to copy | hold a reply or a command for about 0.7 s and the app copies **that paragraph, not the page**: what you already had selected if anything, otherwise the smallest text block under your finger. It copies when your **finger lifts**, not on the timer, so a hold-and-drag extends a selection first and a press you thought better of copies nothing |
+| One press copies nothing | a tap, a scroll, a shaky press that wanders and a finger left resting on the screen all copy nothing — and a press that lands on a **button, link, sidebar row, the nav or the composer** copies nothing either. After a copy the press is swallowed, so the control underneath is not also pressed |
 | A quick drag | still never selects anything — that is what "App-style text" means now, and the setting's description says so |
 
 There is deliberately no *More → Copy selected text* row. It asked you to select text first,
@@ -234,17 +235,21 @@ starts (under ~320 ms of press).
 
 Letting a long press *through* was not enough — whether a hold starts a selection at all is
 the engine's decision, and the menu that follows is the part that kept not appearing. So the
-app does the whole job: after ~450 ms of a still finger it hit-tests the point, walks out to
-the smallest block that holds that text, and copies it. Two routes are tried in order — the
-page's clipboard API, and a native `ClipData` write through the bridge — and the block is
-only left selected for the page's own menu if both are refused, in which case a toast says
-*Selected – tap the selection to copy it* rather than leaving the press silent.
+app does the whole job: after ~700 ms of a genuinely still finger it hit-tests the point,
+walks out to the smallest block that holds that text, and copies it — when the finger lifts.
+Two routes are tried in order — the page's clipboard API, and a native `ClipData` write
+through the bridge — and the block is only left selected for the page's own menu if both are
+refused, in which case a toast says *Selected – tap the selection to copy it* rather than
+leaving the press silent.
 
 ### What a hold actually does
 
 | One still press | Nothing is copied while the finger is down. The copy happens on **lift** |
-| After ~520 ms, then lift | One copy: the text you had selected, else the smallest block under the finger (`AgonCopy.under`), written natively through the bridge |
+| After ~700 ms, then lift | One copy: the text you had selected, else the smallest block under the finger (`AgonCopy.under`), written natively through the bridge |
 | Travel more than ~10 px before or after the hold | No copy. That is a scroll, or you extended a selection by hand |
+| A press that wanders (~4 px between frames) and comes back | No copy. It was not still, whatever its start and end points say |
+| Finger still down after ~2.5 s | No copy. It is resting on the page, not asking for anything |
+| Press on a button, link, sidebar row, nav or the composer | Never. The page reports no text there, and the press is not also fired at the control |
 | Press in the composer | Never. That is where you type |
 | Three taps, or *Settings → App-style text* | Turns selection on and off; the unlock survives page re-injection |
 

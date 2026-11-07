@@ -402,18 +402,6 @@ public final class TabWebViews {
     }
 
     /**
-     * Copies the text under a point in the page, from the app side.
-     *
-     * The page's own hold timer does this in JavaScript, but a hold is also timed in
-     * SelectionSafeWebView, and this is what that one calls - so the copy does not depend on
-     * the page's script having been installed or on its timers running. The script reports
-     * the text through AgonCopy; a page that answers nothing (an old document, a script
-     * error) is topped up by {@link #copySelectionFallback()}, which asks for whatever is
-     * selected instead.
-     *
-     * `x` and `y` are device pixels, because that is what a MotionEvent carries.
-     */
-    /**
      * What the page has selected right now, as a JSON string for the callback.
      *
      * Asked once when a hold fires: if the user had already selected a word or a run of
@@ -423,19 +411,27 @@ public final class TabWebViews {
     private static final String SELECTION_PROBE =
             "(function(){try{return String(window.getSelection()||'');}catch(e){return '';}})();";
 
+    /**
+     * Copies the text under a point in the page, from the app side.
+     *
+     * A hold is timed in SelectionSafeWebView (Java), not in the page, so the copy does not
+     * depend on the page's script having been installed or on its timers running. The page
+     * reports what it found through AgonCopyNative.text; `x` and `y` are device pixels,
+     * because that is what a MotionEvent carries.
+     */
     public void copyUnder(String pointScript) {
         WebView w = current();
         if (w == null) return;
-        // The page answers by itself when it finds text (AgonCopyNative.text). When it finds
-        // none - a tap on a margin, a run of pure layout - the answer never comes, so the
-        // selection is asked for as well after a moment. A copy that silently does nothing
-        // is the one thing this route must not be.
+        // The page answers by itself when, and only when, it finds TEXT under the point
+        // (AgonCopyNative.text). A press on a button, a link, a sidebar row, the app's own
+        // nav or any control drawn over the page is reported as no text, so nothing is
+        // copied. It used to top up with whatever was selected 260 ms later, which turned a
+        // single tap on a control into a copy of the reply behind it.
         try {
             w.evaluateJavascript(pointScript, null);
         } catch (RuntimeException ignored) {
-            return;
+            // a destroyed view has nothing to say
         }
-        w.postDelayed(this::copySelectionFallback, 260L);
     }
 
     /**
@@ -450,20 +446,6 @@ public final class TabWebViews {
                 + "if(window.AgonCopy&&AgonCopy.under){"
                 + "AgonCopy.under(" + xPx + "," + yPx + ",window.devicePixelRatio||1);"
                 + "}}catch(e){}})();";
-    }
-
-    /** Reads whatever is selected in the page and hands it to the app. */
-    public void copySelectionFallback() {
-        WebView w = current();
-        if (w == null) return;
-        try {
-            w.evaluateJavascript(
-                    "(function(){try{var t=String(window.getSelection()||'');"
-                            + "if(window.AgonCopy&&AgonCopy.text)AgonCopy.text(t);}"
-                            + "catch(e){}})();", null);
-        } catch (RuntimeException ignored) {
-            // a destroyed view has nothing to say
-        }
     }
 
     /**
@@ -1310,12 +1292,25 @@ public final class TabWebViews {
                 + "if(!best)best=el;"
                 + "return best;"
                 + "}"
+                + "/* A press that lands on a control is a press on that control, not a request for"
+                + "   the text near it. Without this a slow tap on Send, on a sidebar row or on a link"
+                + "   copied the caption around it - the \"clicking anywhere copies everything\" report. */"
+                + "function onControl(x,y,scale){"
+                + "var px=x/(scale||1),py=y/(scale||1);"
+                + "var el=null;"
+                + "try{el=document.elementFromPoint?document.elementFromPoint(px,py):null;}catch(e){}"
+                + "if(!el)return false;"
+                + "if(el.closest&&el.closest('a,button,input,select,textarea,summary,label,[role=\"button\"],[role=\"link\"],[role=\"menuitem\"],[role=\"tab\"],[role=\"checkbox\"],[role=\"switch\"],[role=\"option\"],nav,header,footer,[contenteditable]'))return true;"
+                + "return false;"
+                + "}"
                 + "window.AgonCopy={"
                 + "under:function(x,y,scale){"
+                + "if(onControl(x,y,scale))return false;"
                 + "var block=blockAt(x,y,scale);"
-                + "if(!block)return;"
+                + "if(!block)return false;"
                 + "var text=textOf(block);"
-                + "if(text)report(text);"
+                + "if(!text)return false;"
+                + "return report(text);"
                 + "},"
                 + "text:function(t){if(t)report(String(t).trim());},"
                 + "select:function(x,y,scale){"
@@ -1839,6 +1834,12 @@ public final class TabWebViews {
                 }
                 return;
             }
+            // A hold over a button, a link, the nav - or a control that sits on top of
+            // the page - is not a request for text: it is a long press on a control, and
+            // copying the caption next to it is the "clicking anywhere copies
+            // everything" report. The page answers whether this point is text; when it
+            // says no, nothing is copied and nothing is said, exactly as a long press on
+            // a button should be.
             copyUnder(pointJs(x, y));
         });
         w.setLongClickable(true);
@@ -2450,21 +2451,73 @@ public final class TabWebViews {
          * page's own long-press menu appears. 520 ms is long enough that nothing accidental
          * reaches it and still short enough to feel like a deliberate press.
          */
-        static final long HOLD_MS = 520L;
+        static final long HOLD_MS = 700L;
         /** How far the finger may drift and still be a hold rather than a scroll. */
         private static final float SLOP_DP = 10f;
         /**
-         * A finger that stays still for this long AFTER the hold has been fired stops
-         * counting as a hold.
+         * A finger that could not stay STILL for this long is not a hold.
          *
-         * The copy is no longer done on the timer: the hold only marks the point, and the
-         * work happens when the finger lifts. That is what lets a hold-then-drag extend a
-         * selection before anything is copied, and it means a press the user thought better
-         * of - sliding away, or leaving the finger to rest on a button - copies nothing.
+         * The slop test compares the finger with where it started, so a slow, twitchy press
+         * that wanders a centimetre and comes back counts as still - and then copies on the
+         * lift, which is a tap the user never meant as a copy. Frame-to-frame distance is
+         * what tells a resting finger from a moving one.
          */
-        private static final long ARM_MS = 900L;
+        private static final long STILL_MS = 260L;
+        private static final float STILL_DP = 4f;
+        /**
+         * A finger still down after this long is resting on the page, not asking for a copy.
+         *
+         * The copy happens on the lift (so a hold-then-drag can extend a selection first),
+         * which means a finger parked on the screen - reading, thinking, holding the phone -
+         * was copied the moment it came off. Past this, the press is abandoned.
+         */
+        private static final long REST_MS = 2500L;
 
         private HoldListener holdListener;
+
+        /**
+         * What the inside of a press is doing, in words the tests can read.
+         *
+         * The copy rules are timings in Java, and a phone build is the only place they used
+         * to be checkable - which is how "just clicking anywhere copies everything" reached
+         * a release. These flags are the same state, published: a short tap can be asserted
+         * to never arm, a hold on a button never to arm, and a hold on empty space to arm
+         * and copy on the lift only. Instrumentation, not behaviour: setting it changes
+         * nothing that happens on screen.
+         */
+        static final class Trace {
+            StringBuilder log = new StringBuilder();
+            boolean press;
+            boolean swallowed;
+            boolean armed;
+            boolean requested;
+            boolean cancelled;
+
+            synchronized void note(String what) {
+                if (log.length() > 0) log.append(',');
+                log.append(what);
+            }
+
+            synchronized String log() {
+                return log.toString();
+            }
+
+            void reset() {
+                log = new StringBuilder();
+                press = false;
+                swallowed = false;
+                armed = false;
+                requested = false;
+                cancelled = false;
+            }
+        }
+
+        private final Trace trace = new Trace();
+
+        Trace trace() {
+            return trace;
+        }
+
         private final android.os.Handler holdHandler =
                 new android.os.Handler(android.os.Looper.getMainLooper());
         private final Runnable arm = this::armHold;
@@ -2495,6 +2548,8 @@ public final class TabWebViews {
             holding = false;
             armed = new android.graphics.Point(Math.round(downX), Math.round(downY));
             selection = "";
+            trace.armed = true;
+            trace.note("arm");
             // On the view, not on this class: evaluateJavascript is WebView's.
             SelectionSafeWebView.this.evaluateJavascript(SELECTION_PROBE, value -> {
                 String text = unquoteJs(value);
@@ -2529,18 +2584,41 @@ public final class TabWebViews {
                 case android.view.MotionEvent.ACTION_DOWN:
                     downX = event.getX();
                     downY = event.getY();
+                    lastX = downX;
+                    lastY = downY;
+                    lastMoveAt = event.getEventTime();
+                    still = true;
                     holding = true;
+                    trace.reset();
+                    trace.press = true;
+                    trace.note("down");
                     cancelArmed();
                     holdHandler.removeCallbacks(arm);
                     holdHandler.postDelayed(arm, HOLD_MS);
+                    holdHandler.postDelayed(rest, REST_MS);
                     break;
                 case android.view.MotionEvent.ACTION_MOVE:
                     float dx = Math.abs(event.getX() - downX);
                     float dy = Math.abs(event.getY() - downY);
-                    if (holding && (dx > slop || dy > slop)) {
-                        // The finger travelled before the hold fired: a scroll.
+                    // Frame to frame: a wandering finger has not been still, however close
+                    // it ends up to where it started.
+                    float step = Math.max(Math.abs(event.getX() - lastX),
+                            Math.abs(event.getY() - lastY));
+                    long now = event.getEventTime();
+                    if (step > STILL_DP * (slop / SLOP_DP)) {
+                        still = false;
+                        lastMoveAt = now;
+                    } else if (still && now - lastMoveAt > STILL_MS) {
+                        still = false;
+                    }
+                    lastX = event.getX();
+                    lastY = event.getY();
+                    if (holding && (dx > slop || dy > slop || !still)) {
+                        // The finger travelled before the hold fired: a scroll, a drag, or a
+                        // tap with a shaky hand. None of them is a request to copy.
                         cancelHold();
-                    } else if (armed != null && (dx > slop * 3 || dy > slop * 3)) {
+                    }
+                    if (armed != null && (dx > slop * 3 || dy > slop * 3)) {
                         // It was a hold, and then the finger kept going: the user is
                         // extending a selection by hand, so leave the copy to them.
                         cancelArmed();
@@ -2554,6 +2632,12 @@ public final class TabWebViews {
                         final String chosen = selection;
                         cancelArmed();
                         if (holdListener != null) holdListener.onHold(x, y, chosen);
+                        trace.requested = true;
+                        trace.note("hold");
+                        // The press became a copy, so the page must NOT also be tapped.
+                        // Copying and then firing whatever was under the finger is how one
+                        // long press both copied a reply and did what it was covering.
+                        return true;
                     }
                     break;
                 case android.view.MotionEvent.ACTION_CANCEL:

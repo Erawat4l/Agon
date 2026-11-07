@@ -123,11 +123,22 @@ function method(src, signature) {
   check('closing never puts "that is the last tab" on screen',
     !/R\.string\.strip_last_tab/.test(MAIN) && !/name="strip_last_tab"/.test(STRINGS),
     (close.match(/toast\([^;]*\)/g) || []).join(' | '));
-  check('a close for the chat tab closes the window that is open instead',
-    /tabs\.windows\(\)/.test(close) && /id = open\.get\(/.test(close),
-    close.replace(/\s+/g, ' ').slice(0, 300));
-  check('with nothing else open the close is simply nothing',
-    /if \(open\.isEmpty\(\)\) return;/.test(close), close.replace(/\s+/g, ' '));
+  // "If i click on that x on the default chat tab ... the default tab should only get closed
+  // not the other one". The cross on the chat chip used to close the newest EXTRA window
+  // instead - so the tab aimed at stayed and a tab nobody touched vanished.
+  check('a close for the chat tab closes the chat tab, and only it',
+    /closeChatTab\(\);\s*return;/.test(close) && !/tabs\.windows\(\)/.test(close) &&
+    !/id = open\.get\(/.test(close),
+    close.replace(/\s+/g, ' ').slice(0, 320));
+  check('and that is the same path Ctrl/Cmd+W on the chat tab takes',
+    /private void closeChatTab\(\)/.test(MAIN) &&
+    /closeChatTab\(\)/.test(method(MAIN, 'void onCloseTabShortcut()')));
+  // Closing the chat tab must not touch another tab's page: it reloads the chat tab and
+  // hands the screen to its neighbour, and nothing else.
+  const chat = method(MAIN, 'private void closeChatTab()').replace(/\s+/g, ' ');
+  check('closing the chat tab reloads only the chat tab',
+    /tabs\.get\(AppUi\.TAB_CHAT\)/.test(chat) && !/closeWindow\(/.test(chat),
+    chat.slice(0, 300));
 }
 
 // --- a background tab is not turned into a new chat while it is on screen ---------------

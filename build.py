@@ -993,6 +993,39 @@ def main(argv):
         clean()
         return 0
 
+    # Publishing is for the repository this checkout belongs to, and nobody else's.
+    #
+    # `build.bat publish 1.4.60` is the command handed out for making a release, and it
+    # does two different things at once: it builds the APK + installers (anybody's
+    # business) and it uploads a GitHub release (only the project's own). A newcomer who
+    # clones this, or forks it, and runs that command would create a release under their
+    # own account that every installed copy of the app treats as the next official
+    # version - and their phone would then offer it to them as an update. Nothing about
+    # that is what they asked for.
+    #
+    # So the check is one question, answered from the checkout itself: does this folder
+    # point at Erawat4l/Agon? If it points somewhere else, publishing stops here - before
+    # the toolchain is installed, so it costs seconds - and says what to run instead. The
+    # build itself is unaffected: `build.bat` still produces the APK.
+    if mode == "publish":
+        if "--publish-anyway" in argv:
+            slugs = needs.origin_slugs()
+            say("  [i] --publish-anyway: publishing from %s as asked."
+                % (slugs[0] if slugs else "a folder with no GitHub remote"))
+        else:
+            mine, theirs = needs.publishes_here()
+            if not mine:
+                say()
+                say("  This folder is not Erawat4l/Agon - it points at %s." % theirs)
+                say("  Publishing would upload a release to THAT repository, so it was")
+                say("  not done. Nothing was built or uploaded.")
+                say()
+                say("  To build the app:      build.bat            (APK)")
+                say("                         build.bat desktop    (APK + installers)")
+                say("  To publish to your own copy anyway:  build.bat publish <version> --publish-anyway")
+                say()
+                return 1
+
     # proot-distro and the container itself are host-side items with real commands, so they
     # are installed before anything is asked of the container.
     sdk = ensure_tools(host_name)

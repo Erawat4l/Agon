@@ -309,13 +309,16 @@ for (const file of ['build.py', 'tools/needs.py']) {
   // The block that carries the cd is the one with "publish" in it; an older snippet higher
   // up the file still shows a bare `build.bat` as shorthand.
   const blocks = [...readme.matchAll(/```bat\n([\s\S]*?)```/g)].map((m) => m[1]);
-  const real = blocks.find((b) => /publish/.test(b));
+  const real = blocks.find((b) => /publish/.test(b) && /cd \/d /.test(b));
   check('README has a paste-able Windows block', !!real);
   if (real) {
     const lines = real.split('\n').filter((l) => !/^\s*(::|#)/.test(l) && l.trim());
     check('it starts by entering the project folder', /^cd \/d /.test(lines[0].trim()),
       lines[0]);
-    check('and only then runs the build', /^build\.bat\b/.test(lines[1].trim()), lines[1]);
+    // Nothing may be typed before the cd, or cmd cannot find build.bat; the build comes
+    // after it, at whatever line the intermediate steps need.
+    const at = lines.findIndex((l) => /^build\.bat\b/.test(l.trim()));
+    check('and only then runs the build', at > 0, lines[at] || 'no build.bat line');
   }
   const setup = fs.readFileSync(path.join(ROOT, 'SETUP.md'), 'utf8');
   check('SETUP explains why "not recognized" happens',
@@ -324,6 +327,90 @@ for (const file of ['build.py', 'tools/needs.py']) {
     /cd \/d "%~dp0"/.test(fs.readFileSync(path.join(ROOT, 'build.bat'), 'utf8')));
   check('build.sh does the same, so it works from any directory',
     /cd "\$\(dirname "\$0"\)"/.test(fs.readFileSync(path.join(ROOT, 'build.sh'), 'utf8')));
+}
+
+// --- who is allowed to publish ----------------------------------------------------------
+//
+// "If a new comer came and try this cmd then what will happen ... i dont wnt that for them."
+// build.bat publish does two jobs: it builds the app (anyone's business) and it uploads a
+// GitHub release (only this repository's). A newcomer's clone or fork must get the first
+// and be refused the second - before anything is built, and without a token prompt.
+{
+  const fsx = fs;
+  const osx = os;
+  const { execFileSync: exec } = require('child_process');
+
+  // A throwaway checkout with an origin of our choosing: the guard reads git config, so the
+  // only honest test is a real repository with a real remote.
+  function clone(slug) {
+    const dir = fsx.mkdtempSync(path.join(osx.tmpdir(), 'agon-fork-'));
+    exec('git', ['init', '-q', dir]);
+    exec('git', ['-C', dir, 'remote', 'add', 'origin', slug]);
+    for (const f of ['build.py', 'tools/needs.py']) {
+      const to = path.join(dir, f);
+      fsx.mkdirSync(path.dirname(to), { recursive: true });
+      fsx.copyFileSync(path.join(ROOT, f), to);
+    }
+    return dir;
+  }
+  function runPublish(dir, args) {
+    try {
+      return { code: 0, out: exec(PY, ['build.py', ...args], {
+        cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      }) };
+    } catch (err) {
+      return { code: err.status || 1, out: String(err.stdout || '') + String(err.stderr || '') };
+    }
+  }
+
+  const forks = ['https://github.com/someone-else/Agon.git',
+    'git@github.com:newcomer/Agon.git'];
+  for (const slug of forks) {
+    const dir = clone(slug);
+    const r = runPublish(dir, ['publish', '1.4.60']);
+    check(`a fork (${slug.split(/[:/]/)[1]}) is refused before anything is built`,
+      r.code !== 0 && /not Erawat4l\/Agon/.test(r.out) &&
+      /Nothing was built/.test(r.out) && !/Building|Gradle|Installing|token/i.test(r.out),
+      r.out.slice(-400));
+    check('and it says what to run instead of publishing',
+      /build\.bat/.test(r.out) && /APK\b/.test(r.out) && /--publish-anyway/.test(r.out),
+      r.out.slice(-300));
+  }
+
+  // The real repository still publishes; only the folder's identity decides.
+  const ours = clone('https://github.com/Erawat4l/Agon.git');
+  const ok = runPublish(ours, ['publish', '1.4.60', '--dry-run']);
+  check('the real repository is not refused (it gets as far as the dry-run upload)',
+    /would upload/.test(ok.out) && !/not Erawat4l\/Agon/.test(ok.out), ok.out.slice(-300));
+
+  // An ssh remote to this repository counts, and so does "no remote at all".
+  const oursSsh = clone('git@github.com:Erawat4l/Agon.git');
+  check('an ssh remote to this repository counts too',
+    !/not Erawat4l\/Agon/.test(runPublish(oursSsh, ['publish', '1.4.60', '--dry-run']).out));
+  const bare = fsx.mkdtempSync(path.join(osx.tmpdir(), 'agon-bare-'));
+  for (const f of ['build.py', 'tools/needs.py']) {
+    const to = path.join(bare, f);
+    fsx.mkdirSync(path.dirname(to), { recursive: true });
+    fsx.copyFileSync(path.join(ROOT, f), to);
+  }
+  check('a copy with no git remote at all is still allowed to publish',
+    !/not Erawat4l\/Agon/.test(runPublish(bare, ['publish', '1.4.60', '--dry-run']).out));
+
+  // -ApkOnly and -LocalOnly never reach GitHub, so they stay allowed in a fork: they are
+  // how a newcomer builds the app, and that must not be blocked.
+  const ps1 = fsx.readFileSync(path.join(ROOT, 'tools', 'publish.ps1'), 'utf8');
+  check('the PowerShell publisher checks the remote as well',
+    /remote\.origin\.url/.test(ps1) && /Erawat4l\/Agon/.test(ps1) &&
+    /-not \$LocalOnly -and -not \$ApkOnly/.test(ps1));
+  check('and the batch launcher refuses before it prompts for a token',
+    /whose repository/.test(fsx.readFileSync(path.join(ROOT, 'publish.bat'), 'utf8')) &&
+    fsx.readFileSync(path.join(ROOT, 'publish.bat'), 'utf8').indexOf('goto :not_ours') <
+      fsx.readFileSync(path.join(ROOT, 'publish.bat'), 'utf8').indexOf(':need_token'));
+  check('the command handed to newcomers is the one that builds and stops',
+    /^build\.bat$/m.test(fsx.readFileSync(path.join(ROOT, 'README.md'), 'utf8')
+      .match(/```bat\n([\s\S]*?)```/g).map((b) => b.replace(/```bat\n|```/g, ''))
+      .find((b) => /cd \/d /.test(b)))
+    || /build\.bat publish <version>/.test(fsx.readFileSync(path.join(ROOT, 'README.md'), 'utf8')));
 }
 
 console.log(`\n${bad === 0 ? 'all build-script tests passed' : bad + ' FAILED'}`);

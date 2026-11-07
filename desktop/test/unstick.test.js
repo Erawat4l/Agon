@@ -51,6 +51,19 @@ function extractJavaJs(constName) {
     }
     if (c === '"') { inString = true; literal += c; continue; }
     if (c === ';') break;
+    // Java line comments between the concatenated parts carry prose with quotes in it
+    // ("random touches"), which would otherwise be spliced into the JavaScript.
+    if (c === '/' && java[i + 1] === '/') {
+      while (i < java.length && java[i] !== '\n') i++;
+      literal += '\n';
+      continue;
+    }
+    if (c === '/' && java[i + 1] === '*') {
+      i += 2;
+      while (i < java.length && !(java[i] === '*' && java[i + 1] === '/')) i++;
+      i++;
+      continue;
+    }
     literal += c;
   }
   const parts = literal.match(/"(?:[^"\\]|\\.)*"/g) || [];
@@ -114,30 +127,52 @@ function page(bodyHtml, opts = {}) {
 
   const answers = [];
   const events = [];
+  const targets = [];
+  // jsdom has no layout and no hit testing: the repair asks document.elementFromPoint
+  // what is under a candidate point, so a test that expects a press must say what is
+  // there. Without a stub nothing can be identified as empty, and nothing is pressed -
+  // which is itself the safe behaviour under test below.
+  if (opts.hit) w.document.elementFromPoint = (x, y) => opts.hit(w.document, x, y);
   w.AgonEscape = { stuck: (v) => answers.push(v) };
   for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'keydown']) {
-    w.document.addEventListener(type, (e) => events.push(type + ':' + (e.key || '')), true);
+    w.document.addEventListener(type, (e) => {
+      events.push(type + ':' + (e.key || ''));
+      targets.push(type + '@' + (e.target && e.target.tagName));
+    }, true);
   }
-  return { w, answers, events };
+  return { w, answers, events, targets };
 }
 
 // --- the float exactly as measured from the recording: a VERTICAL pill (keyboard,
 // emoji, menu) about 55x250 CSS px, parked over the left edge of the page
 {
-  const { w, answers, events } = page(
+  const { w, answers, events, targets } = page(
     `<div id=side data-box="200,600,60" data-style="position:static;visibility:visible">
        <a href=#>New Chat</a></div>
      <div id=pill data-box="55,250,80" data-style="position:fixed;visibility:visible">
        <button>keyboard</button><button>emoji</button><button>menu</button></div>
-     <textarea id=box></textarea>`);
+     <textarea id=box></textarea>`, { hit: (d) => d.body });
   w.document.querySelector('#box').focus();
   check('a field is focused before the repair', w.document.activeElement.id === 'box');
   w.eval(unstick);
   check('reports still stuck for the vertical pill', answers[0] === true, `answers=${answers}`);
   check('focus is released', w.document.activeElement.id !== 'box');
-  check('a pointer press was dispatched', events.some((e) => e.startsWith('pointerdown')),
-    events.join(','));
+  check('the press lands on the empty page, not on a control',
+    targets.includes('pointerdown@BODY') && !targets.some((t) => /@(A|BUTTON|TEXTAREA)$/.test(t)),
+    targets.join(','));
   check('Escape was dispatched', events.includes('keydown:Escape'));
+}
+
+// --- a page where the only thing under every candidate point is a control: the repair
+// must let go and press Escape, but send no press at all into that control
+{
+  const { w, targets } = page(
+    `<div id=wrap data-box="640,800,0" data-style="position:static;visibility:visible">
+       <a href=#>home</a><button>send</button></div>`,
+    { hit: (d) => d.querySelector('button') });
+  w.eval(unstick);
+  check('nothing is pressed when every candidate point is a control',
+    !targets.some((t) => t.startsWith('pointerdown')), targets.join(','));
 }
 
 // --- the horizontal form of the same thing is also recognised

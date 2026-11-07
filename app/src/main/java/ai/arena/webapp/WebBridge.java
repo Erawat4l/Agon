@@ -49,6 +49,21 @@ public final class WebBridge {
     }
 
     /**
+     * A press happened, and this is what was under it.
+     *
+     * Only read when Settings -> "Show what a tap lands on" is on; the app decides, so the
+     * page never draws anything itself. `json` is the element's tag, role, label and box,
+     * produced by JS_TAP_WATCH.
+     */
+    @JavascriptInterface
+    public void tap(final String json) {
+        if (json == null || json.isEmpty()) return;
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) ((MainActivity) activity).onPageTap(json);
+        });
+    }
+
+    /**
      * The text under a held finger, found BY THE PAGE on request from the app.
      *
      * This is the route that does not depend on the page's own timers or on Android's

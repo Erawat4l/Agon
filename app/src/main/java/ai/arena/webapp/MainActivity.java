@@ -640,6 +640,40 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     /**
+     * A press landed on something: say what, when the switch is on.
+     *
+     * The point of the readout is the difference between the two halves. `tag`/`role` is
+     * what the finger actually touched; `hit` is the control the press will reach, which is
+     * a button or a link if one wraps that element. When the user says "that is not what I
+     * tapped", the box and the name together say whether the press was where they think it
+     * was, or whether something invisible is sitting on top of the control they wanted.
+     */
+    void onPageTap(String json) {
+        if (isFinishing() || isDestroyed()) return;
+        if (!Settings.tapWatch(this)) return;
+        String text;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            String hit = o.optString("hit", "");
+            String hitRole = o.optString("hitRole", "");
+            String hitName = o.optString("hitName", "");
+            String tag = o.optString("tag", "");
+            int x = o.optInt("x");
+            int y = o.optInt("y");
+            int wPx = o.optInt("w");
+            int hPx = o.optInt("h");
+            String what = hitName.isEmpty() ? (hitRole.isEmpty() ? hit : hitRole) : hitName;
+            if (what.length() > 40) what = what.substring(0, 40) + "…";
+            text = "<" + hit + "> " + what + "   @" + x + "," + y
+                    + (wPx > 0 ? "  " + wPx + "×" + hPx : "")
+                    + (tag.equals(hit) ? "" : "   (felt: <" + tag + ">)");
+        } catch (Exception e) {
+            text = json;
+        }
+        toastText(text);
+    }
+
+    /**
      * Three taps in the page unlocked (or re-locked) text selection.
      *
      * The gesture is a shortcut for the "App-style text" switch, so the switch is written:
@@ -696,12 +730,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // Empty the chat tab first, so the next visit to it is a fresh conversation rather
         // than the one that was just closed.
         if (chat != null) {
+            // Nothing but the load. This used to also fire startNewChat() 900 ms later, and
+            // that script's job is to click "new chat" in the page - on a document that had
+            // not finished loading, so the click landed on whatever was rendered at that
+            // moment. The root route IS a fresh conversation; there is nothing to chase.
             chat.loadUrl(TabWebViews.urlFor(AppUi.TAB_CHAT));
-            chat.postDelayed(() -> {
-                if (tabs != null && tabs.get(AppUi.TAB_CHAT) == chat) {
-                    TabWebViews.startNewChat(chat);
-                }
-            }, 900L);
         }
         if (next == AppUi.TAB_CHAT) {
             // Nothing else is open: the chat tab is now the only tab and it is empty.
@@ -1917,6 +1950,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 break;
             case Settings.K_NO_SELECT:
                 applyChromeInsets();   // the CSS is replaced in place, no reload needed
+                break;
+            case Settings.K_TAP_WATCH:
+                // Nothing to reload: the watcher is installed on every page already and
+                // only reports. The app decides whether to show what it reports, which is
+                // this switch - so it works the moment it is flipped, either way.
+                if (value) toast(R.string.tap_watch_on);
                 break;
             case Settings.K_SHOW_VERSION:
                 rebuildNavArea();

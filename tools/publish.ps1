@@ -26,7 +26,11 @@ param(
     [switch]$Rebuild,
     # Build ONLY the APK and stop. The Windows installers are 140 MB and several minutes of
     # electron-builder for a file that is not being asked for; this is the APK iteration loop.
-    [switch]$ApkOnly
+    [switch]$ApkOnly,
+    # Publish even though this checkout does not belong to the repository being
+    # published to. Off by default: a fork or a fresh clone must not put a release
+    # under someone else's name (see the check further down).
+    [switch]$PublishAnyway
 )
 
 $ErrorActionPreference = "Stop"
@@ -313,6 +317,28 @@ if ($LocalOnly) {
     Write-Host "  Only this PC has them. Nothing was uploaded and no release exists."
     Write-Host "  To publish:  publish.bat $Version"
     exit 0
+}
+
+# ---------------------------------------------------------------- whose repository
+# The build is anybody's business; the upload is not. A newcomer who clones or forks
+# this and runs publish.bat would create a release under their own account that every
+# installed copy of Agon treats as the next official version. So: publish only when the
+# checkout points at the repository the script uploads to. -LocalOnly and -ApkOnly are
+# untouched - they build and stop, and contacting GitHub is not part of them.
+$originUrl = ""
+try { $originUrl = (& git config --get remote.origin.url 2>$null | Out-String).Trim() } catch { }
+if (-not $LocalOnly -and -not $ApkOnly -and -not $PublishAnyway) {
+    if ($originUrl -and $originUrl -notmatch 'github\.com[:/]Erawat4l/Agon') {
+        Write-Host ""
+        Write-Host "[X] This folder is not Erawat4l/Agon - it points at $originUrl" -ForegroundColor Red
+        Write-Host "    Publishing would upload a release to THAT repository, which every" -ForegroundColor Red
+        Write-Host "    installed copy of Agon would treat as the next official version." -ForegroundColor Red
+        Write-Host "    Nothing was uploaded. The APK above is still built and usable." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  To build only:  publish.bat $Version local" -ForegroundColor Yellow
+        Write-Host "  To publish to your own repository anyway:  publish.bat $Version stable anyway" -ForegroundColor Yellow
+        exit 1
+    }
 }
 
 # ---------------------------------------------------------------- github api

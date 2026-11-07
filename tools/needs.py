@@ -39,12 +39,12 @@ MIN_JAVA = 17
 
 # --------------------------------------------------------------------------- helpers
 
-def run(cmd, timeout=30):
+def run(cmd, timeout=30, cwd=None):
     """Runs a command and returns (exit code, stdout+stderr). Never raises."""
     try:
         p = subprocess.run(cmd, shell=isinstance(cmd, str), stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT, timeout=timeout,
-                           cwd=ROOT, text=True, errors="replace")
+                           cwd=cwd or ROOT, text=True, errors="replace")
         return p.returncode, p.stdout or ""
     except Exception as exc:                                  # noqa: BLE001 - reported
         return 127, str(exc)
@@ -178,6 +178,57 @@ def arm64_tools_ok(tools="/opt/arm64-tools"):
         return False
     code, _ = run([exe, "version"])
     return code == 0
+
+
+# --------------------------------------------------------------------------- whose repo
+
+def slug_of(url):
+    """`github.com/Erawat4l/Agon.git` -> `erawat4l/agon`. Anything else -> "".
+
+    Handles the three ways a remote is written: https, ssh (git@github.com:owner/repo) and
+    the same with a trailing `.git`. A remote on another host is not a GitHub repository
+    this build can publish to, so it yields nothing.
+    """
+    m = re.search(r"github\.com[:/]+([^/]+)/(.+?)(?:\.git)?/*$", (url or "").strip())
+    if not m:
+        return ""
+    return (m.group(1) + "/" + m.group(2)).lower()
+
+
+def origin_slugs(root=None):
+    """Every owner/repo slug this checkout points at, lowcased and de-duplicated.
+
+    Used to answer one question only - "is the repository being published to the one this
+    folder belongs to?" A newcomer's fork has origin = <their>/Agon, and publishing an
+    update there would put a build under their name for anybody running it.
+    """
+    code, out = run("git remote -v", timeout=15, cwd=root or ROOT)
+    slugs = []
+    if code == 0:
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                slug = slug_of(parts[1])
+                if slug and slug not in slugs:
+                    slugs.append(slug)
+    return slugs
+
+
+def publishes_here(root=None):
+    """(True, "") when this checkout is the one the build publishes releases to.
+
+    A clone with no origin at all, or one divorced from GitHub, still counts as "this is
+    the project" - there is nothing to publish to, so nothing to protect. Only a checkout
+    whose remotes name a DIFFERENT repository is a copy, and a copy must not publish a
+    release that looks like an official one.
+    """
+    want = (REPO[0] + "/" + REPO[1]).lower()
+    slugs = origin_slugs(root)
+    if not slugs:
+        return True, ""
+    if want in slugs:
+        return True, ""
+    return False, slugs[0]
 
 
 # --------------------------------------------------------------------------- versions

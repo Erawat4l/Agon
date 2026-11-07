@@ -16,6 +16,9 @@ REM     publish.bat 1.4.57 rebuild  rebuild and re-upload even if that version i
 REM                                 already published and complete
 REM     publish.bat 1.2.0 local     same, at a version you choose
 REM     publish.bat --token ghp_xx  remember a GitHub token for next time
+REM     publish.bat 1.4.60 anyway   publish even though this checkout is a fork or
+REM                                 somebody else's clone (refused by default, so a
+REM                                 newcomer cannot release under their own name)
 REM
 REM  Result: a GitHub Release with Agon-<version>.apk attached. Every
 REM  installed copy of the app sees it (Update -> Check for updates) and can
@@ -24,6 +27,19 @@ REM ===========================================================================
 
 set "VERSION=%~1"
 set "CHANNEL=%~2"
+REM "anyway" overrides the ownership check below. Accepted in any position, like the
+REM other modes, because `publish.bat 1.4.60 anyway` is what a person types.
+set "ANYWAY=0"
+if /i "%~3"=="anyway" set "ANYWAY=1"
+if /i "%VERSION%"=="anyway" (
+    set "ANYWAY=1"
+    set "VERSION=%CHANNEL%"
+    set "CHANNEL="
+)
+if /i "%CHANNEL%"=="anyway" (
+    set "ANYWAY=1"
+    set "CHANNEL="
+)
 set "LOCAL=0"
 set "APKONLY=0"
 set "REBUILD=0"
@@ -81,6 +97,21 @@ git rev-parse --is-inside-work-tree >nul 2>nul
 if errorlevel 1 goto :no_git
 for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD') do set "BRANCH=%%b"
 echo [1/4] Branch: !BRANCH!
+
+REM ---------- whose repository ---------------------------------------------
+REM Publishing is for the repository this folder belongs to. A newcomer who clones
+REM or forks this and runs publish.bat would otherwise create a release under their
+REM OWN account that every installed copy of the app treats as the next official
+REM version. That is not what "build the app" means, so the upload is refused here
+REM and the build is pointed at instead. Nothing has been built or uploaded yet.
+set "ORIGIN="
+for /f "delims=" %%r in ('git config --get remote.origin.url 2^>nul') do set "ORIGIN=%%r"
+set "ISOURS=0"
+if not defined ORIGIN set "ISOURS=1"
+if defined ORIGIN echo !ORIGIN! | findstr /i "github.com[:/]Erawat4l/Agon" >nul
+if not errorlevel 1 set "ISOURS=1"
+if "!ISOURS!"=="0" if "!ANYWAY!"=="1" set "ISOURS=1"
+if "!ISOURS!"=="0" goto :not_ours
 
 REM ---------- version -----------------------------------------------------
 if "%VERSION%"=="" goto :bump_version
@@ -203,10 +234,12 @@ if "!TOKEN!"=="" exit /b 1
 echo [4/4] Building and uploading...
 REM One line per call, on purpose: a "^" line continuation inside a parenthesised
 REM block is a documented cmd.exe trap (the block is parsed before the caret is honoured).
-if "!APKONLY!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly -ApkOnly
+set "ANYFLAG="
+if "!ANYWAY!"=="1" set "ANYFLAG=-PublishAnyway"
+if "!APKONLY!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly -ApkOnly !ANYFLAG!
 if "!APKONLY!"=="0" if "!LOCAL!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Channel "!CHANNEL!" -LocalOnly
-if "!APKONLY!"=="0" if not "!LOCAL!"=="1" if "!REBUILD!"=="0" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!"
-if "!APKONLY!"=="0" if not "!LOCAL!"=="1" if "!REBUILD!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!" -Rebuild
+if "!APKONLY!"=="0" if not "!LOCAL!"=="1" if "!REBUILD!"=="0" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!" !ANYFLAG!
+if "!APKONLY!"=="0" if not "!LOCAL!"=="1" if "!REBUILD!"=="1" powershell -NoProfile -ExecutionPolicy Bypass -File "tools\publish.ps1" -Version "!VERSION!" -Token "!TOKEN!" -Channel "!CHANNEL!" -Rebuild !ANYFLAG!
 if errorlevel 1 goto :failed
 
 echo.
@@ -237,6 +270,23 @@ echo   APK        : %~dp0Agon-!VERSION!.apk
 echo   Installers : %~dp0desktop\release\Agon-Setup-64.exe
 echo                %~dp0desktop\release\Agon-Setup-32.exe
 exit /b 0
+
+REM ---------- refused: not this repository ---------------------------------
+:not_ours
+echo.
+echo [X] This folder is not Erawat4l/Agon - it points at: !ORIGIN!
+echo.
+echo     Publishing would upload a release to THAT repository, which every
+echo     installed copy of Agon would treat as the next official version.
+echo     Nothing was built and nothing was uploaded.
+echo.
+echo     Build the app instead:
+echo        build.bat                the APK
+echo        build.bat desktop        APK + both Windows installers
+echo.
+echo     Publish to your own repository anyway:  publish.bat ^<version^> stable anyway
+echo.
+exit /b 1
 
 REM ---------- helpers -----------------------------------------------------
 REM :version_code <version> <out-var>  -> sets <out-var> to a.b.c as major*1e6+minor*1e3+patch

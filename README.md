@@ -40,8 +40,13 @@ then builds.
 :: Windows - TWO lines, not one. The prompt in the line below the first must show
 :: C:\Users\<you>\Desktop\Erawat\Agon before the second line is typed.
 cd /d "%USERPROFILE%\Desktop\Erawat\Agon"
-build.bat publish 1.4.60
+build.bat
 ```
+
+> That is the command to **hand to somebody else**. `build.bat` builds the APK and the
+> installers and stops; it contacts nothing. `build.bat publish <version>` additionally
+> uploads a GitHub release, and that is only for this repository — see
+> [Who is allowed to publish](#who-is-allowed-to-publish).
 
 > Typing the build in the wrong place is the single most common failure:
 > `'build.bat' is not recognized as an internal or external command` means cmd is not
@@ -63,7 +68,7 @@ Both are thin launchers for `build.py`, so the phone and the PC cannot drift apa
 | `build.bat apk --release` | Signed release APK instead of a debug one |
 | `build.bat apk --beta` | Next version on the beta channel |
 | `build.bat desktop` | APK **and** both Windows installers (Windows only) |
-| `build.bat publish` | Everything above, then uploads the release |
+| `build.bat publish` | Everything above, then uploads the release. **Refused in a fork or someone else's clone** |
 | `build.bat sign` | **Fixes signing in one command**: finds a key you already have, adopts it, or makes one — then prints its fingerprint |
 | `build.bat clean` | Deletes build output. Never the signing key, never the source |
 | `publish.bat` | The publishing path on its own (version policy, release notes, upload) |
@@ -494,6 +499,7 @@ onwards is consistent.
 ### After every change
 
 ```bat
+cd /d "%USERPROFILE%\Desktop\Erawat\Agon"
 git pull --rebase --autostash
 build.bat publish
 ```
@@ -524,6 +530,37 @@ saying *"you are up to date"*. The app no longer trusts that endpoint blindly ei
 compares the tags of the recent releases and installs the highest one that is actually
 newer. Installed apps pick the new release up on
 their next check (`Update → Check for updates`).
+
+## Who is allowed to publish
+
+Building the app and publishing a release are two different jobs, and only one of them is
+anybody's to do.
+
+| You want to | Type | What happens |
+| --- | --- | --- |
+| Build the app, for your own phone or PC | `build.bat` | APK (+ installers with `build.bat desktop`). Nothing is uploaded, no account or token is needed |
+| Publish an update for everyone | `build.bat publish <version>` | Only works in a checkout that points at **Erawat4l/Agon** |
+
+A clone or fork belongs to whoever cloned it, so `build.bat publish`, `publish.bat` and
+`tools/publish.ps1` all check `git config --get remote.origin.url` before they upload
+anything. If that remote is not `Erawat4l/Agon`, they say so, build nothing, upload nothing
+and exit with an error — the upload is refused *before* the first Gradle step, so it costs
+seconds rather than ten minutes.
+
+The reason is not territorial. A release is what the in-app updater reads: any release in a
+repository, at a version number above the installed one, is offered to the phone as the
+next official build. Someone running `build.bat publish 1.4.60` on their own fork would
+create exactly that under their own name, and then get a prompt to install it.
+
+Publishing to your own repository on purpose:
+
+```bat
+build.bat publish 1.4.60 --publish-anyway
+publish.bat 1.4.60 stable anyway
+```
+
+A folder with **no** git remote (a zip, a copy without `.git`) is treated as the real
+project — there is nothing to publish to, so there is nothing to guard.
 
 ### A. From your PC: `publish.bat` (works today)
 

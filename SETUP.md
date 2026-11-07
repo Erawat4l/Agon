@@ -182,6 +182,32 @@ Nothing is published by this step, and GitHub is never contacted.
 
 ---
 
+## Step 4a — Publishing is only for this repository
+
+`publish.bat` (and `build.bat publish`) upload a **release**, and a release is what the
+in-app updater reads. So both refuse to run in a checkout whose `git` remote points at a
+different repository than `Erawat4l/Agon`:
+
+```
+[X] This folder is not Erawat4l/Agon - it points at: https://github.com/<you>/Agon.git
+    Publishing would upload a release to THAT repository, which every
+    installed copy of Agon would treat as the next official version.
+    Nothing was built and nothing was uploaded.
+```
+
+That is not an error to fix — it is the answer. If you only wanted the app, you wanted
+Step 3 or Step 4b, both of which build and stop. To publish to your own repository on
+purpose, add `anyway`:
+
+```bat
+publish.bat 1.4.60 stable anyway
+```
+
+A folder with no git remote at all is treated as the project itself, because there is no
+other repository to protect.
+
+---
+
 ## Step 4b — Build without publishing at all
 
 If you only want the files on your own PC — to test, or to share by hand — do **not** use

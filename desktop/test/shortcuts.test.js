@@ -33,21 +33,10 @@ const BRIDGE = fs.readFileSync(path.join(NAV, 'WebBridge.java'), 'utf8');
 const STRINGS = fs.readFileSync(path.join(__dirname, '..', '..', 'app', 'src', 'main',
   'res', 'values', 'strings.xml'), 'utf8');
 
-/** One `private static final String NAME = ...;` constant, rebuilt as the script it makes. */
-function constant(name) {
-  const start = TABS.indexOf('private static final String ' + name + ' =');
-  if (start < 0) throw new Error(name + ' not found');
-  const end = TABS.indexOf(';\n', start);
-  let js = '';
-  for (const line of TABS.slice(start, end).split('\n')) {
-    if (/^\s*\/\//.test(line)) continue;
-    for (const m of line.matchAll(/"((?:[^"\\]|\\.)*)"/g)) js += m[1];
-  }
-  return js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
-}
+const { constant } = require('./script-source');
 
-const KEYS = constant('JS_NEW_CHAT_LISTENER');
-const TRIPLE = constant('JS_TRIPLE_TAP_SELECT');
+const KEYS = constant(TABS, 'JS_NEW_CHAT_LISTENER');
+const CHECK = constant(TABS, 'JS_TAP_CHECK');
 
 let bad = 0;
 function check(name, ok, detail) {
@@ -59,9 +48,9 @@ function check(name, ok, detail) {
 check('the shortcut listener is valid JavaScript',
   (() => { try { new Function(KEYS); return true; } catch (e) { return false; } })(),
   KEYS.slice(0, 160));
-check('the triple-tap script is valid JavaScript',
-  (() => { try { new Function(TRIPLE); return true; } catch (e) { return false; } })(),
-  TRIPLE.slice(0, 160));
+check('the tap check is valid JavaScript',
+  (() => { try { new Function(CHECK); return true; } catch (e) { return false; } })(),
+  CHECK.slice(0, 160));
 
 // --- Ctrl+Tab / Ctrl+W / Ctrl+N ---------------------------------------------------------
 /** Runs the listener in a page and reports which bridge calls each key press produced. */
@@ -131,63 +120,85 @@ function key(call) {
     close ? close[0].replace(/\s+/g, ' ').slice(0, 220) : 'not found');
 }
 
-// --- three taps toggle "App-style text" -------------------------------------------------
-/** A page with the guard installed and a policy stylesheet, as the app writes them. */
-function taps() {
-  const dom = new JSDOM('<!doctype html><html><head></head><body><div id=reply>a reply</div>' +
-    '<textarea id=composer></textarea></body></html>',
+// --- the three-tap gesture is GONE -----------------------------------------------------
+//
+// "no three two to enable disable or enable text selection so move this to settings in
+// more". It was a hidden shortcut for a setting that already exists, and it fired by
+// accident: three taps anywhere on the page flipped text selection, so taps appeared to
+// behave differently from one minute to the next. "App-style text" in Settings -> For
+// developers is the only way to change it now.
+{
+  check('the page no longer watches for three taps',
+    !/JS_TRIPLE_TAP_SELECT/.test(TABS) && !/__agonTripleTap/.test(TABS),
+    'the triple-tap script must be removed, not just un-injected');
+  check('and nothing installs it on a page finish',
+    !/TripleTap|tripleTap/.test(TABS));
+  check('the bridge call it used is gone too', !/selectToggled/.test(BRIDGE));
+  check('and so is the activity handler', !/onSelectToggled/.test(MAIN));
+  check('the toast that told the user to tap three times again is gone',
+    !/name="select_unlocked"/.test(STRINGS) && !/name="select_locked"/.test(STRINGS));
+  check('the switch itself is still there, in For developers',
+    /toggle\(Settings\.K_NO_SELECT, R\.string\.settings_selectable/.test(
+      fs.readFileSync(path.join(NAV, 'SettingsSheet.java'), 'utf8')));
+  // One decision, made by the setting: no page flag may keep a page unlocked after the
+  // switch was turned back on.
+  check('the setting is the only thing that decides the page rule',
+    !/__agonSelectUnlocked/.test(TABS));
+}
+
+// --- a press that is not a copy reaches the page ----------------------------------------
+//
+// "I have to click on anything multiple times". The touch handler swallowed every lift that
+// was not a copy, on the theory that the page would copy it a moment later - so a press the
+// page's own copy path refused never reached the control under the finger, and it had to be
+// tapped again.
+{
+  const up = /case android\.view\.MotionEvent\.ACTION_UP:([\s\S]*?)break;/.exec(TABS);
+  check('the lift is still swallowed when it became a copy',
+    !!up && /return true;/.test(up[1]),
+    up ? up[1].replace(/\s+/g, ' ').slice(0, 200) : 'ACTION_UP not found');
+  check('a press that was not a copy is reported to the gate',
+    !!up && /pressListener\.onPressFinished/.test(up[1]) && /false, travel/.test(up[1]));
+  check('the gate exists and asks the page before doing anything',
+    /private void watchPress\(/.test(TABS) && /AgonTapCheck/.test(TABS) &&
+    /JS_TAP_CHECK/.test(TABS));
+  const retap = TABS.slice(TABS.indexOf('private void retap('));
+  check('the retry is one press, delivered to the same point',
+    retap.length > 0 && /ACTION_DOWN/.test(retap.slice(0, 900)) &&
+    /ACTION_UP/.test(retap.slice(0, 900)));
+  check('a retry is never itself watched, so it cannot loop',
+    /feedingTap = true;[\s\S]{0,600}feedingTap = false;/.test(TABS) &&
+    /if \(copy \|\| feedingTap\) return;/.test(TABS));
+  check('a scroll is never retried',
+    /TAP_SLOP_PX/.test(TABS) && /travel > TAP_SLOP_PX/.test(TABS));
+  check('the tap check is installed on every page, not only the first',
+    /evaluateJavascript\(JS_TAP_CHECK/.test(TABS));
+}
+
+// The retry only fires when the page says a control did nothing.
+{
+  const dom = new JSDOM('<!doctype html><html><body>'
+    + '<button id=b style="width:200px;height:40px">Send</button>'
+    + '<div id=text>just text, no control</div></body></html>',
   { runScripts: 'outside-only', url: 'https://arena.ai/' });
   const w = dom.window;
-  const style = w.document.createElement('style');
-  style.id = 'arena-select-policy';
-  style.textContent = '*{user-select:none !important;}';
-  w.document.head.appendChild(style);
-  const seen = [];
-  w.ArenaNative = { selectToggled: (on) => seen.push(on) };
-  w.__agonNoSelect = function () {};
-  w.eval(TRIPLE);
-  const tap = (id, times) => {
-    const el = w.document.getElementById(id);
-    for (let i = 0; i < times; i++) {
-      el.dispatchEvent(new w.Event('touchstart', { bubbles: true }));
-    }
-  };
-  return { w, tap, seen };
-}
-
-{
-  const { w, tap, seen } = taps();
-  check('nothing happens on one or two taps', (tap('reply', 2), seen.length === 0));
-  tap('reply', 1);
-  check('the third tap unlocks selection', seen[seen.length - 1] === true,
-    JSON.stringify(seen));
-  check('the rule that stopped it is gone',
-    w.document.getElementById('arena-select-policy') === null);
-  check('and so is the listener that cancelled selections', w.__agonNoSelect === null);
-  check('it can be locked again with three more taps',
-    (tap('reply', 3), seen[seen.length - 1] === false), JSON.stringify(seen));
-  check('the stylesheet is put back, not re-derived',
-    !!w.document.getElementById('arena-select-policy') &&
-    /user-select:none/.test(w.document.getElementById('arena-select-policy').textContent));
-
-  const typing = taps();
-  typing.tap('composer', 3);
-  check('three taps in the composer never toggle the setting', typing.seen.length === 0,
-    JSON.stringify(typing.seen));
-}
-
-// --- ...and the setting is what actually changes ----------------------------------------
-{
-  check('the page reports the toggle to the app',
-    /@JavascriptInterface\s+public void selectToggled\(final boolean unlocked\)/.test(BRIDGE));
-  check('the activity writes the setting, so Settings and the next launch agree',
-    /void onSelectToggled\(boolean unlocked\)/.test(MAIN) &&
-    /Settings\.set\(this, Settings\.K_NO_SELECT, !unlocked\)/.test(MAIN));
-  check('it says which way the switch went',
-    /R\.string\.select_unlocked/.test(MAIN) && /R\.string\.select_locked/.test(MAIN) &&
-    /name="select_unlocked"/.test(STRINGS) && /name="select_locked"/.test(STRINGS));
-  check('the gesture is installed on every page, not only on the first one',
-    /evaluateJavascript\(JS_TRIPLE_TAP_SELECT/.test(TABS));
+  // jsdom has no layout, so the hit test is what the page would answer at that point.
+  w.document.elementFromPoint = () => w.document.getElementById('b');
+  w.eval(CHECK);
+  const born = Date.now();
+  check('a control that produced no click is reported as ignored',
+    w.AgonTapCheck.ask(60, 20, 1, born) === true);
+  check('a control that DID produce a click is left alone',
+    (() => {
+      w.document.getElementById('b').dispatchEvent(new w.MouseEvent('click',
+        { bubbles: true, clientX: 60, clientY: 20 }));
+      return w.AgonTapCheck.ask(60, 20, 1, born) === false;
+    })(), JSON.stringify(w.__agonClicks));
+  check('plain text is never re-delivered',
+    (() => {
+      w.document.elementFromPoint = () => w.document.getElementById('text');
+      return w.AgonTapCheck.ask(60, 20, 1, Date.now()) === false;
+    })());
 }
 
 // --- copying does not depend on Android's selection menu any more -----------------------

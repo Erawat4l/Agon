@@ -96,6 +96,23 @@ public final class WebBridge {
     }
 
     /**
+     * The hold landed on a control, nothing was copied, and the control never got the press.
+     *
+     * A hold is not a copy over a button - it is a long press - and the lift has to become
+     * the press the page never saw, or the button needs a second tap. That is "I have to
+     * click on anything multiple times". The page answers only after it has checked that
+     * no click reached anything near the point and that the control is still there.
+     */
+    @JavascriptInterface
+    public void acted(final float cssX, final float cssY) {
+        activity.runOnUiThread(() -> {
+            if (activity instanceof MainActivity) {
+                ((MainActivity) activity).onPagePressIgnored(cssX, cssY);
+            }
+        });
+    }
+
+    /**
      * The page could not copy by itself and is handing the text over instead.
      *
      * Same destination as copied(): the app writes the clip natively, so the user gets the
@@ -138,22 +155,6 @@ public final class WebBridge {
     public void closeTab() {
         activity.runOnUiThread(() -> {
             if (activity instanceof MainActivity) ((MainActivity) activity).onCloseTabShortcut();
-        });
-    }
-
-    /**
-     * Three taps in the page flipped text selection: keep the setting in step.
-     *
-     * `unlocked` true means selection is now ON, which is the setting "App-style text"
-     * turned OFF. The gesture is a shortcut for a switch that exists, never a third state
-     * of its own: Settings shows what happened and the next launch starts from it.
-     */
-    @JavascriptInterface
-    public void selectToggled(final boolean unlocked) {
-        activity.runOnUiThread(() -> {
-            if (activity instanceof MainActivity) {
-                ((MainActivity) activity).onSelectToggled(unlocked);
-            }
         });
     }
 

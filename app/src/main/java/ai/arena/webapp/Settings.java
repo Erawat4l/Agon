@@ -73,6 +73,14 @@ public final class Settings {
     /** Keep a copy of each page so the app still opens with no usable connection. */
     public static final String K_OFFLINE_PAGES = "offline_pages";
     public static final String K_DEVELOPER = "developer_options";
+    /**
+     * Keep a playing video alive in a floating window when the app is left.
+     *
+     * On by default: it only ever happens when a video is actually playing, which is exactly
+     * the moment a browser user expects it. The switch is only offered on phones that can do
+     * it (Android 8 and up with the feature), see Pip.available.
+     */
+    public static final String K_PIP_VIDEO = "pip_video";
 
     private Settings() {
     }
@@ -224,6 +232,11 @@ public final class Settings {
      */
     public static boolean offlinePages(Context c) {
         return get(c, K_OFFLINE_PAGES, true);
+    }
+
+    /** True when a playing video should carry on in a floating window. */
+    public static boolean pipVideo(Context c) {
+        return get(c, K_PIP_VIDEO, true);
     }
 
     public static boolean showTabStrip(Context c) {

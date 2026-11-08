@@ -208,8 +208,9 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Pull-to-refresh | **removed** — scrolling never reloads the page; use *More → Reload* when you want a fresh load |
 | Renderer crash | the dead WebView is dropped and rebuilt on the next visit instead of showing a blank page |
 | Tab strip arrows | the two arrows look identical (never dimmed) and **go round**: from the last tab `>` lands on the first, from the first `<` lands on the last. No "this is the last tab" message anywhere |
-| Closing a tab | the cross closes **exactly the tab it is drawn on** and says nothing. The x on the default (chat) chip closes that tab — its neighbour takes the screen and the chat tab starts empty — instead of closing whichever tab was opened last; every other chip already closed only itself. With a single tab open the strip draws no cross at all |
+| Closing a tab | **Chrome's rule.** The cross closes exactly the tab it is drawn on — the chat tab included: its WebView is destroyed, not reloaded, so it does not come back on arena's front page. The tab to the right takes the screen, or the one to the left if it was last. With one tab open the strip draws **no cross at all**, and closing the only tab leaves a *No tabs open* screen with one button rather than a replacement tab |
 | A new tab | is a **browser tab**, not a new chat: it opens on arena's front page and stays wherever the user drives it. Nothing re-routes it behind their back |
+| A video you leave | keeps playing in a **floating window**, cropped to the video rather than a shrunk web page, when you press Home with a video playing. Nothing appears without a playing video; Settings → *Video keeps playing when you leave* switches it off, and the switch is only offered on phones that can do it (Android 8+) |
 | Destinations | Ask / Search open **in the tab on screen**, not in the chat tab — with a conversation tab in front, tapping Search loads it in that tab and leaves the other tab alone |
 | Chat history | two taps on the **Chat** tab open the conversation list. Arena only draws its own history button inside a chat, so the front page had no route to it, and the app's sheet reads the page actually in front rather than always the chat tab. There is no *More → Chats* row: it was a second door to a list two taps already open |
 | A press you did not make | the app used to make three of its own: *new chat* ended its selector list with a link to the front page, so it clicked the site logo or the sidebar's Home row; the unstick repair pressed a fixed point on the left edge without looking, which on a phone is often a row or a toggle; and closing the chat tab started a new chat 900 ms later, into a half-loaded page. All three are gone — *new chat* only ever presses a button labelled as one, the repair picks the first genuinely empty point (and presses nothing if there is none), and closing only loads |
@@ -290,7 +291,7 @@ Settings switch and the next launch agree with what the gesture did.
 | --- | --- |
 | Ctrl/Cmd + Tab | next tab (wraps, like `>` in the strip) |
 | Ctrl/Cmd + Shift + Tab | previous tab |
-| Ctrl/Cmd + W | close the tab on screen — never the app, never a message |
+| Ctrl/Cmd + W | close the tab on screen — never the app, never a message. On the last tab it leaves the *No tabs open* screen |
 | Ctrl/Cmd + N | new chat tab |
 
 Arena's page listens for some of these itself, so the app stops the key first and does the

@@ -114,8 +114,8 @@ function key(call) {
     /void onCycleTabShortcut\(int direction\)/.test(MAIN) &&
     /stepTab\(direction < 0 \? -1 : 1\)/.test(MAIN));
   const close = /void onCloseTabShortcut\(\)\s*\{[\s\S]*?\n    \}/.exec(MAIN);
-  check('a close key closes a window and says nothing',
-    !!close && /closeWindowById\(id\)/.test(close[0]) &&
+  check('a close key closes the tab on screen and says nothing',
+    !!close && /closeTabById\(pageId\(\)\)/.test(close[0]) &&
     !/toast\(/.test(close[0]),
     close ? close[0].replace(/\s+/g, ' ').slice(0, 220) : 'not found');
 }

@@ -1448,6 +1448,16 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 host = Uri.parse(url).getHost() == null ? "" : Uri.parse(url).getHost();
             } catch (Exception ignored) {
             }
+            // A phone cannot reach the machine that opened this window. 127.0.0.1 and
+            // localhost are the PHONE itself, and nothing this app runs listens there - so a
+            // preview address copied from a laptop (localhost:3000, 127.0.0.1:8080) would
+            // load into an empty window forever. Say what it is and show the addresses that
+            // can work, instead of leaving an empty frame.
+            if (AppChrome.isPhoneLoopback(host)) {
+                openLocalHelp(url, host, this::openWebWindow);
+                popup.destroy();
+                return;
+            }
             boolean provider = url.isEmpty() || AppChrome.isSignInHost(host);
             if (provider) {
                 // The sheet owns the window from here: it attaches the popup (a lazy one
@@ -1474,6 +1484,40 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
                 ensureSignInSheet().openAccountWindow(popup, true);
             }
         });
+    }
+
+    /**
+     * Explains an address that can only work on the machine that wrote it down.
+     *
+     * `localhost:3000` in a dev server's preview link means "the laptop running it", and on
+     * a phone `localhost` is the phone. The request fails, the window stays empty, and
+     * nothing says why - which is exactly how "the preview does not open in the app" is
+     * reported. So the app lists this phone's own addresses: the wifi one is what the laptop
+     * should use instead, and the loopback entry is there for a server actually on the phone.
+     *
+     * @param open called with the address the user picked
+     */
+    void openLocalHelp(String url, String host, java.util.function.Consumer<String> open) {
+        String path = "";
+        int slash = url.indexOf('/', url.indexOf("//") + 2);
+        if (slash >= 0) path = url.substring(slash);
+        // The port matters: 192.168.1.20:3000 is the server, 192.168.1.20 is not.
+        final String suffix = LanAddresses.portOf(url) + path;
+        java.util.List<LanAddresses.Entry> entries = LanAddresses.onDevice(this);
+        android.app.AlertDialog.Builder builder =
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.local_help_title, host))
+                        .setMessage(getString(R.string.local_help_body,
+                                getString(R.string.local_help_hint)))
+                        .setNegativeButton(getString(R.string.local_help_close), null);
+        if (!entries.isEmpty()) {
+            String[] labels = new String[entries.size()];
+            for (int i = 0; i < entries.size(); i++) {
+                labels[i] = entries.get(i).label + "\n" + entries.get(i).url + suffix;
+            }
+            builder.setItems(labels, (dialog, which) -> open.accept(entries.get(which).url + suffix));
+        }
+        builder.show();
     }
 
     /** True for an address that belongs in a tab, not in a window of its own. */
@@ -1540,7 +1584,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         s.setDatabaseEnabled(true);
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setSupportMultipleWindows(true);
-        s.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // An https page that embeds plain http (a preview link inside arena, a tunnel, a
+        // local build) is a mixed-content block under NEVER_ALLOW: the frame stays empty
+        // and a tap reads as "nothing happened". The page still decides what it loads.
+        s.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         s.setUserAgentString(Settings.chromeUserAgent(this)
                 ? AppChrome.userAgent(this, s.getUserAgentString())
                 : AppChrome.defaultUserAgent(this));
@@ -1576,6 +1623,16 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
 
         if (scheme.startsWith("http")) {
+            // A link that points at localhost is a dev server's preview, written on a
+            // machine where "localhost" was the server. On a phone it is the phone, and
+            // nothing answers there: the tab would sit on a blank page forever. Name the
+            // problem and offer the addresses that can work.
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+            if (AppChrome.isPhoneLoopback(host)) {
+                openLocalHelp(uri.toString(), host,
+                        picked -> tabs.loadInCurrent(picked));
+                return true;
+            }
             return false;   // load it right here
         }
         if (scheme.equals("intent")) {

@@ -214,6 +214,18 @@ Every tab is its own WebView that is created once and **kept alive**:
 | Chat history | two taps on the **Chat** tab open the conversation list. Arena only draws its own history button inside a chat, so the front page had no route to it, and the app's sheet reads the page actually in front rather than always the chat tab. There is no *More → Chats* row: it was a second door to a list two taps already open |
 | A press you did not make | the app used to make three of its own: *new chat* ended its selector list with a link to the front page, so it clicked the site logo or the sidebar's Home row; the unstick repair pressed a fixed point on the left edge without looking, which on a phone is often a row or a toggle; and closing the chat tab started a new chat 900 ms later, into a half-loaded page. All three are gone — *new chat* only ever presses a button labelled as one, the repair picks the first genuinely empty point (and presses nothing if there is none), and closing only loads |
 
+### Preview links and dev servers on a phone
+
+A dev server's preview link usually says `http://localhost:3000`. On a computer that is the server; on a phone it is **the phone**, where nothing is listening — the page stays blank and the tap looks dead. The app now says so instead of loading an empty frame, listing the addresses that can work:
+
+* this phone's wifi address (which is the number the computer's dev server has to be reached at — so the server must listen on `0.0.0.0`, not only on `localhost`);
+* this phone's other network addresses;
+* `127.0.0.1`, for a server actually running on the phone (Termux).
+
+Picking one opens it, with the port and path of the link you tapped (`:3000/report` is kept). Two things were also blocking previews that *were* reachable: cleartext `http` is refused everywhere except `127.0.0.1`, `localhost` and `10.0.2.2` (the network security config), and an https arena page embedding an http preview was a mixed-content block — tabs and popup windows now use `MIXED_CONTENT_COMPATIBILITY_MODE`, while the sign-in sheet keeps the strict setting.
+
+The link itself has to be reachable: a server on your laptop is only visible to the phone if both are on the same wifi and the server is bound to the LAN address, or if the preview is a public URL (a tunnel), which works as it is.
+
 ### Copying text out of the app
 
 Two ways, both of them the app's own:

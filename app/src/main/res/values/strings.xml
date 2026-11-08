@@ -77,6 +77,13 @@
     <string name="reload">Reload</string>
     <string name="copy_empty">Nothing selected - press and hold a reply first</string>
     <string name="copy_done">Copied</string>
+    <string name="local_help_title">%1$s is this phone</string>
+    <string name="local_help_body">A preview link copied from a computer says localhost, and on a phone that means the phone itself - nothing is running there. The server is on the computer, so the address to open is the computer\'s own wifi address on this network (%1$s), and the dev server has to listen on 0.0.0.0 rather than only localhost.</string>
+    <string name="local_help_hint">like 192.168.1.20:3000</string>
+    <string name="local_help_wifi">This phone, on wifi (the computer must use its own address)</string>
+    <string name="local_help_lan">This phone, on this network</string>
+    <string name="local_help_this_phone_call">A server running on the phone itself (Termux)</string>
+    <string name="local_help_close">Close</string>
     <string name="copy_needs_menu">Selected - tap the selection to copy it</string>
     <string name="select_unlocked">Text selection on - three taps again to turn it off</string>
     <string name="select_locked">Text selection off</string>

@@ -18,9 +18,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const FILE = path.join(__dirname, '..', 'app', 'src', 'main', 'java', 'ai', 'arena', 'webapp',
-  'TabWebViews.java');
-const src = fs.readFileSync(FILE, 'utf8');
+const SRC_DIR = path.join(__dirname, '..', 'app', 'src', 'main', 'java', 'ai', 'arena',
+  'webapp');
+const FILES = ['TabWebViews.java', 'Pip.java'];
+const src = FILES.map((f) => fs.readFileSync(path.join(SRC_DIR, f), 'utf8')).join('\n');
 
 /** Every `private static final String NAME = ...;`, as the text it produces. */
 function constants() {
@@ -46,7 +47,8 @@ function constants() {
 /** The string-building methods, collected the same way (`selectCss`, `selectGuard`). */
 function methods() {
   const out = {};
-  const re = /private static String (\w+)\(([^)]*)\)\s*\{/g;
+  // `private static` (TabWebViews) or plain `static` (Pip) - both build page scripts.
+  const re = /(?:private )?static String (\w+)\(([^)]*)\)\s*\{/g;
   let m;
   while ((m = re.exec(src))) {
     const start = m.index + m[0].length;
@@ -89,11 +91,61 @@ const JS_NAMES = [
   'JS_COPY_API', 'JS_TAP_CHECK', 'JS_TAP_WATCH', 'JS_POPUP_FIT', 'JS_NEW_CHAT_LISTENER',
   'JS_UNSTICK', 'JS_ENTER_SEND', 'JS_TAB_TITLE', 'JS_NEW_CHAT', 'JS_SIDEBAR',
   'JS_SHOW_PANELS', 'JS_HEADER', 'JS_ESCAPE',
+  // Pip.java: the floating-window scripts. `videoPlayingJs` answers whether anything is
+  // playing, `pipCssJs` is two branches (shape / put back) and is checked as two, and
+  // `videoActionJs` is one script with the button's work patched into it.
+  'videoPlayingJs', 'pipCssJs:0', 'pipCssJs:1', 'videoActionJs',
 ];
 const scripts = {};
 const all = { ...constants(), ...methods() };
 for (const name of Object.keys(all)) {
   if (JS_NAMES.includes(name)) scripts[name] = all[name];
+}
+// A method with two scripts in it (Pip.pipCssJs) is checked one branch at a time: glued
+// together they are not the thing that runs, and a break in either branch must be reported
+// against the branch it is in.
+const pip = fs.readFileSync(path.join(SRC_DIR, 'Pip.java'), 'utf8');
+function branch(fnName, which) {
+  const at = pip.indexOf('static String ' + fnName + '(');
+  if (at < 0) return '';
+  let i = pip.indexOf('{', at), depth = 0, body = '';
+  for (let j = i; j < pip.length; j++) {
+    if (pip[j] === '{') depth++;
+    else if (pip[j] === '}') {
+      depth--;
+      if (depth === 0) { body = pip.slice(i, j + 1); break; }
+    }
+  }
+  const starts = [];
+  const re = /(?:\breturn|\bbody\s*=)\s*"/g;
+  let m;
+  while ((m = re.exec(body))) starts.push(m.index + m[0].lastIndexOf('"'));
+  if (starts[which] === undefined) return '';
+  const lit = /"((?:[^"\\]|\\.)*)"/g;
+  lit.lastIndex = starts[which];
+  let js = '';
+  let first = lit.exec(body);
+  if (!first) return '';
+  js += first[1];
+  let end = first.index + first[0].length;
+  for (;;) {
+    const gap = body.slice(end).match(/^\s*\+\s*/);
+    if (!gap) break;
+    lit.lastIndex = end + gap[0].length;
+    const next = lit.exec(body);
+    if (!next || next.index !== end + gap[0].length) break;
+    js += next[1];
+    end = next.index + next[0].length;
+  }
+  return js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+}
+for (const name of Object.keys(scripts)) {
+  builder: for (const [fnName, which] of [['pipCssJs', 0], ['pipCssJs', 1]]) {
+    if (name === fnName + ':' + which) {
+      scripts[name] = branch(fnName, which);
+      break builder;
+    }
+  }
 }
 const html = {};
 for (const [name, value] of [...Object.entries(scripts), ...Object.entries(html)]) {

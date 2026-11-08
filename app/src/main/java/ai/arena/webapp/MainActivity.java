@@ -69,6 +69,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     /** The bar the page must stay clear of: the app's own bar plus the system gesture area. */
     private int chromeBottom = 0;
     private View errorView;
+    /** The floating-window logic, and the only place that touches PiP state. */
+    private Pip pip;
+    /** The "no tabs open" screen, shown when the last tab is closed. Built on first use. */
+    private View emptyView;
     private ConnectivityManager.NetworkCallback connectivity;
     private UpdateSheet updateSheet;
     private View menuSheet;
@@ -86,6 +90,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     private View stalledBar;
 
     private boolean navExpanded = false;
+    /** Saved-state key: the user had closed every tab before this rotation. */
+    private static final String STATE_NO_TABS = "agon_no_tabs";
     private int currentTab = AppUi.TAB_CHAT;
     private int tabBeforeUpdate = AppUi.TAB_CHAT;
     private static final long CHAT_TAP_WINDOW_MS = 380;
@@ -184,6 +190,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         errorView = buildErrorView();
         errorView.setVisibility(View.GONE);
         contentHost.addView(errorView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // Chrome closes the window when the last tab goes; an app cannot, so it draws the
+        // one thing that is true - there are no tabs - and one way out of it.
+        emptyView = buildEmptyView();
+        emptyView.setVisibility(View.GONE);
+        contentHost.addView(emptyView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         // The strip is built before the tabs exist, so its first refresh() happens from
@@ -294,7 +306,17 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         });
         window.requestApplyInsets();
 
-        tabs.show(AppUi.TAB_CHAT);
+        pip = new Pip(this);
+        // A rotation rebuilds every tab (they are WebViews, not saved state), so the one
+        // thing that has to be carried across is whether the user had closed them all:
+        // otherwise a rotation would hand back the chat tab that was just closed.
+        boolean noTabs = savedInstanceState != null
+                && savedInstanceState.getBoolean(STATE_NO_TABS, false);
+        if (noTabs) {
+            showEmpty();
+        } else {
+            tabs.show(AppUi.TAB_CHAT);
+        }
         if (savedInstanceState != null && tabs.current() != null) {
             tabs.current().restoreState(savedInstanceState);
         }
@@ -518,7 +540,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
 
             @Override
             public void onCloseTab(int tabId) {
-                closeWindowById(tabId);
+                closeTabById(tabId);
             }
 
             @Override
@@ -558,10 +580,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      * item, so the left arrow had nowhere to go and the right one dimmed itself.
      */
     private java.util.List<Integer> openTabs() {
-        java.util.List<Integer> ids = new java.util.ArrayList<>();
-        ids.add(AppUi.TAB_CHAT);
-        if (tabs != null) ids.addAll(tabs.windows());
-        return ids;
+        // The browser's row, straight from the tab layer: chat leftmost when it exists,
+        // then the user's windows. It is no longer built here from "the chat tab plus the
+        // windows", because the chat tab can be closed - and an empty row has to be able
+        // to say so.
+        if (tabs == null) return new java.util.ArrayList<>();
+        return tabs.tabs();
     }
 
     /** Where a page id sits in that order, or -1 when it is not one of the open tabs. */
@@ -630,6 +654,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      */
     private void newChatTab() {
         if (tabs == null) return;
+        // With no tabs at all, "+" opens the first one rather than a second one beside
+        // nothing: there is no chat tab to put a window next to.
+        if (tabs.isEmpty()) {
+            openChatTabFromEmpty();
+            return;
+        }
         int id = tabs.openWindow();
         if (id < 0) {
             toast(R.string.window_limit);
@@ -680,57 +710,66 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     /**
-     * Ctrl/Cmd+W from the page: close the tab on screen.
+     * Closes the tab with the cross that was pressed - the tab it was drawn on, and nothing
+     * else.
      *
-     * The chat tab is the app's own page and has no cross, so closing it means what the
-     * strip's remaining tab means: the window in front goes, or - with nothing else open -
-     * nothing happens at all. It never puts a message on screen and never closes the app.
+     * The chat tab is a tab like any other now, so there is one path for every chip:
+     * TabWebViews.closeTab removes that tab's WebView and destroys it. If it was the tab on
+     * screen, its neighbour takes the screen; if it was the last one, the app shows the
+     * empty-tabs screen rather than inventing a replacement tab.
+     *
+     * What this replaced: the chat tab could not be closed at all. Its cross reloaded it to
+     * arena's front page and either showed that same tab again or its neighbour, so pressing
+     * the x on the default tab put arena's home page on screen - read, correctly, as "it
+     * didn't close, it just went home".
      */
-    void onCloseTabShortcut() {
-        if (isFinishing() || isDestroyed()) return;
-        int id = pageId();
-        if (TabWebViews.isWindow(id)) {
-            closeWindowById(id);
-            return;
+    private void closeTabById(int id) {
+        if (tabs == null) return;
+        boolean wasCurrent = pageId() == id;
+        if (!tabs.closeTab(id)) return;
+        if (menuSheet != null) {
+            // The More sheet lists the windows by name; one of them just went away.
+            AppUi.slideDownAndRemove(menuSheet, window);
+            menuSheet = null;
         }
-        // Ctrl/Cmd+W on the chat tab closes *that* tab - the one the user is on - and the
-        // tab next to it takes its place. It used to close the newest extra window instead,
-        // so with two tabs open and the chat on screen the wrong one disappeared.
-        closeChatTab();
+        currentTab = AppUi.TAB_CHAT;
+        if (tabs.isEmpty()) {
+            showEmpty();
+        } else if (wasCurrent) {
+            showFrontTab();
+        } else {
+            hideEmpty();
+            refreshStrip();
+            refreshUi();
+        }
     }
 
     /**
-     * Closes the chat tab: the tab on screen steps aside for its neighbour.
+     * Puts whatever tab is on top of the stack on screen after a close.
      *
-     * The chat tab is the app's own page and cannot be destroyed - every "another chat"
-     * opens in it, so it has to keep existing. Closing it therefore means handing the
-     * screen to the tab beside it and starting the chat tab empty again, which is what
-     * closing a browser tab looks like: the tab goes, the ones around it stay, and nothing
-     * about the user's other tabs changes.
+     * The tab layer already moved to the neighbour; this only tells the rest of the app
+     * (nav highlight, insets, strip) what happened. Nothing is loaded: the neighbour is a
+     * warm tab, which is the whole point of keeping them alive.
      */
-    private void closeChatTab() {
-        if (tabs == null) return;
-        int next = tabs.neighbourAfterClosing(AppUi.TAB_CHAT);
-        WebView chat = tabs.get(AppUi.TAB_CHAT);
-        // Empty the chat tab first, so the next visit to it is a fresh conversation rather
-        // than the one that was just closed.
-        if (chat != null) {
-            // Nothing but the load. This used to also fire startNewChat() 900 ms later, and
-            // that script's job is to click "new chat" in the page - on a document that had
-            // not finished loading, so the click landed on whatever was rendered at that
-            // moment. The root route IS a fresh conversation; there is nothing to chase.
-            chat.loadUrl(TabWebViews.urlFor(AppUi.TAB_CHAT));
-        }
-        if (next == AppUi.TAB_CHAT) {
-            // Nothing else is open: the chat tab is now the only tab and it is empty.
-            tabs.show(AppUi.TAB_CHAT);
-            currentTab = AppUi.TAB_CHAT;
-            applyChromeInsets();
-            AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
-            refreshStrip();
+    private void showFrontTab() {
+        hideEmpty();
+        int front = tabs == null ? -1 : tabs.tabOf(tabs.current());
+        if (front < 0 && tabs != null && !tabs.isEmpty()) front = tabs.tabs().get(0);
+        if (front < 0 || tabs == null) {
+            showEmpty();
             return;
         }
-        switchWindow(next);
+        tabs.show(front);
+        applyChromeInsets();
+        AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
+        refreshStrip();
+        refreshUi();
+    }
+
+    /** Ctrl/Cmd+W from the page: close the tab on screen, whatever it is. */
+    void onCloseTabShortcut() {
+        if (isFinishing() || isDestroyed()) return;
+        closeTabById(pageId());
     }
 
     /** Called from the page when Ctrl/Cmd+N is pressed there: a new chat, here. */
@@ -864,39 +903,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         refreshStrip();
     }
 
-    /** Closes the tab that was asked for, and keeps the strip, nav and page in step. */
-    private void closeWindowById(int id) {
-        if (tabs == null) return;
-        if (!TabWebViews.isWindow(id)) {
-            // The chat tab's own cross. It closes THAT tab, which for the app's home page
-            // means handing the screen to the tab beside it and starting the chat tab empty
-            // again - closeChatTab(), the same thing Ctrl/Cmd+W on the chat tab does.
-            //
-            // It used to close the newest extra window instead, "so the press visibly does
-            // something". On a phone that reads as the opposite of the request: press the x
-            // on the default tab and a tab you never touched disappears while the one you
-            // aimed at is still there. A close closes the tab it was drawn on, and nothing
-            // else - which is what the cross on every other chip already did.
-            closeChatTab();
-            return;
-        }
-        boolean wasCurrent = pageId() == id;
-        tabs.closeWindow(id);
-        if (menuSheet != null) {
-            // The More sheet lists the windows by name; one of them just went away.
-            AppUi.slideDownAndRemove(menuSheet, window);
-            menuSheet = null;
-        }
-        if (wasCurrent) {
-            currentTab = AppUi.TAB_CHAT;
-            tabs.show(AppUi.TAB_CHAT);
-            applyChromeInsets();
-            AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(),
-                    navExpanded, true);
-        }
-        refreshStrip();
-    }
-
     /**
      * Tells the page how much space the app's own chrome takes.
      *
@@ -956,10 +962,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (currentTab != AppUi.TAB_CHAT || pageId() != AppUi.TAB_CHAT) {
             currentTab = AppUi.TAB_CHAT;
             hideChatSheets();
-            tabs.show(AppUi.TAB_CHAT);
+            hideEmpty();
+            // The chat tab can be closed now, so "show the chat" may mean "open one":
+            // openChatTab() builds it on arena's front page when it is not there and shows
+            // it when it is. show() would happily build a tab and leave the screen blank.
+            tabs.openChatTab();
             applyChromeInsets();
             AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(),
                     navExpanded, true);
+            refreshStrip();
             return;
         }
         // Already on chat: just make sure nothing is covering it.
@@ -1013,7 +1024,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // one in the tab behind it that the user would never see.
         if (tabs == null) return;
         WebView page = tabs.current();
-        if (page == null) return;
+        if (page == null) {
+            // Nothing open: a new chat needs a tab, so open the first one.
+            openChatTabFromEmpty();
+            page = tabs.current();
+            if (page == null) return;
+        }
         TabWebViews.startNewChat(page);
         toast(R.string.new_chat_started);
     }
@@ -1052,6 +1068,55 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         showTab(tab);
     }
 
+    /** The WebView of the tab on screen, or null when no tab is open. Used by Pip. */
+    WebView pipPage() {
+        return tabs == null ? null : tabs.current();
+    }
+
+    /**
+     * Hides the app's own rows while a floating video is up.
+     *
+     * The strip and the nav are rows of the same column as the WebView, so they would be
+     * part of the floating window - a 200-pixel-tall tab strip above a video. They are put
+     * back the moment the window closes, and their stored settings decide what "back"
+     * means, so a user who has switched the strip off does not get it handed to them.
+     */
+    private void pipChromeVisible(boolean visible) {
+        if (tabStrip != null) {
+            tabStrip.view().setVisibility(visible && Settings.showTabStrip(this)
+                    ? View.VISIBLE : View.GONE);
+        }
+        if (navArea != null) {
+            navArea.setVisibility(visible && Settings.showNav(this)
+                    ? View.VISIBLE : View.GONE);
+        }
+        applyChromeInsets();
+    }
+
+    /**
+     * The user is leaving: if a video is playing, it keeps playing in a floating window.
+     *
+     * onUserLeaveHint is the Home button and the Recents gesture - the same moment Chrome
+     * decides. `isChangingConfigurations()` is what keeps a rotation, which also calls this,
+     * from opening a floating window.
+     */
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (pip == null || isChangingConfigurations()) return;
+        if (!Settings.pipVideo(this)) return;
+        pip.enterIfPlaying(pipPage());
+    }
+
+    /** Android's own report of entering and leaving the floating window. */
+    @Override
+    public void onPictureInPictureModeChanged(boolean inPip, Configuration config) {
+        super.onPictureInPictureModeChanged(inPip, config);
+        if (pip == null) return;
+        pip.onPipChanged(inPip, pipPage());
+        pipChromeVisible(!inPip);
+    }
+
     /**
      * The id of the page on screen.
      *
@@ -1078,6 +1143,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (tabs == null) return;
         if (tabs.get(id) == null) return;
         hideError();
+        hideEmpty();
         closeWebWindow();
         closeSettingsNow();
         WebView page;
@@ -1088,7 +1154,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             // brought to front, and letting the exception escape left the whole app frozen
             // on the old page - the "switch sticks" report. Drop the dead window and say so.
             CrashLog.write(this, gone);
-            tabs.closeWindow(id);
+            tabs.closeTab(id);
             refreshStrip();
             toast(R.string.strip_window_gone);
             return;
@@ -1097,7 +1163,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         if (page.getParent() == null) {
             // Same situation one step earlier: the view exists but is not in the layout,
             // so bringing it to front would leave a blank frame.
-            tabs.closeWindow(id);
+            tabs.closeTab(id);
             refreshStrip();
             toast(R.string.strip_window_gone);
             return;
@@ -1190,6 +1256,11 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         }
         currentTab = tab;
         hideError();
+        hideEmpty();
+        // A destination needs a tab to load into. With every tab closed, the first press on
+        // Ask/Search opens one - the page has to live somewhere, and a strip with no chips
+        // over a live page would look broken.
+        if (tabs.isEmpty()) tabs.openChatTab();
         boolean firstVisit = tabs.get(tab) == null;
         // A window the page opened covers the tabs; switching tab means the user is done
         // with it, and leaving it there would look like the nav did nothing.
@@ -1834,7 +1905,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             public void onCloseWindow(int windowId) {
                 // One path for closing, so the strip and the page can never disagree about
                 // which windows exist.
-                closeWindowById(windowId);
+                closeTabById(windowId);
             }
 
             @Override
@@ -1990,6 +2061,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             case Settings.K_SHOW_VERSION:
                 rebuildNavArea();
                 break;
+            case Settings.K_PIP_VIDEO:
+                // Nothing to apply: the switch is read at the moment the user leaves. Turning
+                // it off while a floating window is already up is left alone - the video is
+                // playing and dropping it there would be a worse surprise than a switch that
+                // takes effect next time.
+                break;
             default:
                 break;
         }
@@ -2092,6 +2169,78 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     // ------------------------------------------------------------------ error view
+
+    /**
+     * What the app shows when the last tab has been closed.
+     *
+     * Not a tab, not a landing page: a blank panel with one button that opens a new tab.
+     * Chrome closes its window at this point, which an app cannot do without looking like
+     * a crash - so this screen is the honest equivalent, and it is the only place in the
+     * app that says "there is nothing open".
+     */
+    private View buildEmptyView() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setBackgroundColor(AppUi.color(this, R.color.bg));
+        int pad = AppUi.dp(this, 32);
+        box.setPadding(pad, pad, pad, pad);
+
+        TextView title = AppUi.text(this, getString(R.string.empty_tabs_title), 19f,
+                R.color.on_bg, true);
+        title.setGravity(Gravity.CENTER);
+        box.addView(title);
+
+        TextView body = AppUi.text(this, getString(R.string.empty_tabs_body), 14f,
+                R.color.on_bg_muted, false);
+        body.setGravity(Gravity.CENTER);
+        body.setPadding(0, AppUi.dp(this, 8), 0, AppUi.dp(this, 20));
+        box.addView(body);
+
+        TextView button = AppUi.text(this, getString(R.string.empty_tabs_open), 15f,
+                R.color.on_accent, true);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(AppUi.dp(this, 26), AppUi.dp(this, 13),
+                AppUi.dp(this, 26), AppUi.dp(this, 13));
+        button.setBackground(AppUi.pressable(this, AppUi.color(this, R.color.accent), 14f));
+        button.setOnClickListener(v -> {
+            AppUi.press(v);
+            openChatTabFromEmpty();
+        });
+        box.addView(button);
+        return box;
+    }
+
+    /** Draws the no-tabs screen (nothing is loaded, nothing is closed). */
+    private void showEmpty() {
+        if (emptyView == null) return;
+        if (errorView != null) errorView.setVisibility(View.GONE);
+        emptyView.setAlpha(0f);
+        emptyView.setVisibility(View.VISIBLE);
+        emptyView.bringToFront();
+        emptyView.animate().alpha(1f).setDuration(AppUi.ANIM_FAST).start();
+        if (nav != null) {
+            AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
+        }
+        refreshStrip();
+    }
+
+    /** Puts the no-tabs screen away; the next tab shows through. */
+    private void hideEmpty() {
+        if (emptyView == null || emptyView.getVisibility() != View.VISIBLE) return;
+        emptyView.setVisibility(View.GONE);
+    }
+
+    /** The empty screen's one button, and the strip's + when nothing is open. */
+    void openChatTabFromEmpty() {
+        if (tabs == null) return;
+        hideEmpty();
+        tabs.openChatTab();
+        currentTab = AppUi.TAB_CHAT;
+        applyChromeInsets();
+        AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
+        refreshStrip();
+    }
 
     private View buildErrorView() {
         LinearLayout box = new LinearLayout(this);
@@ -2336,6 +2485,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
+        if (tabs != null) outState.putBoolean(STATE_NO_TABS, tabs.isEmpty());
         if (tabs != null && tabs.current() != null) tabs.current().saveState(outState);
     }
 
@@ -2445,6 +2595,7 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             connectivity = null;
         }
         closeWebWindow();
+        if (pip != null) pip.release();
         if (tabs != null) tabs.destroyAll();
         super.onDestroy();
     }

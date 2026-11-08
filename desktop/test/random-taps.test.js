@@ -10,7 +10,8 @@
  *  2. `JS_UNSTICK` — Back sent a real pointer press at a fixed point on the left edge
  *     without looking at what was there, so it could press a control on the way past;
  *  3. `closeChatTab()` — fired `startNewChat()` 900 ms after navigating, i.e. clicked
- *     "new chat" into a half-loaded document;
+ *     "new chat" into a half-loaded document. That path is gone: a close now destroys the
+ *     tab and never talks to the page (see chrome-tabs.test.js);
  *  4. the user's own finger.
  *
  * The fourth one is why there is a switch: with "Show what a tap lands on" enabled every
@@ -38,6 +39,21 @@ const SETTINGS = fs.readFileSync(path.join(NAV, 'Settings.java'), 'utf8');
 const SHEET = fs.readFileSync(path.join(NAV, 'SettingsSheet.java'), 'utf8');
 const STRINGS = fs.readFileSync(path.join(__dirname, '..', '..', 'app', 'src', 'main',
   'res', 'values', 'strings.xml'), 'utf8');
+
+/** One Java method body, by its signature line. */
+function method(src, signature) {
+  const at = src.indexOf(signature);
+  if (at < 0) return '';
+  let i = src.indexOf('{', at), depth = 0;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === '{') depth++;
+    else if (src[j] === '}') {
+      depth--;
+      if (depth === 0) return src.slice(i, j + 1);
+    }
+  }
+  return src.slice(i);
+}
 
 let bad = 0;
 function check(name, ok, detail) {
@@ -131,15 +147,22 @@ const WATCH = constant('JS_TAP_WATCH');
     pressed.filter((p) => /b1/.test(p)).length === 0, JSON.stringify(pressed));
 }
 
-// --- 3. closing the chat tab does not click into a half-loaded page --------------------
+// --- 3. closing a tab never clicks into the page ---------------------------------------
+//
+// The old chat-tab close reloaded the tab and then fired startNewChat 900 ms later - a
+// script whose whole job is to click "new chat" in a document that had not finished
+// loading, so the click landed on whatever was rendered at that instant. A close does not
+// involve the page at all now: it destroys the tab's WebView.
 {
-  const close = /private void closeChatTab\(\)\s*\{[\s\S]*?\n    \}/.exec(MAIN);
-  check('there is one method that closes the chat tab', !!close);
-  const code = close ? close[0].split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n') : '';
-  check('it only loads the root, and asks the page for nothing',
-    /loadUrl\(TabWebViews\.urlFor\(AppUi\.TAB_CHAT\)\)/.test(code) &&
-    !/startNewChat/.test(code) && !/postDelayed/.test(code),
+  const close = method(MAIN, 'private void closeTabById(int id)');
+  check('there is one method that closes a tab', !!close);
+  const code = close.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  check('it asks the page for nothing at all',
+    !/startNewChat/.test(code) && !/evaluateJavascript/.test(code) &&
+    !/loadUrl/.test(code) && !/postDelayed/.test(code),
     code.replace(/\s+/g, ' ').slice(0, 260));
+  check('and it destroys the tab instead of reloading it',
+    /tabs\.closeTab\(id\)/.test(code));
 }
 
 // --- 4. ...so the remaining presses can be named --------------------------------------

@@ -119,26 +119,25 @@ function method(src, signature) {
 // The strip already says it there is nothing left to close - it draws no cross - so the
 // press is answered by closing something, never by a message.
 {
-  const close = method(MAIN, 'private void closeWindowById(int id)');
+  const close = method(MAIN, 'private void closeTabById(int id)');
   check('closing never puts "that is the last tab" on screen',
     !/R\.string\.strip_last_tab/.test(MAIN) && !/name="strip_last_tab"/.test(STRINGS),
     (close.match(/toast\([^;]*\)/g) || []).join(' | '));
   // "If i click on that x on the default chat tab ... the default tab should only get closed
-  // not the other one". The cross on the chat chip used to close the newest EXTRA window
-  // instead - so the tab aimed at stayed and a tab nobody touched vanished.
-  check('a close for the chat tab closes the chat tab, and only it',
-    /closeChatTab\(\);\s*return;/.test(close) && !/tabs\.windows\(\)/.test(close) &&
+  // not the other one". There is one close path for every chip now, and it closes the id it
+  // was given: no chip can close a tab it was not drawn on.
+  check('a close for a chip closes that chip\'s tab, and only it',
+    /tabs\.closeTab\(id\)/.test(close) && !/tabs\.windows\(\)/.test(close) &&
     !/id = open\.get\(/.test(close),
     close.replace(/\s+/g, ' ').slice(0, 320));
-  check('and that is the same path Ctrl/Cmd+W on the chat tab takes',
-    /private void closeChatTab\(\)/.test(MAIN) &&
-    /closeChatTab\(\)/.test(method(MAIN, 'void onCloseTabShortcut()')));
-  // Closing the chat tab must not touch another tab's page: it reloads the chat tab and
-  // hands the screen to its neighbour, and nothing else.
-  const chat = method(MAIN, 'private void closeChatTab()').replace(/\s+/g, ' ');
-  check('closing the chat tab reloads only the chat tab',
-    /tabs\.get\(AppUi\.TAB_CHAT\)/.test(chat) && !/closeWindow\(/.test(chat),
-    chat.slice(0, 300));
+  check('and that is the same path Ctrl/Cmd+W takes',
+    /closeTabById\(pageId\(\)\)/.test(method(MAIN, 'void onCloseTabShortcut()')));
+  check('closing the chat tab destroys it rather than reloading it',
+    !/loadUrl/.test(close) && /tabs\.closeTab\(id\)/.test(close));
+  // Chrome's rule, and the user's own words: with one tab open there is no cross at all.
+  check('a strip with one tab draws no cross',
+    /boolean closable = ids\.size\(\) > 1;/.test(
+      fs.readFileSync(path.join(NAV, 'TabStrip.java'), 'utf8')));
 }
 
 // --- a background tab is not turned into a new chat while it is on screen ---------------

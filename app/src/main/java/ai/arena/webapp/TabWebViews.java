@@ -91,7 +91,28 @@ public final class TabWebViews {
         this.activity = activity;
         this.container = container;
         this.host = host;
-        ensure(AppUi.TAB_CHAT);
+        // Nothing is opened on the user's behalf any more: the chat tab is a tab like any
+        // other, it exists because a tab was opened, and closing it leaves no tabs rather
+        // than a fresh one to replace it (see closeTab).
+        if (!tabs().isEmpty()) show(tabs().get(0));
+    }
+
+    /**
+     * Every open tab, chat first, then the user's windows - the browser's row.
+     *
+     * The chat tab is no longer a fixture that always exists: it is one of these, and it
+     * can be closed like any other. What used to make it immortal was the assumption that
+     * "another chat" always opens in it, which stopped being true when a new tab became a
+     * real browser tab (a window).
+     */
+    public java.util.List<Integer> tabs() {
+        java.util.List<Integer> row = new java.util.ArrayList<>();
+        for (Integer id : views.keySet()) {
+            if (id == AppUi.TAB_CHAT || isWindow(id)) row.add(id);
+        }
+        // Chat is the leftmost tab whenever it exists, whatever order the map holds.
+        if (row.remove(Integer.valueOf(AppUi.TAB_CHAT))) row.add(0, AppUi.TAB_CHAT);
+        return row;
     }
 
     public WebView current() {
@@ -186,9 +207,22 @@ public final class TabWebViews {
     /** Windows the user has actually opened (as opposed to one built ahead of time). */
     private final java.util.Set<Integer> usedWindows = new java.util.HashSet<>();
 
-    /** Closes an extra window. The one on screen is never left as the current page. */
-    public boolean closeWindow(int id) {
-        if (!isWindow(id)) return false;
+    /**
+     * Closes a tab - any tab, the chat tab included.
+     *
+     * This is what the cross on a chip does, and it does exactly one thing: that tab stops
+     * existing. Its WebView is removed and destroyed (not reloaded, not emptied, not swapped
+     * for its neighbour), and nothing else in the row is touched.
+     *
+     * If it was the tab on screen, its neighbour takes the screen - or, with nothing left,
+     * no tab is shown at all and the activity draws the empty screen. The chat tab used to
+     * be immortal: closing it reloaded it to arena's front page, which is why the cross
+     * looked like it "went to the home page" instead of closing anything.
+     *
+     * Returns true when a tab was actually closed.
+     */
+    public boolean closeTab(int id) {
+        if (id != AppUi.TAB_CHAT && !isWindow(id)) return false;
         WebView w = views.get(id);
         if (w == null) return false;
         // Which tab takes over is decided BEFORE the closed one is dropped: its place in the
@@ -198,37 +232,59 @@ public final class TabWebViews {
         views.remove(id);
         loaded.remove(id);
         reportedTitles.remove(id);
-        container.removeView(w);
-        w.destroy();
-        if (wasCurrent) show(next);
+        restoredUrl.remove(id);
+        usedWindows.remove(id);
+        if (w.getParent() == container) container.removeView(w);
+        try {
+            w.destroy();
+        } catch (RuntimeException ignored) {
+            // A renderer that already died cannot be destroyed twice.
+        }
+        if (wasCurrent) {
+            if (next >= 0 && views.containsKey(next)) {
+                show(next);
+            } else {
+                currentTab = -1;
+            }
+        }
         return true;
     }
 
-    /**
-     * The tab that takes the screen when `closing` goes away.
-     *
-     * The one immediately after it in the row, or the one before it when it was last - a
-     * browser's rule, and the only one that does not feel like a jump. The chat tab is the
-     * leftmost tab, so closing an extra tab lands on the tab to its left, and closing a
-     * window that is not last lands on the one to its right. It is never "whatever happened
-     * to be first", which is what made closing the current tab look like it had closed a
-     * different one.
-     */
-    public int neighbourAfterClosing(int closing) {
-        java.util.List<Integer> row = rowWithChat();
-        int index = row.indexOf(closing);
-        if (index < 0) return AppUi.TAB_CHAT;
-        if (index + 1 < row.size()) return row.get(index + 1);
-        if (index - 1 >= 0) return row.get(index - 1);
-        return AppUi.TAB_CHAT;
+    /** True when no tab is open at all. */
+    public boolean isEmpty() {
+        return tabs().isEmpty();
     }
 
-    /** Every tab in strip order, chat first - the same order MainActivity.openTabs() uses. */
-    private java.util.List<Integer> rowWithChat() {
-        java.util.List<Integer> row = new java.util.ArrayList<>();
-        row.add(AppUi.TAB_CHAT);
-        row.addAll(windows());
-        return row;
+    /**
+     * Opens the chat tab again, in front. Used by the empty screen and by the nav.
+     *
+     * A tab that was closed is a new tab: it loads arena's front page, exactly as the first
+     * launch does. Nothing is restored, because the user closed that page.
+     */
+    public WebView openChatTab() {
+        WebView w = ensure(AppUi.TAB_CHAT);
+        show(AppUi.TAB_CHAT);
+        return w;
+    }
+
+    /**
+     * The tab that takes the screen when `closing` goes away - Chrome's rule.
+     *
+     * The one immediately after it in the row, or the one before it when it was last. It is
+     * never "whatever happened to be first", which is what made closing the current tab
+     * look like it had closed a different one.
+     *
+     * -1 means there would be nothing left: the strip then has no chips and the page area
+     * shows the empty screen (see MainActivity.showEmpty). A strip with one tab on it has
+     * no cross at all, so this is only reachable through Ctrl/Cmd+W on the last tab.
+     */
+    public int neighbourAfterClosing(int closing) {
+        java.util.List<Integer> row = tabs();
+        int index = row.indexOf(closing);
+        if (index < 0) return row.isEmpty() ? -1 : row.get(0);
+        if (index + 1 < row.size()) return row.get(index + 1);
+        if (index - 1 >= 0) return row.get(index - 1);
+        return -1;
     }
 
     /**
@@ -240,7 +296,7 @@ public final class TabWebViews {
      * the chat on screen, `<` did not move at all, which is what "same for arrow" was.
      */
     public int steppedTab(int onScreen, int direction) {
-        java.util.List<Integer> row = rowWithChat();
+        java.util.List<Integer> row = tabs();
         if (row.size() < 2) return -1;
         int index = row.indexOf(onScreen);
         if (index < 0) index = direction > 0 ? -1 : 0;

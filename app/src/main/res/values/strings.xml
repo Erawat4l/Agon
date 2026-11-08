@@ -72,6 +72,14 @@
     <string name="strip_tab_window">Window %1$d</string>
     <string name="strip_new_tab_loading">New tab is loading</string>
     <string name="strip_close_tab">Close this tab</string>
+    <string name="empty_tabs_title">No tabs open</string>
+    <string name="empty_tabs_body">You closed the last tab. Open one to carry on - it starts at Arena\'s front page, and anything you had open is gone, as it would be in a browser.</string>
+    <string name="empty_tabs_open">Open a tab</string>
+    <string name="settings_pip">Video keeps playing when you leave</string>
+    <string name="settings_pip_sub">A playing video moves into a floating window when you go to the home screen, and carries on. It comes back to the tab when you return. No video, no window.</string>
+    <string name="pip_rewind">10 seconds back</string>
+    <string name="pip_forward">10 seconds forward</string>
+    <string name="pip_play_pause">Play or pause</string>
     <string name="strip_at_start">This tab has nothing before it</string>
     <string name="strip_window_gone">That window had closed - dropped it</string>
     <string name="reload">Reload</string>

@@ -212,7 +212,9 @@ public final class TabStrip {
         if (tabsBox == null || host == null) return;
         java.util.List<Integer> ids = host.tabIds();
         int current = host.currentTabId();
-        StringBuilder key = new StringBuilder().append(current);
+        // A row that became empty is a change: the signature carries the count so the last
+        // chip is really removed instead of the old row being repainted around it.
+        StringBuilder key = new StringBuilder().append(current).append('#').append(ids.size());
         for (Integer id : ids) key.append('|').append(id).append('=').append(host.tabName(id));
         String next = key.toString();
 
@@ -243,9 +245,12 @@ public final class TabStrip {
      * and makes a short name look like a different kind of thing from a long one. The text
      * is the part that gives way (ellipsised), never the width.
      *
-     * Each chip carries its own close cross, on the right, as a browser tab does. It is
-     * only offered while more than one tab is open: closing the last one would leave the
-     * app with no page.
+     * Each chip carries its own close cross, on the right, exactly as Chrome's does - and,
+     * exactly as Chrome's does, no cross is drawn while there is only one tab. A one-tab
+     * strip with a cross on it is a button that promises to close something that cannot be
+     * closed; the app now handles closing the last tab (the empty screen), but the cross
+     * still does not belong there, because the same gesture on every other browser is a
+     * no-op and here it would look like an accident.
      */
     private void buildChips(java.util.List<Integer> ids, int current) {
         tabsBox.removeAllViews();

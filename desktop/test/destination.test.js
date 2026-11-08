@@ -111,44 +111,53 @@ function method(src, signature) {
     /R\.string\.strip_new_tab/.test(fs.readFileSync(path.join(NAV, 'TabStrip.java'), 'utf8')));
 }
 
-// --- closing a tab closes the tab you are ON --------------------------------------------
+// --- closing a tab closes the tab you are ON, Chrome style ------------------------------
 //
 // "i was on default and pressed ctrl + w the second one closed but i wanted default one to
-// close". onCloseTabShortcut() looked at pageId(), got the chat tab, decided "that is not a
-// window" and closed the newest extra window instead - the opposite of what was asked.
+// close", and then "I clicked on X in default chat icon it didn't closed, it just gone on
+// home page" - the cross on the chat tab reloaded it to arena's front page instead of
+// closing anything. The rule now is a browser's: the cross closes the tab it is drawn on,
+// and nothing else.
 {
   const close = method(MAIN, 'void onCloseTabShortcut()');
-  check('the close key closes the tab on screen when it is a window',
-    /if \(TabWebViews\.isWindow\(id\)\)\s*\{\s*closeWindowById\(id\)/.test(
-      close.replace(/\s+/g, ' ').replace(/\{ /g, '{')), close.replace(/\s+/g, ' '));
-  check('and closes the chat tab itself when that is the tab on screen',
-    /closeChatTab\(\)/.test(close) &&
-    !/open\.get\(open\.size\(\) - 1\)/.test(close),
+  check('the close key closes the tab on screen, whatever kind of tab it is',
+    /closeTabById\(pageId\(\)\)/.test(close) && !/isWindow/.test(close),
     close.replace(/\s+/g, ' '));
-  check('closing the chat tab hands the screen to its neighbour',
-    /neighbourAfterClosing\(AppUi\.TAB_CHAT\)/.test(method(MAIN, 'private void closeChatTab()')));
+
+  const byId = method(MAIN, 'private void closeTabById(int id)');
+  check('every cross goes through the one close path',
+    /tabs\.closeTab\(id\)/.test(byId), byId.replace(/\s+/g, ' '));
+  check('closing the chat tab does not reload it to the home page',
+    !/loadUrl/.test(byId) && !/startNewChat/.test(byId));
+  check('the last tab leaves no tabs, rather than a replacement tab',
+    /tabs\.isEmpty\(\)[\s\S]{0,80}showEmpty\(\)/.test(byId.replace(/\s+/g, ' ')));
 
   const tabsSrc = fs.readFileSync(path.join(NAV, 'TabWebViews.java'), 'utf8');
-  const neighbour = method(tabsSrc, 'public int neighbourAfterClosing(int closing)');
-  // The row is chat-first, so the tab after the chat tab is the first extra one; the tab
-  // after the LAST extra tab is the one before it.
+  const closeTab = method(tabsSrc, 'public boolean closeTab(int id)');
+  check('a closed tab is destroyed, not hidden',
+    /w\.destroy\(\)/.test(closeTab) && /views\.remove\(id\)/.test(closeTab));
+  check('the chat tab is a closeable tab like any other',
+    /if \(id != AppUi\.TAB_CHAT && !isWindow\(id\)\) return false;/.test(closeTab));
+  check('the neighbour is decided before the tab is dropped',
+    /neighbourAfterClosing\(id\)/.test(closeTab));
+
+  // The row, as data: chat leftmost, then the windows; closing lands on the right
+  // neighbour, and on the left one when there is nothing to the right.
   const land = (row, closing) => {
     const i = row.indexOf(closing);
-    if (i < 0) return 'chat';
-    return String(i + 1 < row.length ? row[i + 1] : row[i - 1]);
+    if (i < 0) return row.length ? row[0] : -1;
+    if (i + 1 < row.length) return row[i + 1];
+    if (i - 1 >= 0) return row[i - 1];
+    return -1;
   };
   check('closing a middle tab lands on the one to its right',
-    land([0, 1000, 1001, 1002], 1000) === '1001');
+    land([0, 1000, 1001, 1002], 1000) === 1001);
   check('closing the last tab lands on the one to its left',
-    land([0, 1000, 1001], 1001) === '1000');
+    land([0, 1000, 1001], 1001) === 1000);
   check('closing the chat tab lands on the first extra tab',
-    land([0, 1000, 1001], 0) === '1000');
-  check('the neighbour is decided before the tab is dropped',
-    /final int next = wasCurrent \? neighbourAfterClosing\(id\)/ .test(neighbour) === false &&
-    /neighbourAfterClosing\(id\)/.test(method(tabsSrc, 'public boolean closeWindow(int id)')));
-  check('a closed tab is never "the first one" by accident',
-    !/views\.remove\(id\)[\s\S]{0,200}show\(AppUi\.TAB_CHAT\)/.test(
-      method(tabsSrc, 'public boolean closeWindow(int id)')));
+    land([0, 1000, 1001], 0) === 1000);
+  check('closing the only tab leaves nothing to show',
+    land([0], 0) === -1);
 }
 
 // --- a new chat belongs to the tab on screen -------------------------------------------

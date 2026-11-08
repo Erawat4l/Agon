@@ -459,5 +459,45 @@ function press(w, id) {
     'ACTION_UP returns true when the press became a copy');
 }
 
+// --- every name the touch handlers assign is actually declared ------------------------
+//
+// 1.4.61 shipped to the user's PC and died in javac with fifteen "cannot find symbol"
+// errors: lastX, lastY, lastMoveAt, still and rest were being read and written by
+// onTouchEvent() but the block of field declarations that introduced them had gone
+// missing in the edit. The sandbox has no JDK, so nothing here noticed - these tests read
+// the source as text, and text that mentions lastX looks exactly like text that declares it.
+//
+// So: the class body is cut out, and every name the handlers touch is required to have a
+// declaration line of its own.
+{
+  const start = TABS.indexOf('static final class SelectionSafeWebView extends WebView');
+  const end = TABS.indexOf('private static final class Filtered');
+  const cls = TABS.slice(start, end);
+  const declared = (name) => new RegExp(
+    String.raw`(?:private|static|final|public|protected|\s)+[\w.<>\[\]]+\s+` + name + String.raw`\s*[=;]`)
+    .test(cls);
+  const required = ['lastX', 'lastY', 'lastMoveAt', 'still', 'rest', 'armed', 'holding',
+    'slop', 'downX', 'downY', 'selection', 'holdHandler', 'holdListener', 'arm', 'trace'];
+  const missing = required.filter((n) => !declared(n));
+  check('every field the touch handlers use is declared in the class', missing.length === 0,
+    `missing: ${missing.join(', ')}`);
+
+  // The constants those fields are compared against, likewise.
+  const constants = ['HOLD_MS', 'SLOP_DP', 'STILL_MS', 'STILL_DP', 'REST_MS'];
+  const missingConstants = constants.filter((n) =>
+    !new RegExp(String.raw`static final (?:long|float) ` + n + String.raw`\s*=`).test(cls));
+  check('and so is every timing constant they compare against',
+    missingConstants.length === 0, `missing: ${missingConstants.join(', ')}`);
+
+  // A statement that assigns an undeclared name is the exact shape of the 1.4.61 failure.
+  const assigned = new Set();
+  for (const m of cls.matchAll(/(?:^|\s)([a-z]\w*)\s*=[^=]/g)) assigned.add(m[1]);
+  const undeclaredAssignments = [...assigned].filter((n) => !declared(n)
+    && !['took', 'url', 'host', 'provider', 'text', 'value', 'next', 'dx', 'dy', 'step',
+      'now', 'x', 'y', 'chosen'].includes(n));
+  check('nothing is assigned that the class does not declare',
+    undeclaredAssignments.length === 0, undeclaredAssignments.join(', '));
+}
+
 console.log(`\n${bad === 0 ? 'all copy-text tests passed' : bad + ' FAILED'}`);
 process.exit(bad === 0 ? 0 : 1);

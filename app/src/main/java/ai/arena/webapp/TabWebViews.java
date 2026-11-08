@@ -2532,6 +2532,25 @@ public final class TabWebViews {
         private android.graphics.Point armed;
         /** What the page said is already selected, read once per hold. */
         private String selection = "";
+        /** Last MOVE position, for the frame-to-frame stillness test. */
+        private float lastX;
+        private float lastY;
+        private long lastMoveAt;
+        /** True while the finger has not wandered since it came down. */
+        private boolean still;
+        /**
+         * Abandons a finger that has been resting on the page far too long.
+         *
+         * Posted on ACTION_DOWN, cleared by either cancel path: a press that is still down
+         * when it fires is holding the phone, not asking for text.
+         */
+        private final Runnable rest = () -> {
+            if (armed == null && !holding) return;
+            trace.cancelled = true;
+            trace.note("rest");
+            cancelArmed();
+            cancelHold();
+        };
 
         SelectionSafeWebView(Context context) {
             super(context);

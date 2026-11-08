@@ -69,6 +69,33 @@ public final class AppChrome {
     }
 
     /**
+     * True for an address that can only mean "a server on this device".
+     *
+     * A dev server (a preview, a local build, a tunnel's loopback) is plain http on
+     * 127.0.0.1, localhost or 10.0.2.2 - and the app otherwise refuses cleartext http, so
+     * without this the request never leaves the WebView: no page, no error, a click that
+     * does nothing. The three names here are also the only ones the network security
+     * config allows cleartext to, so this list and that file must agree.
+     */
+    public static boolean isLoopback(String host) {
+        if (host == null) return false;
+        String h = host.toLowerCase();
+        return h.equals("127.0.0.1") || h.equals("localhost") || h.equals("::1")
+                || h.equals("[::1]") || h.equals("10.0.2.2");
+    }
+
+    /**
+     * Loopback that a PHONE cannot reach.
+     *
+     * 127.0.0.1 / localhost on a phone is the phone itself, and nothing is ever listening
+     * there for this app - a dev server on a laptop is not the phone's loopback. 10.0.2.2
+     * is the Android emulator's alias for the host machine, so it is left alone.
+     */
+    public static boolean isPhoneLoopback(String host) {
+        return isLoopback(host) && !"10.0.2.2".equalsIgnoreCase(host);
+    }
+
+    /**
      * True for hosts an in-app sign-in legitimately passes through.
      *
      * Google is the one provider Arena accepts for an account; GitHub is not a sign-in

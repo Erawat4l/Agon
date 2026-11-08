@@ -97,7 +97,10 @@ public final class WebWindow {
         s.setSupportMultipleWindows(true);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(false);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // An https page that embeds plain http (a preview link inside arena, a tunnel, a
+        // local build) is a mixed-content block under NEVER_ALLOW: the frame stays empty
+        // and a tap reads as "nothing happened". The page still decides what it loads.
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         // Files on this device stay out of reach of a remote document, as everywhere else.
         // Plain http is allowed only for localhost through the network security config -
         // that is a local dev server, and refusing it is why a preview link looked dead.

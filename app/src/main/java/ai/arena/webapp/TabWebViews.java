@@ -1884,7 +1884,10 @@ public final class TabWebViews {
         s.setMediaPlaybackRequiresUserGesture(false);
         // Never: an arena page is https, so an http subresource would be a downgrade, and
         // letting one through would let whoever controls it read the page it sits in.
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // An https page that embeds plain http (a preview link inside arena, a tunnel, a
+        // local build) is a mixed-content block under NEVER_ALLOW: the frame stays empty
+        // and a tap reads as "nothing happened". The page still decides what it loads.
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         // Cache policy: ask the network, let the cache answer what it legitimately can.
         //
         // This used to be LOAD_CACHE_ELSE_NETWORK, which is not "fast": it answers from the

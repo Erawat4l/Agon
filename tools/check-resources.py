@@ -727,7 +727,10 @@ VIEW_METHODS = {"getVisibility", "setVisibility", "setAlpha", "animate", "bringT
                 "setScaleX", "setScaleY", "setSelected", "setEnabled", "isEnabled",
                 "setContentDescription", "findViewById", "post", "postDelayed",
                 "removeCallbacks", "getHeight", "getWidth", "setMinimumHeight",
-                "setMinimumWidth", "getLayoutParams", "setClipToOutline", "setOutlineProvider"}
+                "setMinimumWidth", "getLayoutParams", "setClipToOutline", "setOutlineProvider",
+                # public on View since API 1, and the documented way to hand an event to a
+                # view: TabWebViews uses it to re-deliver a press the page ignored.
+                "dispatchTouchEvent", "onTouchEvent", "performClick"}
 
 
 def check_android_api(paths):

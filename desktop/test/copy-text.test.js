@@ -257,21 +257,23 @@ function press(w, id) {
     /devicePixelRatio/.test(TABS));
 }
 
-// --- three taps stay unlocked -----------------------------------------------------------
+// --- the unlock flag that outlived the gesture is gone ----------------------------------
 //
-// applyChromeInsets() re-injects the policy on every page finish and every tab switch, so an
-// unlock that the page did not record was undone a second later - "i cant select" straight
-// after unlocking it.
+// applyChromeInsets() re-injects the policy on every page finish and every tab switch. It
+// used to read a page flag that a three-tap gesture set, so a page could stay unlocked after
+// Settings said locked - and the switch looked like it had not taken. The gesture is gone
+// and the setting is now the only input, which is asserted in shortcuts.test.js.
 {
-  check('the policy is written only while the page is locked',
-    /st\.textContent=window\.__agonSelectUnlocked\?'':/.test(TABS));
-  check('the lock script checks the flag itself before installing',
-    /if\(!window\.__agonSelectUnlocked\)try\{window\.__agonLock\(\);\}/.test(TABS));
-  check('and the lock is a named function the page can re-run',
+  check('the page rule is written from the setting, unconditionally',
+    /st\.textContent=" \+ quote\(selectCss\(selectable\)\)/.test(TABS)
+    || /st\.textContent=\" \+ quote\(selectCss\(selectable\)\)/.test(TABS),
+    'the injected CSS must be selectCss(selectable) itself');
+  check('and the lock is installed on every injection',
+    /try\{window\.__agonLock\(\);\}catch\(e\)\{\}/.test(TABS));
+  check('the lock is still a named function the page can re-run',
     /window\.__agonLock=function\(\)\{/.test(TABS));
-  check('unlocking clears the listener reference, so a re-injection can install a new one',
-    /window\.__agonSavedGuard=/.test(
-      fs.readFileSync(path.join(NAV, 'TabWebViews.java'), 'utf8')));
+  check('no page flag decides the selection rule any more',
+    !/__agonSelectUnlocked/.test(TABS));
 }
 
 // --- a hold copies the line, not the page ----------------------------------------------
@@ -281,12 +283,12 @@ function press(w, id) {
 // whole conversation pane. The script is driven for real here, in a fixture shaped like a
 // conversation (a scrolling pane, a flex column, three paragraphs).
 {
-  const SRC = TABS;
-  const from = SRC.indexOf('private static final String JS_COPY_API =');
-  const to = SRC.indexOf('\n\n', from);
-  let js = '';
-  for (const m of SRC.slice(from, to).matchAll(/"((?:[^"\\]|\\.)*)"/g)) js += m[1];
-  js = js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+  // The whole constant, comments and blank lines included: cutting at the first blank line
+  // silently truncated it, so one of these checks was passing on half a script.
+  // One extractor, shared with every other suite: this used to be a second copy of the
+  // same logic, and it drifted (it stopped at the first blank line, so half the script was
+  // being tested, and then it read Java comments into the script).
+  const js = require('./script-source').constant(TABS, 'JS_COPY_API');
   check('the copy script is valid JavaScript', (() => {
     try { new Function(js); return true; } catch (e) { return false; }
   })(), js.slice(0, 160));
@@ -357,6 +359,7 @@ function press(w, id) {
   js = js.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
 
   function world(html, hitId) {
+    const js = require('./script-source').constant(TABS, 'JS_COPY_API');
     const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`,
       { runScripts: 'outside-only', url: 'https://arena.ai/' });
     const w = dom.window;
@@ -365,7 +368,9 @@ function press(w, id) {
     });
     w.getComputedStyle = () => ({ display: 'block', overflow: 'visible', overflowY: 'visible' });
     const reports = [];
-    w.AgonCopyNative = { text: (t) => reports.push(t) };
+    // The bridge the app really installs has both halves; a stub with only text() makes the
+    // "press the control instead" path throw, which is not what the device does.
+    w.AgonCopyNative = { text: (t) => reports.push(t), acted: () => {} };
     // hit test: whatever element is under the point
     w.document.elementFromPoint = () => w.document.getElementById(hitId);
     // caret: the text of the block the point is in, so a text hit does report
@@ -453,10 +458,14 @@ function press(w, id) {
   check('a wandering finger that comes back to where it started copies nothing',
     press({ upMs: hold + 100, moves: [{ t: 40 }, { t: 90 }, { t: 200 }, { t: 400 }, { t: 620 }],
       stillEvery: still - 40 }) === false);
-  check('and the lift itself is swallowed, so the control underneath is not pressed too',
-    /return true;\n\s*\}\n\s*break;\n\s*case android\.view\.MotionEvent\.ACTION_CANCEL/
-      .test(TABS.replace(/\r/g, '')),
-    'ACTION_UP returns true when the press became a copy');
+  // The lift of a copy is swallowed so the control underneath is not pressed too - and
+  // ONLY the lift of a copy. Swallowing a lift that was not a copy is what made every
+  // ignored press need a second tap; see shortcuts.test.js.
+  check('and the lift of a copy is swallowed, so the control underneath is not pressed too',
+    /holdListener\.onHold\([^)]*\);[\s\S]{0,600}return true;/.test(TABS.replace(/\r/g, '')) &&
+    /return true;[\s\S]{0,900}Not a copy: the press belongs to the page/.test(
+      TABS.replace(/\r/g, '')),
+    'ACTION_UP returns true only on the copy path');
 }
 
 // --- every name the touch handlers assign is actually declared ------------------------

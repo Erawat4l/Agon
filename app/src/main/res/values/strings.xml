@@ -85,8 +85,6 @@
     <string name="local_help_this_phone_call">A server running on the phone itself (Termux)</string>
     <string name="local_help_close">Close</string>
     <string name="copy_needs_menu">Selected - tap the selection to copy it</string>
-    <string name="select_unlocked">Text selection on - three taps again to turn it off</string>
-    <string name="select_locked">Text selection off</string>
     <string name="tap_watch_on">Watching - each press will name what it hit</string>
     <string name="clear_data">Clear app data</string>
     <string name="clear_data_sub">Signs out and clears the cache</string>
@@ -209,7 +207,7 @@
     <string name="settings_tap_watch">Show what a tap lands on</string>
     <string name="settings_tap_watch_sub">Names the control under every press, with its position, so a touch that reacts somewhere else can be pinned down. Leave off unless you are chasing one</string>
     <string name="settings_selectable">App-style text</string>
-    <string name="settings_selectable_sub">A drag never selects text, like a real app. Hold a reply or a command for half a second and it is selected, ready to copy</string>
+    <string name="settings_selectable_sub">A drag never selects text, like a real app. Hold a reply or a command for half a second and it is selected, ready to copy. Turn this off to select text by dragging instead</string>
     <string name="history_title">Your chats</string>
     <string name="history_looking">Looking for your chats…</string>
     <string name="history_empty">Arena is not showing a chat list right now. Open Arena\'s own history page, or start a new chat.</string>

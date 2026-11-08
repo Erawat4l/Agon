@@ -412,6 +412,97 @@ public final class TabWebViews {
             "(function(){try{return String(window.getSelection()||'');}catch(e){return '';}})();";
 
     /**
+     * How long a press is given to produce a reaction before it is delivered again.
+     *
+     * A tap on a real control produces its click within a frame or two of the lift. Waiting
+     * longer than this makes the retry invisible when the press worked, and is still soon
+     * enough to feel like the first tap did it when it did not.
+     */
+    private static final long TAP_RETRY_MS = 450L;
+
+    /** Beyond this travel (device pixels) a press is a scroll, and is never re-delivered. */
+    private static final float TAP_SLOP_PX = 24f;
+
+    /**
+     * Re-delivers a press that the page ignored.
+     *
+     * "I have to click on anything multiple times before reaching the..." - a press that
+     * lands on a control and produces no click. There are several ways that can happen (a
+     * listener cancelling the press, a control that replaced itself while the finger was
+     * down, a page that focused something else first) and none of them is worth guessing at
+     * from the outside. So the app watches its own side of the press instead:
+     *
+     *  - the WebView reports every finished press that did NOT become a copy;
+     *  - a scroll or a drag is not a tap, and is left alone;
+     *  - 450 ms later the page is asked whether anything reacted. It says no only when the
+     *    point is a real control, the control is still on screen, and no click reached
+     *    anything near it;
+     *  - only then is the same press delivered once more.
+     *
+     * Nothing is announced: the user sees the control working first time, which is the
+     * whole point. A press this class makes is never watched again, so it cannot loop.
+     */
+    private void watchPress(final WebView web, final int x, final int y,
+                            final long bornWall, final float travel) {
+        if (travel > TAP_SLOP_PX) return;
+        web.postDelayed(() -> {
+            if (web != current()) return;
+            final String ask = "(function(){try{"
+                    + "return (window.AgonTapCheck&&AgonTapCheck.ask("
+                    + x + "," + y + ",window.devicePixelRatio||1," + bornWall + "))?1:0;"
+                    + "}catch(e){return 0;}})();";
+            try {
+                web.evaluateJavascript(ask, answer -> {
+                    if (!"1".equals(answer)) return;
+                    retap(web, x, y);
+                });
+            } catch (RuntimeException ignored) {
+                // The view went away between the press and the question.
+            }
+        }, TAP_RETRY_MS);
+    }
+
+    /** Delivers one press at a point, as the finger would have. */
+    private void retap(WebView web, int x, int y) {
+        long now = android.os.SystemClock.uptimeMillis();
+        feedingTap = true;
+        try {
+            web.dispatchTouchEvent(android.view.MotionEvent.obtain(
+                    now, now, android.view.MotionEvent.ACTION_DOWN, x, y, 0));
+            web.dispatchTouchEvent(android.view.MotionEvent.obtain(
+                    now, now + 40, android.view.MotionEvent.ACTION_UP, x, y, 0));
+        } catch (RuntimeException ignored) {
+            // A dead renderer cannot take a press, and has nothing to react to anyway.
+        } finally {
+            feedingTap = false;
+        }
+    }
+
+    /** True while a press this class made is being delivered, so it is never re-watched. */
+    private boolean feedingTap;
+
+    /** Where a press landed, in device pixels, for the page; see JS_COPY_API.press. */
+    static String pressAtJs(int xPx, int yPx) {
+        return "(function(){try{if(window.AgonCopy&&AgonCopy.press)"
+                + "AgonCopy.press(" + xPx + "," + yPx + ",window.devicePixelRatio||1);"
+                + "}catch(e){}})();";
+    }
+
+    /**
+     * Presses a control the page says it ignored.
+     *
+     * The page reports a point in CSS pixels, because that is what its own hit test
+     * uses; the caller converts, because only it knows the density. Used for a tap the
+     * page did not react to at all, and for a hold over a button - a hold there is not
+     * a copy, so it has to be a press.
+     */
+    public void tapAt(int xPx, int yPx) {
+        WebView w = current();
+        if (w == null) return;
+        retap(w, xPx, yPx);
+    }
+
+    /**
      * Copies the text under a point in the page, from the app side.
      *
      * A hold is timed in SelectionSafeWebView (Java), not in the page, so the copy does not
@@ -531,18 +622,19 @@ public final class TabWebViews {
                     + "var st=document.getElementById('arena-select-policy');"
                     + "if(st)st.remove();"
                     + "st=document.createElement('style');st.id='arena-select-policy';"
-                    // Three taps unlock selection from the page, and that unlock has to
-                    // survive the next injection - applyChromeInsets() runs on every page
-                    // finish and every tab switch, so without this flag the unlock lasted
-                    // about a second ("i cant select" straight after unlocking).
-                    // One decision, made in the page: the CSS is written only while the
-                    // page is locked. An unlocked page gets an empty rule instead of a
-                    // re-lock one injection later.
-                    + "st.textContent=window.__agonSelectUnlocked?'':"
-                    + "(" + quote(selectCss(selectable)) + ");"
+                    // The setting is the only thing that decides this now.
+                    //
+                    // It used to be shared with a page flag that the three-tap gesture set,
+                    // so a page could be unlocked while Settings said locked - and that flag
+                    // was read here, once per injection, which made the switch look like it
+                    // had not taken. One decision, one source: applyChromeInsets() runs on
+                    // every page finish and every tab switch, and every pass writes exactly
+                    // what Settings says.
+                    + "st.textContent=" + quote(selectCss(selectable)) + ";"
                     + "if(st.textContent)(document.head||document.documentElement)"
                     + ".appendChild(st);"
-                    // The lock checks the unlock flag itself; see selectGuard().
+                    // And the listener that refuses unasked-for selections, while the page
+                    // is locked; see selectGuard().
                     + selectGuard(selectable)
                     + "})();"
                     // Arena's own menus still have to fit the window...
@@ -1168,60 +1260,50 @@ public final class TabWebViews {
             + "if(window.AgonTapWatch&&AgonTapWatch.tap)AgonTapWatch.tap(JSON.stringify(info));"
             + "}catch(x){}"
             + "},true);"
+            + "try{window.AgonCopy.listen();}catch(e){}"
             + "})();";
 
-    private static final String JS_TRIPLE_TAP_SELECT =
-            "(function(){"
-                + "if(window.__agonTripleTap)return;window.__agonTripleTap=1;"
-                + "var lastTap=0,count=0,x0=0,y0=0;"
-                + "function policy(){return document.getElementById('arena-select-policy');}"
-                + "function unlock(){"
-                + "var st=policy();"
-                + "if(st)st.remove();"
-                + "if(window.__agonNoSelect){"
-                + "window.__agonSavedGuard=window.__agonNoSelect;"
-                + "document.removeEventListener('selectstart',window.__agonNoSelect,true);"
-                + "window.__agonNoSelect=null;"
-                + "}"
-                + "window.__agonSelectUnlocked=1;"
-                + "try{if(window.ArenaNative&&ArenaNative.selectToggled)ArenaNative.selectToggled(true);}catch(e){}"
-                + "}"
-                + "function lock(){"
-                + "var saved=window.__agonPolicyCss||'';"
-                + "if(saved&&!policy()){"
-                + "var st=document.createElement('style');"
-                + "st.id='arena-select-policy';"
-                + "st.textContent=saved;"
-                + "(document.head||document.documentElement).appendChild(st);"
-                + "}"
-                + "if(!window.__agonNoSelect&&window.__agonSavedGuard){"
-                + "window.__agonNoSelect=window.__agonSavedGuard;"
-                + "document.addEventListener('selectstart',window.__agonNoSelect,true);"
-                + "}"
-                + "window.__agonSelectUnlocked=0;"
-                + "try{if(window.ArenaNative&&ArenaNative.selectToggled)ArenaNative.selectToggled(false);}catch(e){}"
-                + "}"
-                + "function save(){"
-                + "var st=policy();"
-                + "if(st&&!window.__agonPolicyCss)window.__agonPolicyCss=st.textContent||'';"
-                + "}"
-                + "document.addEventListener('touchstart',function(e){"
-                + "save();"
-                + "var t=e.target;"
-                + "try{"
-                + "if(t&&t.closest&&t.closest('input,textarea,form,[role=\"textbox\"],[contenteditable]'))return;"
-                + "}catch(x){}"
-                + "var touch=e.touches&&e.touches[0];"
-                + "var x=touch?touch.clientX:(e.clientX||0);"
-                + "var y=touch?touch.clientY:(e.clientY||0);"
-                + "var now=Date.now();"
-                + "if(now-lastTap>600||Math.abs(x-x0)>40||Math.abs(y-y0)>40){count=0;x0=x;y0=y;}"
-                + "lastTap=now;"
-                + "count++;"
-                + "if(count<3)return;"
-                + "count=0;"
-                + "if(window.__agonSelectUnlocked)lock();else unlock();"
-                + "},true);"
+    /**
+     * Answers the app's question about a tap that produced no reaction.
+     * 
+     * ask() is called by the WebView 450 ms after a press that did not become a copy. It
+     * answers true only when the point really is a control AND no click was delivered to
+     * anything near it - which is what "I had to tap twice" looks like from inside the page.
+     * The WebView then does what the second tap would have done.
+     */
+    private static final String JS_TAP_CHECK =
+            + "(function(){"
+            + "if(window.__agonTapCheck)return;window.__agonTapCheck=1;"
+            + "window.__agonClicks=[];"
+            + "document.addEventListener(\"click\",function(e){"
+            + "try{window.__agonClicks.push([Math.round(e.clientX||0),Math.round(e.clientY||0),"
+            + "Date.now()]);"
+            + "if(window.__agonClicks.length>24)window.__agonClicks.shift();}catch(x){}"
+            + "},true);"
+            + "var CONTROL='a,button,[role=\"button\"],[role=\"link\"],[role=\"menuitem\"],'"
+            + "+'[role=\"tab\"],[role=\"option\"],[role=\"checkbox\"],[role=\"switch\"],'"
+            + "+'summary,label,select';"
+            + "window.AgonTapCheck={"
+            + "ask:function(x,y,scale,born){"
+            + "var px=x/(scale||1),py=y/(scale||1);"
+            + "var el=null;"
+            + "try{el=document.elementFromPoint?document.elementFromPoint(px,py):null;}catch(e){}"
+            + "if(!el)return false;"
+            + "var owner=null;"
+            + "try{owner=el.closest?el.closest(CONTROL):null;}catch(e){}"
+            + "if(!owner)return false;"
+            + "/* A click near the press, after it, means the page did react. */"
+            + "for(var i=0;i<window.__agonClicks.length;i++){"
+            + "var c=window.__agonClicks[i];"
+            + "if(c[2]<born-80)continue;"
+            + "if(Math.abs(c[0]-px)<=14&&Math.abs(c[1]-py)<=14)return false;"
+            + "}"
+            + "/* Only while the control is still there: a tap that opened a dialog or navigated has"
+            + "   done its job, and doing it twice is worse than doing it once. */"
+            + "if(!document.body||!document.body.contains(el))return false;"
+            + "return true;"
+            + "}"
+            + "};"
             + "})();";
 
     /**
@@ -1303,9 +1385,62 @@ public final class TabWebViews {
                 + "if(el.closest&&el.closest('a,button,input,select,textarea,summary,label,[role=\"button\"],[role=\"link\"],[role=\"menuitem\"],[role=\"tab\"],[role=\"checkbox\"],[role=\"switch\"],[role=\"option\"],nav,header,footer,[contenteditable]'))return true;"
                 + "return false;"
                 + "}"
+                + "/* A copy control inside the page must keep its own press."
+                + "   What broke it: a hold on arena's Copy button counted as a hold on text, so"
+                + "   the app put the text AROUND the button on the clipboard, and the button's"
+                + "   own handler - the only thing that knows what it is copying - never ran."
+                + "   That is \"the copy button no longer works\". Nothing labelled copy is text. */"
+                + "function copyControl(x,y,scale){"
+                + "var px=x/(scale||1),py=y/(scale||1);"
+                + "var el=null;"
+                + "try{el=document.elementFromPoint?document.elementFromPoint(px,py):null;}catch(e){}"
+                + "if(!el)return false;"
+                + "var hit=null;"
+                + "try{hit=el.closest?el.closest('a,button,summary,label,"
+                + "[role=\"button\"],[role=\"link\"],[role=\"menuitem\"],[role=\"tab\"],"
+                + "[role=\"option\"]'):el;}catch(e){hit=el;}"
+                + "if(!hit)hit=el;"
+                + "var name='';"
+                + "try{"
+                + "name=(hit.getAttribute&&(hit.getAttribute('aria-label')"
+                + "||hit.getAttribute('title')||hit.getAttribute('data-testid')))||'';"
+                + "name+=' '+(hit.innerText||hit.textContent||'').slice(0,40);"
+                + "var svg=hit.querySelector&&hit.querySelector('svg');"
+                + "if(svg)name+=' '+((svg.getAttribute&&(svg.getAttribute('class')"
+                + "||svg.getAttribute('data-icon')))||'');"
+                + "name+=' '+((hit.getAttribute&&hit.getAttribute('class'))||'');"
+                + "}catch(e){}"
+                + "return /\bcopy\b|copied|clipboard|copy to/i.test(name);"
+                + "}"
+                // One answer for both questions a hold asks: "is this text?" and, when
+                // it is not, "was the control under the finger actually pressed?".
+                // Counting happens here and not in onControl(), which is also asked by
+                // selectAt() - a route where nothing has been pressed at all.
+                + "function pmap(){if(!window.__agonPressed)window.__agonPressed=[];}"
+                + "function pressedRecently(){"
+                + "var px=window.__agonPressAt;"
+                + "if(!px)return true;"
+                + "if(Date.now()-px[2]>1500)return true;"
+                + "pmap();"
+                + "for(var i=window.__agonPressed.length-1;i>=0;i--){"
+                + "var c=window.__agonPressed[i];"
+                + "if(c[2]<px[2]-80)break;"
+                + "if(Math.abs(c[0]-px[0])<=14&&Math.abs(c[1]-px[1])<=14)return true;"
+                + "}"
+                + "return false;"
+                + "}"
+                + "function acted(){"
+                + "var c=window.__agonPressAt||[0,0];"
+                + "try{if(window.AgonCopyNative&&AgonCopyNative.acted)"
+                + "AgonCopyNative.acted(c[0],c[1]);}catch(e){}"
+                + "}"
                 + "window.AgonCopy={"
                 + "under:function(x,y,scale){"
-                + "if(onControl(x,y,scale))return false;"
+                + "if(onControl(x,y,scale)){"
+                + "if(!pressedRecently()&&!window.AgonCopy.isLink(x,y,scale))acted();"
+                + "return false;"
+                + "}"
+                + "if(copyControl(x,y,scale))return false;"
                 + "var block=blockAt(x,y,scale);"
                 + "if(!block)return false;"
                 + "var text=textOf(block);"
@@ -1313,6 +1448,41 @@ public final class TabWebViews {
                 + "return report(text);"
                 + "},"
                 + "text:function(t){if(t)report(String(t).trim());},"
+                // What the hold is sitting on, and what the page received at that
+                // point. Coordinates and a timestamp; no page state is read back.
+                + "press:function(x,y,scale){"
+                + "if(!window.__agonPressed)window.__agonPressed=[];"
+                + "window.__agonPressAt=[x/(scale||1),y/(scale||1),Date.now(),1];"
+                + "},"
+                + "hit:function(x,y,scale){"
+                + "pmap();"
+                + "window.__agonPressed.push([x/(scale||1),y/(scale||1),Date.now()]);"
+                + "if(window.__agonPressed.length>24)window.__agonPressed.shift();"
+                + "},"
+                + "acted:function(){acted();},"
+                // Every click the page delivers is recorded with the point it happened at:
+                // that is what makes "did that press do anything" answerable at all.
+                + "record:function(x,y){"
+                + "pmap();"
+                + "window.__agonPressed.push([x,y,Date.now()]);"
+                + "if(window.__agonPressed.length>24)window.__agonPressed.shift();"
+                + "},"
+                // A link is a place, not a button. A hold on one is the user reading the
+                // address; pressing it again would navigate somewhere they did not ask to
+                // go, so a link is the one control never re-pressed.
+                + "isLink:function(x,y,scale){"
+                + "var px=x/(scale||1),py=y/(scale||1);"
+                + "var el=null;"
+                + "try{el=document.elementFromPoint?document.elementFromPoint(px,py):null;}catch(e){}"
+                + "if(!el)return false;"
+                + "try{return !!(el.closest&&el.closest('a,[role=\"link\"]'));}catch(e){return false;}"
+                + "},"
+                + "listen:function(){"
+                + "if(window.__agonPressedListening)return;window.__agonPressedListening=1;"
+                + "document.addEventListener('click',function(e){"
+                + "try{window.AgonCopy.record(e.clientX||0,e.clientY||0);}catch(x){}"
+                + "},true);"
+                + "},"
                 + "select:function(x,y,scale){"
                 + "var block=blockAt(x,y,scale);"
                 + "if(!block)return;"
@@ -1599,9 +1769,8 @@ public final class TabWebViews {
                 // hold is gone with the page hold.)
                 + "}"
                 + "};"
-                // The page decides whether the lock is installed at all: three taps
-                // unlock selection, and a re-injection must not undo that.
-                + "if(!window.__agonSelectUnlocked)try{window.__agonLock();}catch(e){}"
+                // Installed every time; the switch decides whether it runs. See selectCss.
+                + "try{window.__agonLock();}catch(e){}"
                 + "}catch(e){}";
     }
 
@@ -1842,6 +2011,14 @@ public final class TabWebViews {
             // a button should be.
             copyUnder(pointJs(x, y));
         });
+        // A press that was not a copy belongs to the page. If the page produced nothing at
+        // all - no click, no navigation, no dialog - the same press is delivered once more.
+        w.setPressListener((x, y, born, copy, travel) -> {
+            if (copy || feedingTap) return;
+            // The page counts in wall-clock milliseconds; this class counts monotonic ones.
+            long age = android.os.SystemClock.elapsedRealtime() - born;
+            watchPress(w, x, y, System.currentTimeMillis() - age, travel);
+        });
         w.setLongClickable(true);
         // Priority follows VISIBILITY, not a permanent pin.
         //
@@ -1950,13 +2127,16 @@ public final class TabWebViews {
                 // every listener the previous document had. Both scripts are idempotent.
                 installEnterSend(view);
                 view.evaluateJavascript(JS_NEW_CHAT_LISTENER, null);
-                // Three taps toggle "App-style text", which is the only way to unlock a
-                // selection on a phone - there is no Ctrl to press.
-                view.evaluateJavascript(JS_TRIPLE_TAP_SELECT, null);
+                // No three-tap gesture any more. It was a hidden shortcut for a setting
+                // that is a switch in Settings -> For developers, and it fired by accident:
+                // three taps anywhere on the page flipped text selection, so taps behaved
+                // differently from one minute to the next. The switch is the only way now.
                 // A hold that the app timed in Java asks this for the text under the finger.
                 view.evaluateJavascript(JS_COPY_API, null);
                 // Names the element under every press, for the "random touches" switch.
                 view.evaluateJavascript(JS_TAP_WATCH, null);
+                // And this answers "did that press do anything", for the gate above.
+                view.evaluateJavascript(JS_TAP_CHECK, null);
                 // The chat tab's chip is a fixed label, but its name still matters: it is
                 // what the history sheet and the window list show for the conversation that
                 // is open. Every tab is asked, and only the extra tabs display it.
@@ -2433,6 +2613,25 @@ public final class TabWebViews {
      */
     static final class SelectionSafeWebView extends WebView {
 
+        /**
+         * Told when a press on the page has finished, whatever it turned out to be.
+         *
+         * The WebView can see the finger and the clock; it cannot see the page's reaction.
+         * "I have to tap twice" is the case where the finger produced nothing at all, so
+         * every press that was not a copy is reported here and the gate decides whether to
+         * deliver it again. See TapGate in TabWebViews.
+         */
+        interface PressListener {
+            /**
+             * @param x      device pixels, where the finger came down
+             * @param y      device pixels
+             * @param born   elapsedRealtime when it came down
+             * @param copy   true when this press became a copy (the page already reacted)
+             * @param travel how far the finger moved, in device pixels
+             */
+            void onPressFinished(int x, int y, long born, boolean copy, float travel);
+        }
+
         /** Told when the user holds a finger on the page, with no selection engine involved. */
         interface HoldListener {
             /**
@@ -2477,6 +2676,11 @@ public final class TabWebViews {
         private static final long REST_MS = 2500L;
 
         private HoldListener holdListener;
+        private PressListener pressListener;
+        /** When the current press came down (elapsedRealtime). */
+        private long bornAt;
+        /** The furthest the finger has been from where it came down. */
+        private float travel;
 
         /**
          * What the inside of a press is doing, in words the tests can read.
@@ -2545,7 +2749,7 @@ public final class TabWebViews {
          * when it fires is holding the phone, not asking for text.
          */
         private final Runnable rest = () -> {
-            if (armed == null && !holding) return;
+            if (!holding) return;
             trace.cancelled = true;
             trace.note("rest");
             cancelArmed();
@@ -2562,6 +2766,10 @@ public final class TabWebViews {
             holdListener = listener;
         }
 
+        void setPressListener(PressListener listener) {
+            pressListener = listener;
+        }
+
         /**
          * The finger has been still long enough: remember the point and ask the page what is
          * selected there. Nothing is copied yet - see onTouchEvent.
@@ -2569,6 +2777,11 @@ public final class TabWebViews {
         private void armHold() {
             holding = false;
             armed = new android.graphics.Point(Math.round(downX), Math.round(downY));
+            // Tell the page where this press is, now that it is a hold. A plain tap never
+            // waits for this round trip and never pays for it; the page uses the point to
+            // decide whether the press reached the control underneath.
+            SelectionSafeWebView.this.evaluateJavascript(
+                    TabWebViews.pressAtJs(Math.round(downX), Math.round(downY)), null);
             selection = "";
             trace.armed = true;
             trace.note("arm");
@@ -2611,6 +2824,8 @@ public final class TabWebViews {
                     lastMoveAt = event.getEventTime();
                     still = true;
                     holding = true;
+                    bornAt = android.os.SystemClock.elapsedRealtime();
+                    travel = 0f;
                     trace.reset();
                     trace.press = true;
                     trace.note("down");
@@ -2635,6 +2850,7 @@ public final class TabWebViews {
                     }
                     lastX = event.getX();
                     lastY = event.getY();
+                    travel = Math.max(travel, Math.max(dx, dy));
                     if (holding && (dx > slop || dy > slop || !still)) {
                         // The finger travelled before the hold fired: a scroll, a drag, or a
                         // tap with a shaky hand. None of them is a request to copy.
@@ -2648,6 +2864,7 @@ public final class TabWebViews {
                     break;
                 case android.view.MotionEvent.ACTION_UP:
                     cancelHold();
+                    holdHandler.removeCallbacks(rest);
                     if (armed != null) {
                         final int x = armed.x;
                         final int y = armed.y;
@@ -2656,15 +2873,32 @@ public final class TabWebViews {
                         if (holdListener != null) holdListener.onHold(x, y, chosen);
                         trace.requested = true;
                         trace.note("hold");
+                        if (pressListener != null) {
+                            pressListener.onPressFinished(x, y, bornAt, true, travel);
+                        }
                         // The press became a copy, so the page must NOT also be tapped.
                         // Copying and then firing whatever was under the finger is how one
                         // long press both copied a reply and did what it was covering.
                         return true;
                     }
+                    // Not a copy: the press belongs to the page, so it is handed over and
+                    // `super` dispatches it below.
+                    //
+                    // This used to swallow the lift, on the theory that a copy would arrive
+                    // from the page a moment later. When the page's own copy path refused,
+                    // nothing happened at all - the control under the finger never saw the
+                    // press, and the user had to tap it again. That is "I have to click on
+                    // anything multiple times". A press that is not a copy must always reach
+                    // the page; the one case worth a second delivery is handled by the gate.
+                    if (pressListener != null) {
+                        pressListener.onPressFinished(Math.round(downX), Math.round(downY),
+                                bornAt, false, travel);
+                    }
                     break;
                 case android.view.MotionEvent.ACTION_CANCEL:
                     cancelHold();
                     cancelArmed();
+                    holdHandler.removeCallbacks(rest);
                     break;
                 default:
                     break;

@@ -673,21 +673,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         toastText(text);
     }
 
-    /**
-     * Three taps in the page unlocked (or re-locked) text selection.
-     *
-     * The gesture is a shortcut for the "App-style text" switch, so the switch is written:
-     * `unlocked` means selection is on, which is K_NO_SELECT = false. applySetting is then
-     * run the same way a tap in Settings would, except that the page has already applied
-     * it - so only the parts that are not about the CSS are repeated, and the confirmation
-     * is what tells the user the gesture did something.
-     */
-    void onSelectToggled(boolean unlocked) {
-        if (isFinishing() || isDestroyed()) return;
-        Settings.set(this, Settings.K_NO_SELECT, !unlocked);
-        toast(unlocked ? R.string.select_unlocked : R.string.select_locked);
-    }
-
     /** Ctrl/Cmd+Tab from the page: the same step the strip's arrows take. */
     void onCycleTabShortcut(int direction) {
         if (isFinishing() || isDestroyed()) return;
@@ -831,6 +816,21 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     void onPageCopied(String text) {
         if (isFinishing() || isDestroyed()) return;
         putOnClipboard(text);
+    }
+
+    /**
+     * The page says a control was held but never pressed: press it.
+     *
+     * Nothing is announced. The user held a button, so the button gets pressed - which is
+     * what they meant - instead of the app quietly copying the text around it, and instead
+     * of the press vanishing and the button having to be tapped again.
+     */
+    void onPagePressIgnored(float cssX, float cssY) {
+        if (isFinishing() || isDestroyed()) return;
+        if (tabs == null) return;
+        // The page measures in CSS pixels; a MotionEvent is in device pixels.
+        float density = getResources().getDisplayMetrics().density;
+        tabs.tapAt(Math.round(cssX * density), Math.round(cssY * density));
     }
 
     /**

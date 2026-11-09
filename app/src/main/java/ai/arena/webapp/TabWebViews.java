@@ -1328,7 +1328,7 @@ public final class TabWebViews {
      * The WebView then does what the second tap would have done.
      */
     private static final String JS_TAP_CHECK =
-            + "(function(){"
+            "(function(){"
             + "if(window.__agonTapCheck)return;window.__agonTapCheck=1;"
             + "window.__agonClicks=[];"
             + "document.addEventListener(\"click\",function(e){"

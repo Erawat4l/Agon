@@ -240,14 +240,24 @@ public final class TabWebViews {
         } catch (RuntimeException ignored) {
             // A renderer that already died cannot be destroyed twice.
         }
-        if (wasCurrent) {
-            if (next >= 0 && views.containsKey(next)) {
-                show(next);
-            } else {
-                currentTab = -1;
-            }
-        }
+        // Which tab takes the screen is the activity's call, not this class's: it is the one
+        // that knows what the nav, the strip and the page area are showing. This used to
+        // swap to the neighbour here, which is why a close of a background tab could bring a
+        // tab the user never touched to the front.
+        //
+        // The one thing that must not be left behind is the current pointer naming a tab
+        // that no longer exists.
+        if (wasCurrent) currentTab = -1;
+        lastClosedNeighbour = next;
         return true;
+    }
+
+    /** The tab that should follow the one just closed (-1 when nothing is left). */
+    private int lastClosedNeighbour = -1;
+
+    /** The tab that should take the screen after the last close, or -1. */
+    public int lastClosedNeighbour() {
+        return lastClosedNeighbour;
     }
 
     /** True when no tab is open at all. */

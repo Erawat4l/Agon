@@ -74,13 +74,17 @@ public final class Settings {
     public static final String K_OFFLINE_PAGES = "offline_pages";
     public static final String K_DEVELOPER = "developer_options";
     /**
-     * Keep a playing video alive in a floating window when the app is left.
+     * Keep the app itself in a floating window when the user goes to the home screen.
      *
-     * On by default: it only ever happens when a video is actually playing, which is exactly
-     * the moment a browser user expects it. The switch is only offered on phones that can do
-     * it (Android 8 and up with the feature), see Pip.available.
+     * The whole app, not a video: any page can be the floating window, and the page carries
+     * on running - a streaming answer, a download, a page the user is watching. On by
+     * default, and only offered on phones with the feature (Android 8+), see Pip.available.
+     *
+     * The key keeps the name the video version used, so anyone who had already switched it
+     * off has it still switched off after this update rather than having a floating window
+     * appear that they had said no to.
      */
-    public static final String K_PIP_VIDEO = "pip_video";
+    public static final String K_PIP_APP = "pip_video";
 
     private Settings() {
     }
@@ -234,9 +238,9 @@ public final class Settings {
         return get(c, K_OFFLINE_PAGES, true);
     }
 
-    /** True when a playing video should carry on in a floating window. */
-    public static boolean pipVideo(Context c) {
-        return get(c, K_PIP_VIDEO, true);
+    /** True when leaving the app should leave it in a floating window. */
+    public static boolean pipApp(Context c) {
+        return get(c, K_PIP_APP, true);
     }
 
     public static boolean showTabStrip(Context c) {

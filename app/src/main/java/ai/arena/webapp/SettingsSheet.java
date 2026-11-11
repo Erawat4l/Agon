@@ -160,11 +160,11 @@ public final class SettingsSheet {
                 R.drawable.ic_nav_account, v -> host.onSignIn());
 
         section(R.string.settings_app);
-        // A user-facing switch, so it is here rather than behind the developer unlock: the
-        // floating video only appears while something is playing, and anyone whose phone
-        // does not like it needs to be able to say so without hunting.
+        // A user-facing switch, so it is here rather than behind the developer unlock: a
+        // floating app is visible, and anyone whose phone does not like it needs to be able
+        // to say so without hunting for it.
         if (Pip.available(activity)) {
-            toggle(Settings.K_PIP_VIDEO, R.string.settings_pip,
+            toggle(Settings.K_PIP_APP, R.string.settings_pip,
                     R.string.settings_pip_sub, true);
         }
         action(R.string.settings_sign_out, R.string.settings_sign_out_sub,

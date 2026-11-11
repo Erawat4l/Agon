@@ -69,6 +69,16 @@ public final class TabStrip {
 
         void onSelectTab(int tabId);
 
+        /**
+         * Whether this chip may draw a cross.
+         *
+         * It is asked of the host, tab by tab, because it is a property of the tab and not of
+         * the strip: the strip keeps no idea of what "the chat tab" is, and a rule written
+         * here (\`ids.size() > 1\`) is exactly how the cross ended up moving from one tab to
+         * another as tabs were closed.
+         */
+        boolean isClosable(int tabId);
+
         void onCloseTab(int tabId);
 
         /** The left arrow: the previous tab. */
@@ -212,10 +222,18 @@ public final class TabStrip {
         if (tabsBox == null || host == null) return;
         java.util.List<Integer> ids = host.tabIds();
         int current = host.currentTabId();
-        // A row that became empty is a change: the signature carries the count so the last
-        // chip is really removed instead of the old row being repainted around it.
+        // The signature is which tabs exist and which one is on screen - NOT their names.
+        //
+        // It used to include every tab's name, and a name changes constantly: the page reports
+        // a new conversation title while an answer streams, and every report rebuilt the whole
+        // row. Rebuilding detaches the views, so a cross pressed in the same moment had its
+        // view destroyed under the finger and the click never arrived - the reported "I press
+        // the x and it just goes to the home page". A rename is now a text change on the chip
+        // that is already there (relabel), so the row can never be rebuilt mid-press.
+        //
+        // The count is in the signature so a row that became empty is a real change.
         StringBuilder key = new StringBuilder().append(current).append('#').append(ids.size());
-        for (Integer id : ids) key.append('|').append(id).append('=').append(host.tabName(id));
+        for (Integer id : ids) key.append('|').append(id);
         String next = key.toString();
 
         if (!next.equals(signature)) {
@@ -231,6 +249,7 @@ public final class TabStrip {
                 }
             }
         } else {
+            relabel(ids);
             paintSelection(current);
         }
         setCanOpenTab(host.canOpenTab());
@@ -254,10 +273,12 @@ public final class TabStrip {
      */
     private void buildChips(java.util.List<Integer> ids, int current) {
         tabsBox.removeAllViews();
-        boolean closable = ids.size() > 1;
         for (Integer id : ids) {
             final int tabId = id;
             boolean active = tabId == current;
+            // Asked per tab, so a cross always belongs to the tab it is drawn on. Whether a
+            // given tab may be closed is the host's answer, not a count of chips.
+            boolean closable = host.isClosable(tabId);
 
             LinearLayout chip = new LinearLayout(context);
             chip.setOrientation(LinearLayout.HORIZONTAL);
@@ -316,6 +337,26 @@ public final class TabStrip {
             tabsBox.addView(chip, lp);
         }
         paintSelection(current);
+    }
+
+    /**
+     * Updates the names on the chips that are already drawn.
+     *
+     * Nothing is added, removed or re-measured, so a press that is in flight on one of these
+     * views stays a press on that view.
+     */
+    private void relabel(java.util.List<Integer> ids) {
+        for (int i = 0; i < tabsBox.getChildCount() && i < ids.size(); i++) {
+            View chip = tabsBox.getChildAt(i);
+            if (!(chip instanceof ViewGroup)) continue;
+            ViewGroup row = (ViewGroup) chip;
+            if (row.getChildCount() == 0) continue;
+            View label = row.getChildAt(0);
+            if (!(label instanceof TextView)) continue;
+            String want = host.tabName(ids.get(i));
+            TextView text = (TextView) label;
+            if (!want.contentEquals(text.getText())) text.setText(want);
+        }
     }
 
     /** Colours the chips for the page on screen: accent outline on one, muted text on rest. */

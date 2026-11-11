@@ -6,11 +6,12 @@
 // want cmplt off that chat." The chat tab used to be immortal: its cross reloaded it to
 // arena's front page, which looked exactly like "it went home instead of closing".
 //
-// Run: node test/chrome-tabs.test.js
+// Nothing here needs jsdom: it is all about what the Java does, not what a page does.
+//
+// Run: cd desktop && node test/chrome-tabs.test.js
 
 const fs = require('fs');
 const path = require('path');
-const { JSDOM } = require('jsdom');
 
 const NAV = path.join(__dirname, '..', '..', 'app', 'src', 'main', 'java', 'ai', 'arena',
   'webapp');
@@ -58,7 +59,8 @@ function method(src, signature) {
 // --- 2. Chrome's cross rule -------------------------------------------------------------
 {
   check('a strip with one tab draws no cross',
-    /boolean closable = ids\.size\(\) > 1;/.test(STRIP));
+    /boolean closable = host\.isClosable\(tabId\);/.test(STRIP) &&
+    /boolean isClosable\(int tabId\);/.test(STRIP));
   check('the cross is only added on that branch',
     /if \(closable\) \{[\s\S]{0,900}onCloseTab/.test(STRIP));
   check('a row that became empty is redrawn, not repainted around',
@@ -69,7 +71,8 @@ function method(src, signature) {
 {
   const byId = method(MAIN, 'private void closeTabById(int id)').replace(/\s+/g, ' ');
   check('closing the last tab shows the empty screen',
-    /tabs\.isEmpty\(\)\) \{\s*showEmpty\(\);/.test(byId), byId.slice(0, 300));
+    /tabs\.isEmpty\(\)\) \{\s*currentTab = AppUi\.TAB_CHAT;\s*showEmpty\(\);/.test(byId),
+    byId.slice(0, 300));
   check('and no tab is invented to replace it',
     !/openChatTab|ensure\(/.test(byId));
   const empty = method(TABS, 'public int neighbourAfterClosing(int closing)');
@@ -99,6 +102,52 @@ function method(src, signature) {
     /openChatTabFromEmpty\(\)/.test(method(MAIN, 'private void openNewChat()')));
   check('tapping Chat opens a tab, it never shows a tab that is not there',
     /tabs\.openChatTab\(\)/.test(method(MAIN, 'private void showChat()')));
+}
+
+// --- 3c. the cross is per tab, and a press on it is never destroyed under the finger ------
+//
+// "if i have 2 or more tabs opened then if i try to close the default then its just send to
+// home screen not actually closes". Two real causes, both here:
+//
+//  a. the strip rebuilt every chip whenever a tab's NAME changed - names change constantly
+//     while an answer streams - so a press could land on a view that was detached before the
+//     click fired;
+//  b. closing a tab let the tab layer swap to the neighbour by itself, and the activity then
+//     "showed the neighbour" even when the closed tab was in the background.
+{
+  check('the strip asks, per tab, whether it may be closed',
+    /host\.isClosable\(tabId\)/.test(STRIP) &&
+    /boolean closable = host\.isClosable\(tabId\);/.test(STRIP));
+  check('the host answers Chrome\'s rule: no cross that would leave no tab',
+    /return ids\.size\(\) > 1 && ids\.contains\(tabId\);/.test(
+      method(MAIN, 'public boolean isClosable(int tabId)')));
+  check('with two tabs open, the default chat tab is closable',
+    /ids\.size\(\) > 1/.test(method(MAIN, 'public boolean isClosable(int tabId)')));
+
+  const refresh = method(STRIP, 'public void refresh()');
+  check('a name change does not rebuild the row',
+    !/tabName\(id\)/.test(refresh.split('signature')[0]) &&
+    /for \(Integer id : ids\) key\.append\('\|'\)\.append\(id\);/.test(refresh),
+    refresh.slice(0, 400).replace(/\s+/g, ' '));
+  check('a renamed tab is relabelled in place instead',
+    /relabel\(ids\)/.test(refresh) && /private void relabel\(java\.util\.List<Integer> ids\)/.test(STRIP));
+  const relabel = method(STRIP, 'private void relabel(java.util.List<Integer> ids)');
+  check('relabelling adds and removes nothing',
+    !/addView|removeView|removeAllViews/.test(relabel) && /setText\(want\)/.test(relabel));
+}
+
+// --- 3d. closing a tab never brings a different tab forward ------------------------------
+{
+  const closeTab = method(TABS, 'public boolean closeTab(int id)');
+  check('the tab layer closes the page and stops there',
+    !/show\(/.test(closeTab), closeTab.replace(/\s+/g, ' ').slice(0, 300));
+  check('but it remembers which tab should follow',
+    /lastClosedNeighbour = next;/.test(closeTab));
+  const byId = method(MAIN, 'private void closeTabById(int id)').replace(/\s+/g, ' ');
+  check('the activity shows the next tab only when the closed tab was on screen',
+    /if \(wasCurrent\) \{\s*if \(next >= 0/.test(byId), byId.slice(0, 500));
+  check('and never loads anything',
+    !/loadUrl|evaluateJavascript/.test(byId));
 }
 
 // --- 4. the row is the tab layer's, not a guess -----------------------------------------

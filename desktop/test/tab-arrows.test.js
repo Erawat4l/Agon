@@ -136,7 +136,7 @@ function method(src, signature) {
     !/loadUrl/.test(close) && /tabs\.closeTab\(id\)/.test(close));
   // Chrome's rule, and the user's own words: with one tab open there is no cross at all.
   check('a strip with one tab draws no cross',
-    /boolean closable = ids\.size\(\) > 1;/.test(
+    /boolean closable = host\.isClosable\(tabId\);/.test(
       fs.readFileSync(path.join(NAV, 'TabStrip.java'), 'utf8')));
 }
 

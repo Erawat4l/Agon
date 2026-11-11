@@ -539,6 +539,15 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             }
 
             @Override
+            public boolean isClosable(int tabId) {
+                // Chrome's rule, per tab: a cross only where closing it would leave at least
+                // one tab. With two tabs open both are closable - including the default chat
+                // tab, which is the case that reported "it just goes to the home page".
+                java.util.List<Integer> ids = openTabs();
+                return ids.size() > 1 && ids.contains(tabId);
+            }
+
+            @Override
             public void onCloseTab(int tabId) {
                 closeTabById(tabId);
             }
@@ -725,43 +734,45 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
      */
     private void closeTabById(int id) {
         if (tabs == null) return;
+        if (tabs.isEmpty()) return;
+        // Both questions are asked BEFORE the tab goes: afterwards there is no neighbour to
+        // name and no way to tell whether the closed tab was the one on screen.
         boolean wasCurrent = pageId() == id;
         if (!tabs.closeTab(id)) return;
+        int next = tabs.lastClosedNeighbour();
+
         if (menuSheet != null) {
             // The More sheet lists the windows by name; one of them just went away.
             AppUi.slideDownAndRemove(menuSheet, window);
             menuSheet = null;
         }
-        currentTab = AppUi.TAB_CHAT;
-        if (tabs.isEmpty()) {
-            showEmpty();
-        } else if (wasCurrent) {
-            showFrontTab();
-        } else {
-            hideEmpty();
-            refreshStrip();
-            refreshUi();
-        }
-    }
 
-    /**
-     * Puts whatever tab is on top of the stack on screen after a close.
-     *
-     * The tab layer already moved to the neighbour; this only tells the rest of the app
-     * (nav highlight, insets, strip) what happened. Nothing is loaded: the neighbour is a
-     * warm tab, which is the whole point of keeping them alive.
-     */
-    private void showFrontTab() {
-        hideEmpty();
-        int front = tabs == null ? -1 : tabs.tabOf(tabs.current());
-        if (front < 0 && tabs != null && !tabs.isEmpty()) front = tabs.tabs().get(0);
-        if (front < 0 || tabs == null) {
+        if (tabs.isEmpty()) {
+            currentTab = AppUi.TAB_CHAT;
             showEmpty();
             return;
         }
-        tabs.show(front);
-        applyChromeInsets();
-        AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
+
+        // A tab was closed; the app decides what is on screen now, in one place.
+        //
+        // The tab layer used to swap to the neighbour by itself, inside closeTab(), and this
+        // method then asked it which tab was in front - which was the neighbour, so the code
+        // "show the neighbour" branch ran even when the closed tab was in the background.
+        // Bringing a background tab to the front is the "home page" the user saw: the wrong
+        // page came forward while the tab they aimed at was simply gone.
+        if (wasCurrent) {
+            if (next >= 0 && tabs.get(next) != null) {
+                tabs.show(next);
+            } else {
+                tabs.show(tabs.tabs().get(0));
+            }
+            currentTab = AppUi.TAB_CHAT;
+            hideEmpty();
+            applyChromeInsets();
+            AppUi.styleNav(this, nav, AppUi.TAB_CHAT, updateDotWanted(), navExpanded, true);
+        }
+        // Whether or not it was in front, the strip redraws and the nav follows the page that
+        // is now in front. Nothing is loaded: every remaining tab is warm.
         refreshStrip();
         refreshUi();
     }
@@ -1068,11 +1079,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         showTab(tab);
     }
 
-    /** The WebView of the tab on screen, or null when no tab is open. Used by Pip. */
-    WebView pipPage() {
-        return tabs == null ? null : tabs.current();
-    }
-
     /**
      * Hides the app's own rows while a floating video is up.
      *
@@ -1094,18 +1100,20 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     }
 
     /**
-     * The user is leaving: if a video is playing, it keeps playing in a floating window.
+     * The user is leaving: the app goes into its floating window.
      *
-     * onUserLeaveHint is the Home button and the Recents gesture - the same moment Chrome
-     * decides. `isChangingConfigurations()` is what keeps a rotation, which also calls this,
-     * from opening a floating window.
+     * onUserLeaveHint is the Home button and the Recents gesture. `isChangingConfigurations()`
+     * is what keeps a rotation, which also calls this, from opening a floating window.
+     *
+     * On Android 12+ Android enters by itself (Pip.sync sets autoEnterEnabled), so this is
+     * the path for older phones - the same moment, without the animated transition.
      */
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
         if (pip == null || isChangingConfigurations()) return;
-        if (!Settings.pipVideo(this)) return;
-        pip.enterIfPlaying(pipPage());
+        if (!Settings.pipApp(this)) return;
+        pip.enter();
     }
 
     /** Android's own report of entering and leaving the floating window. */
@@ -1113,7 +1121,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     public void onPictureInPictureModeChanged(boolean inPip, Configuration config) {
         super.onPictureInPictureModeChanged(inPip, config);
         if (pip == null) return;
-        pip.onPipChanged(inPip, pipPage());
+        // The app's own rows come out of the window and go back in; the page is untouched,
+        // because the window is the app, not a video lifted out of it.
         pipChromeVisible(!inPip);
     }
 
@@ -2061,11 +2070,12 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             case Settings.K_SHOW_VERSION:
                 rebuildNavArea();
                 break;
-            case Settings.K_PIP_VIDEO:
-                // Nothing to apply: the switch is read at the moment the user leaves. Turning
-                // it off while a floating window is already up is left alone - the video is
-                // playing and dropping it there would be a worse surprise than a switch that
-                // takes effect next time.
+            case Settings.K_PIP_APP:
+                // Re-applies the parameters, which is what turns enter-on-home on and off
+                // for the next time the user leaves. An app already in the window is left
+                // there: dropping it out from under the user is a worse surprise than a
+                // switch that takes effect next time.
+                if (pip != null) pip.sync();
                 break;
             default:
                 break;
@@ -2557,6 +2567,10 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
     @Override
     protected void onResume() {
         super.onResume();
+        // Android reads the PiP parameters at the moment the user leaves, so they are kept
+        // current here rather than only at startup: a switch flipped in Settings, or a
+        // screen rotated, must be what happens on the way home.
+        if (pip != null) pip.sync();
         UpdateCenter.maybeAutoCheck(this, this::onCheckFinished);
         refreshUpdateUi();
         // The page may have navigated while the app was in the background (a sign-in
@@ -2579,6 +2593,8 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
         // The system theme can switch under the app (day/night) and the strip builds its
         // chip colours from resources, so it has to be repainted, not just re-measured.
         if (tabStrip != null) tabStrip.onThemeChanged();
+        // The floating window's shape is the app's own, and the app just changed shape.
+        if (pip != null) pip.sync();
     }
 
     @Override
@@ -2595,7 +2611,6 @@ public class MainActivity extends Activity implements UpdateSheet.Host {
             connectivity = null;
         }
         closeWebWindow();
-        if (pip != null) pip.release();
         if (tabs != null) tabs.destroyAll();
         super.onDestroy();
     }

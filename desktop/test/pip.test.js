@@ -1,19 +1,15 @@
-// Picture-in-picture: a playing video keeps playing in a floating window when the app is
-// left, and only then.
+// Picture-in-picture for the WHOLE APP: leaving the app at the home screen leaves it running
+// in a small floating window.
 //
-// "i want a pip option like YouTube - if playing a vid and pressed [home] button or gone
-// directly to home screen then a window come or the video playing, so I want that in this
-// app (can be toggle from settings too)".
-//
-// The scripts that decide it (is a video playing? shape the page for the window? nudge the
-// video from the floating window's buttons?) are the whole risk here, so they are extracted
-// from the Java literal and run in jsdom against real <video> elements.
+// "Pip mode meant like for the whole app not videos. Remove video thing." The first version
+// only entered when a <video> was playing, and shaped the page around that video. Both are
+// gone: any page can be the floating window, and nothing in the app looks for a video,
+// touches its styles, or offers video buttons.
 //
 // Run: node test/pip.test.js
 
 const fs = require('fs');
 const path = require('path');
-const { JSDOM } = require('jsdom');
 
 const NAV = path.join(__dirname, '..', '..', 'app', 'src', 'main', 'java', 'ai', 'arena',
   'webapp');
@@ -26,6 +22,8 @@ const MANIFEST = fs.readFileSync(path.join(__dirname, '..', '..', 'app', 'src', 
   'AndroidManifest.xml'), 'utf8');
 const STRINGS = fs.readFileSync(path.join(__dirname, '..', '..', 'app', 'src', 'main',
   'res', 'values', 'strings.xml'), 'utf8');
+const DRAWABLE_DIR = path.join(__dirname, '..', '..', 'app', 'src', 'main', 'res',
+  'drawable');
 
 let bad = 0;
 function check(name, ok, detail) {
@@ -48,191 +46,92 @@ function method(src, signature) {
   return src.slice(i);
 }
 
-/**
- * One Java string literal, unescaped - the JS a branch of a method really builds.
- *
- * `which` picks the branch: a method that returns two different scripts must not have them
- * glued together, which is a mistake this file made once and the restore test caught.
- */
-function literal(fnSignature, which) {
-  const body = method(PIP, fnSignature);
-  // A branch starts at its `return`/`body =`, and its literals are every quoted string
-  // from there to the next `;`.
-  if (which === undefined) {
-    const all = body.match(/"(?:[^"\\]|\\.)*"/g) || [];
-    return all.map((l) => JSON.parse(l)).join('');
-  }
-  const starts = [];
-  const re = /(?:\breturn|\bbody\s*=)\s*"/g;
-  let m;
-  while ((m = re.exec(body))) starts.push(m.index + m[0].lastIndexOf('"'));
-  // From that literal on, take the literals that are concatenated to it: a statement ends
-  // where the next thing after a literal is no longer a "+".
-  const all = [];
-  const lit = /"(?:[^"\\]|\\.)*"/g;
-  lit.lastIndex = starts[which];
-  let first = lit.exec(body);
-  if (!first) return '';
-  all.push(first[0]);
-  let end = first.index + first[0].length;
-  for (;;) {
-    const gap = body.slice(end).match(/^\s*\+\s*/);
-    if (!gap) break;
-    lit.lastIndex = end + gap[0].length;
-    const next = lit.exec(body);
-    if (!next || next.index !== end + gap[0].length) break;
-    all.push(next[0]);
-    end = next.index + next[0].length;
-  }
-  return all.map((l) => JSON.parse(l)).join('');
+// --- 1. there is no video feature left ----------------------------------------------------
+{
+  const videoWords = /<video|videoPlaying|videoAction|currentTime|\.pause\(\)|play\(\)|RemoteAction|pip_rewind|pip_forward|pip_play_pause/;
+  check('the floating window has nothing to do with video',
+    !videoWords.test(PIP), (PIP.match(videoWords) || [])[0]);
+  check('and nothing else in the app still asks a page about a video',
+    !/videoPlayingJs|pipCssJs|pipPage\(/.test(MAIN));
+  check('the video buttons and their strings are gone',
+    !/<string name="pip_/.test(STRINGS) &&
+    !fs.readdirSync(DRAWABLE_DIR).some((f) => /^ic_pip_/.test(f)),
+    fs.readdirSync(DRAWABLE_DIR).filter((f) => /^ic_pip_/.test(f)).join(' '));
+  check('the switch says what it now does, in plain words',
+    /Keep the app in a floating window/.test(STRINGS) && !/playing video/i.test(STRINGS),
+    (STRINGS.match(/settings_pip"[^>]*>([^<]*)/) || [])[1]);
 }
 
-/** A method that builds its script from many literals (a concatenation). */
-function script(fnSignature) {
-  return literal(fnSignature);
-}
-
-// --- 1. it is only offered where it can work, and it can be switched off ----------------
+// --- 2. it is offered where it works, and can be switched off -----------------------------
 {
   check('the manifest allows picture-in-picture',
     /android:supportsPictureInPicture="true"/.test(MANIFEST));
-  check('the switch exists and is on by default',
-    /K_PIP_VIDEO = "pip_video"/.test(SETTINGS) && /K_PIP_VIDEO, true\)/.test(SETTINGS));
-  check('the switch is in Settings, not behind the developer unlock',
-    /Settings\.K_PIP_VIDEO/.test(method(SHEET, 'private void buildRows()')) ||
-    /Settings\.K_PIP_VIDEO/.test(method(SHEET, 'private void buildRows(){')));
-  check('it is hidden on phones that cannot do it',
-    /if \(Pip\.available\(activity\)\)/.test(SHEET));
-  check('and says what it does in plain words',
-    /name="settings_pip"/.test(STRINGS) && /name="settings_pip_sub"/.test(STRINGS));
+  check('the switch exists, is on by default and is a user setting',
+    /K_PIP_APP = "pip_video"/.test(SETTINGS) && /K_PIP_APP, true\)/.test(SETTINGS) &&
+    /Settings\.K_PIP_APP/.test(SHEET));
+  check('a phone that cannot do it is never shown the switch',
+    /if \(Pip\.available\(activity\)\)/.test(SHEET) && /FEATURE_PICTURE_IN_PICTURE/.test(PIP));
+  check('the key still matches the one the video version wrote, so an old "off" stays off',
+    /K_PIP_APP = "pip_video"/.test(SETTINGS));
 }
 
-// --- 2. leaving the app is the trigger, and nothing else -------------------------------
+// --- 3. leaving the app is the trigger ----------------------------------------------------
 {
   const leave = method(MAIN, 'protected void onUserLeaveHint()');
-  check('leaving asks for the floating window', /pip\.enterIfPlaying\(pipPage\(\)\)/.test(leave));
-  check('the switch is read at that moment', /Settings\.pipVideo\(this\)/.test(leave));
+  check('leaving puts the app in its floating window', /pip\.enter\(\)/.test(leave));
+  check('the switch is read at that moment', /Settings\.pipApp\(this\)/.test(leave));
   check('a rotation is not "leaving"', /isChangingConfigurations\(\)/.test(leave));
-  const enter = method(PIP, 'public void enterIfPlaying(final WebView page)');
-  check('no video, no window: the page is asked first',
-    /videoPlayingJs\(\)/.test(enter) && /"true"\.equals\(answer\)/.test(enter));
-  check('the page is shaped only after the answer is yes',
-    enter.indexOf('shape(page)') > enter.indexOf('"true".equals(answer)'));
+
+  const enter = method(PIP, 'public void enter()');
+  check('an off switch means no window', /!Settings\.pipApp\(activity\)\) return;/.test(enter));
+  check('Android 12+ is left to enter by itself, so the animation is real',
+    /MIN_FOR_AUTO\) return;/.test(enter));
+  check('a phone that refuses it does not take the app down',
+    /catch \(RuntimeException ignored\)/.test(enter));
+
+  const sync = method(PIP, 'public void sync()');
+  check('enter-on-home is set only where the version has it',
+    /MIN_FOR_AUTO[\s\S]{0,120}setAutoEnterEnabled\(Settings\.pipApp\(activity\)\)/.test(sync));
+  check('the parameters are kept current on every return to the app',
+    /pip\.sync\(\)/.test(method(MAIN, 'protected void onResume()')));
+  const apply = method(MAIN, 'private void applySetting(String key, boolean value)');
+  check('and when the switch is flipped',
+    /case Settings\.K_PIP_APP:[\s\S]{0,400}?pip\.sync\(\)/.test(apply),
+    (apply.match(/case Settings\.K_PIP_APP:[\s\S]{0,160}/) || [''])[0]);
+  check('and after a rotation, because the window is the app\'s own shape',
+    /pip\.sync\(\)/.test(method(MAIN,
+      'public void onConfigurationChanged(Configuration newConfig)')));
 }
 
-// --- 3. the app\'s own rows stay out of the floating window ------------------------------
+// --- 4. what the floating window shows ----------------------------------------------------
 {
-  const changed = method(MAIN, 'public void onPictureInPictureModeChanged(boolean inPip, Configuration config)');
-  check('the strip and nav are hidden while the window is up',
+  const changed = method(MAIN,
+    'public void onPictureInPictureModeChanged(boolean inPip, Configuration config)');
+  check('the app\'s own rows are hidden in the window and come back on return',
     /pipChromeVisible\(!inPip\)/.test(changed));
   const chrome = method(MAIN, 'private void pipChromeVisible(boolean visible)');
   check('and come back only if their own switches say so',
     /Settings\.showTabStrip\(this\)/.test(chrome) && /Settings\.showNav\(this\)/.test(chrome));
-  check('the page is put back exactly as it was on the way out',
-    /pip\.onPipChanged\(inPip, pipPage\(\)\)/.test(changed) &&
-    /pipCssJs\(false\)/.test(method(PIP, 'private void restore(WebView page)')));
+  check('the page is not reshaped: the window is the whole app',
+    !/evaluateJavascript/.test(changed) && !/evaluateJavascript/.test(PIP));
 }
 
-// --- 4. the scripts are real JavaScript, and they work ------------------------------------
-const PLAYING = script('static String videoPlayingJs()');
-check('the "is a video playing?" script parses', (() => {
-  try { new Function(PLAYING); return true; } catch (e) { return false; }
-})(), PLAYING.slice(0, 120));
-
+// --- 5. the window is the app's own shape, within Android's limits ------------------------
 {
-  // A playing video: the answer is yes.
-  const dom = new JSDOM('<!doctype html><body><video id=v></video></body>',
-    { runScripts: 'outside-only' });
-  const w = dom.window;
-  const v = w.document.getElementById('v');
-  let paused = false;
-  Object.defineProperty(v, 'paused', { get: () => paused });
-  Object.defineProperty(v, 'ended', { value: false });
-  Object.defineProperty(v, 'readyState', { value: 3 });
-  v.getBoundingClientRect = () => ({ width: 640, height: 360, left: 0, top: 0 });
-  check('a playing video is seen', w.eval(PLAYING) === true);
-
-  paused = true;
-  check('a paused video is not', w.eval(PLAYING) === false);
-
-  paused = false;
-  v.getBoundingClientRect = () => ({ width: 40, height: 20, left: 0, top: 0 });
-  check('a thumbnail-sized video is not "what the user is watching"',
-    w.eval(PLAYING) === false);
+  const shape = method(PIP, 'private Rational shape()');
+  check('the shape comes from the window itself', /getDecorView\(\)\.getWidth\(\)/.test(shape));
+  check('it is clamped to the ratios Android accepts',
+    /MIN_RATIO/.test(shape) && /MAX_RATIO/.test(shape) &&
+    /1d \/ 2\.39d/.test(PIP) && /2\.39d/.test(PIP));
+  check('an unmeasured window does not divide by zero',
+    /if \(w <= 0 \|\| h <= 0\) return new Rational\(9, 16\)/.test(shape));
 }
 
+// The switch's key is the one an earlier build wrote, so nobody who turned the video version
+// off gets a floating app they had said no to.
 {
-  // Shaping, then putting it back: the video fills the viewport and the page returns to the
-  // exact styles it had, which is what makes returning to the app invisible.
-  const dom = new JSDOM('<!doctype html><body><div id=wrap style="padding:20px">'
-    + '<video id=v style="width:70%;border-radius:8px"></video></div></body>',
-  { runScripts: 'outside-only' });
-  const w = dom.window;
-  const v = w.document.getElementById('v');
-  Object.defineProperty(v, 'paused', { get: () => false });
-  Object.defineProperty(v, 'ended', { value: false });
-  Object.defineProperty(v, 'readyState', { value: 3 });
-  v.getBoundingClientRect = () => ({ width: 640, height: 360, left: 0, top: 0 });
-
-  // Branch 0 is "put it back", branch 1 is "shape it": both are read from the source, so a
-  // change to either is a change to what this test runs.
-  const OFF = literal('static String pipCssJs(boolean on)', 0);
-  const ON = literal('static String pipCssJs(boolean on)', 1);
-  check('the shaping script parses', (() => {
-    try { new Function(ON); new Function(OFF); return true; } catch (e) { return false; }
-  })(), ON.slice(0, 120));
-  const before = v.getAttribute('style');
-  w.eval(ON);
-  check('the video fills the window', /position:\s*fixed/.test(v.getAttribute('style')));
-  check('the page behind it is hidden, not removed', w.document.body.style.visibility === 'hidden');
-  w.eval(OFF);
-  check('and the page comes back exactly as it was', v.getAttribute('style') === before,
-    v.getAttribute('style'));
-  check('the wrapper too', w.document.getElementById('wrap').getAttribute('style')
-    === 'padding:20px');
-}
-
-{
-  // The floating window's buttons drive the page's own video element.
-  const dom = new JSDOM('<!doctype html><body><video id=v></video></body>',
-    { runScripts: 'outside-only' });
-  const w = dom.window;
-  const v = w.document.getElementById('v');
-  let played = 0, paused = 0, wasPaused = true;
-  Object.defineProperty(v, 'paused', { get: () => wasPaused });
-  Object.defineProperty(v, 'duration', { value: 600 });
-  v.currentTime = 100;
-  v.play = () => { played++; wasPaused = false; return Promise.resolve(); };
-  v.pause = () => { paused++; wasPaused = true; };
-
-  const REWIND = script('static String videoActionJs(String action)'); // both branches below
-  const forward = (PIP.match(/ACTION_FORWARD\.equals\(action\)\) \{\s*body = "([^"]*)"/) || [])[1];
-  const back = (PIP.match(/ACTION_REWIND\.equals\(action\)\) \{\s*body = "([^"]*)"/) || [])[1];
-  const toggle = (PIP.match(/body = "(if\(v\.paused\)[^"]*)"/) || [])[1];
-  check('the three button actions exist', !!forward && !!back && !!toggle,
-    `${!!forward} ${!!back} ${!!toggle}`);
-  const run = (body) => w.eval('(function(){try{var a=document.querySelectorAll("video"),i,v=null;'
-    + 'for(i=0;i<a.length;i++){v=a[i];break;}if(!v)return;' + body + '}catch(e){}})();');
-  run(back);
-  check('ten seconds back', v.currentTime === 90, String(v.currentTime));
-  run(forward);
-  check('ten seconds forward', v.currentTime === 100, String(v.currentTime));
-  run(toggle);
-  check('the play button plays a paused video', played === 1 && wasPaused === false);
-  run(toggle);
-  check('and pauses a playing one', paused === 1);
-  check('the action script is valid JavaScript', (() => {
-    try { new Function('action', REWIND); return true; } catch (e) { return false; }
-  })());
-}
-
-// --- 5. old phones are told the truth -----------------------------------------------------
-{
-  check('Android 8 is the floor, and it is named', /MIN_FOR_PIP = Build\.VERSION_CODES\.O/.test(PIP));
-  check('the phone must advertise the feature, not just the version',
-    /FEATURE_PICTURE_IN_PICTURE/.test(PIP));
-  check('and a phone that refuses PiP does not take the app down',
-    /catch \(RuntimeException ignored\)[\s\S]{0,200}(video simply stops|must not take)/.test(PIP));
+  check('the old key and the new one are the same string',
+    (SETTINGS.match(/K_PIP_APP = "([^"]+)"/) || [])[1] === 'pip_video');
 }
 
 console.log(`\n${bad === 0 ? 'all pip tests passed' : bad + ' FAILED'}`);
